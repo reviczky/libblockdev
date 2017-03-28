@@ -1,0 +1,884 @@
+Name:        libblockdev
+Version:     1.4
+Release:     1%{?dist}
+Summary:     A library for low-level manipulation with block devices
+License:     LGPLv2+
+URL:         https://github.com/rhinstaller/libblockdev
+Source0:     https://github.com/rhinstaller/libblockdev/archive/%{name}-%{version}.tar.gz
+
+BuildRequires: glib2-devel
+BuildRequires: gobject-introspection-devel
+BuildRequires: cryptsetup-devel
+BuildRequires: device-mapper-devel
+BuildRequires: systemd-devel
+BuildRequires: dmraid-devel
+BuildRequires: volume_key-devel >= 0.3.9-7
+BuildRequires: nss-devel
+BuildRequires: python-devel
+BuildRequires: python3-devel
+BuildRequires: gtk-doc
+BuildRequires: glib2-doc
+BuildRequires: kmod-devel
+
+# Needed for the escrow tests in tests/crypto_test.py, but not used to build
+# BuildRequires: volume_key
+# BuildRequires: nss-tools
+
+# Needed for python 2 vs. 3 compatibility in the tests, but not used to build
+# BuildRequires: python-six
+# BuildRequires: python3-six
+
+%ifarch s390 s390x
+BuildRequires: s390utils-devel
+%endif
+
+%description
+The libblockdev is a C library with GObject introspection support that can be
+used for doing low-level operations with block devices like setting up LVM,
+BTRFS, LUKS or MD RAID. The library uses plugins (LVM, BTRFS,...) and serves as
+a thin wrapper around its plugins' functionality. All the plugins, however, can
+be used as standalone libraries. One of the core principles of libblockdev is
+that it is stateless from the storage configuration's perspective (e.g. it has
+no information about VGs when creating an LV).
+
+%package devel
+Summary:     Development files for libblockdev
+Requires: %{name}%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+
+%description devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev library.
+
+%package -n python2-blockdev
+Summary:     Python2 gobject-introspection bindings for libblockdev
+Requires: %{name}%{?_isa} = %{version}-%{release}
+Requires: pygobject3-base
+%{?python_provide:%python_provide python2-blockdev}
+
+%description -n python2-blockdev
+This package contains enhancements to the gobject-introspection bindings for
+libblockdev in Python2.
+
+%package -n python3-blockdev
+Summary:     Python3 gobject-introspection bindings for libblockdev
+Requires: %{name}%{?_isa} = %{version}-%{release}
+Requires: python3-gobject
+%{?python_provide:%python_provide python3-blockdev}
+
+%description -n python3-blockdev
+This package contains enhancements to the gobject-introspection bindings for
+libblockdev in Python3.
+
+%package utils
+Summary:     A library with utility functions for the libblockdev library
+
+%description utils
+The libblockdev-utils is a library providing utility functions used by the
+libblockdev library and its plugins.
+
+%package utils-devel
+Summary:     Development files for libblockdev-utils
+Requires: %{name}-utils%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+
+%description utils-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-utils library.
+
+
+%package btrfs
+Summary:     The BTRFS plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: btrfs-progs
+
+%description btrfs
+The libblockdev library plugin (and in the same time a standalone library)
+providing the BTRFS-related functionality.
+
+%package btrfs-devel
+Summary:     Development files for the libblockdev-btrfs plugin/library
+Requires: %{name}-btrfs%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+Requires: %{name}-utils-devel%{?_isa}
+
+%description btrfs-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-btrfs plugin/library.
+
+
+%package crypto
+Summary:     The crypto plugin for the libblockdev library
+
+%description crypto
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to encrypted devices (LUKS).
+
+%package crypto-devel
+Summary:     Development files for the libblockdev-crypto plugin/library
+Requires: %{name}-crypto%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+
+%description crypto-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-crypto plugin/library.
+
+
+%package dm
+Summary:     The Device Mapper plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: device-mapper
+Requires: dmraid
+
+%description dm
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to Device Mapper.
+
+%package dm-devel
+Summary:     Development files for the libblockdev-dm plugin/library
+Requires: %{name}-dm%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+Requires: device-mapper-devel
+Requires: systemd-devel
+Requires: dmraid-devel
+Requires: %{name}-utils-devel%{?_isa}
+
+%description dm-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-dm plugin/library.
+
+
+%package kbd
+Summary:     The KBD plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: bcache-tools >= 1.0.8
+
+%description kbd
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to kernel block devices (namely zRAM and
+Bcache).
+
+%package kbd-devel
+Summary:     Development files for the libblockdev-kbd plugin/library
+Requires: %{name}-kbd%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description kbd-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-kbd plugin/library.
+
+
+%package loop
+Summary:     The loop plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: util-linux
+
+%description loop
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to loop devices.
+
+%package loop-devel
+Summary:     Development files for the libblockdev-loop plugin/library
+Requires: %{name}-loop%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description loop-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-loop plugin/library.
+
+
+%package lvm
+Summary:     The LVM plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: lvm2
+
+%description lvm
+The libblockdev library plugin (and in the same time a standalone library)
+providing the LVM-related functionality.
+
+%package lvm-devel
+Summary:     Development files for the libblockdev-lvm plugin/library
+Requires: %{name}-lvm%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description lvm-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-lvm plugin/library.
+
+%package lvm-dbus
+Summary:     The LVM plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 1.4
+Requires: lvm2-dbusd >= 2.02.143
+
+%description lvm-dbus
+The libblockdev library plugin (and in the same time a standalone library)
+providing the LVM-related functionality utilizing the LVM DBus API.
+
+%package lvm-dbus-devel
+Summary:     Development files for the libblockdev-lvm-dbus plugin/library
+Requires: %{name}-lvm-dbus%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa} >= 1.4
+Requires: glib2-devel
+
+%description lvm-dbus-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-lvm-dbus plugin/library.
+
+
+%package mdraid
+Summary:     The MD RAID plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: mdadm
+
+%description mdraid
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to MD RAID.
+
+%package mdraid-devel
+Summary:     Development files for the libblockdev-mdraid plugin/library
+Requires: %{name}-mdraid%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description mdraid-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-mdraid plugin/library.
+
+
+%package mpath
+Summary:     The multipath plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: device-mapper-multipath
+
+%description mpath
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to multipath devices.
+
+%package mpath-devel
+Summary:     Development files for the libblockdev-mpath plugin/library
+Requires: %{name}-mpath%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description mpath-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-mpath plugin/library.
+
+
+%package swap
+Summary:     The swap plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} >= 0.11
+Requires: util-linux
+
+%description swap
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to swap devices.
+
+%package swap-devel
+Summary:     Development files for the libblockdev-swap plugin/library
+Requires: %{name}-swap%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+
+%description swap-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-swap plugin/library.
+
+%package s390
+Summary:    The s390 plugin for the libblockdev library
+Requires: s390utils
+
+%description s390
+The libblockdev library plugin (and in the same time a standalone library)
+providing the functionality related to s390 devices.
+
+%package s390-devel
+Summary:     Development files for the libblockdev-s390 plugin/library
+Requires: %{name}-s390%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa}
+Requires: glib2-devel
+Requires: s390utils-devel
+
+%description s390-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-s390 plugin/library.
+
+
+%package plugins-all
+Summary:     Meta-package that pulls all the libblockdev plugins as dependencies
+Requires: %{name}%{?_isa} = %{version}-%{release}
+Requires: %{name}-btrfs%{?_isa} = %{version}-%{release}
+Requires: %{name}-crypto%{?_isa} = %{version}-%{release}
+Requires: %{name}-dm%{?_isa} = %{version}-%{release}
+Requires: %{name}-kbd%{?_isa} = %{version}-%{release}
+Requires: %{name}-loop%{?_isa} = %{version}-%{release}
+Requires: %{name}-lvm%{?_isa} = %{version}-%{release}
+Requires: %{name}-mdraid%{?_isa} = %{version}-%{release}
+Requires: %{name}-mpath%{?_isa} = %{version}-%{release}
+Requires: %{name}-swap%{?_isa} = %{version}-%{release}
+%ifarch s390 s390x
+Requires: %{name}-s390%{?_isa} = %{version}-%{release}
+%endif
+
+%description plugins-all
+A meta-package that pulls all the libblockdev plugins as dependencies.
+
+
+%prep
+%setup -q -n %{name}-%{version}
+
+%build
+%configure
+%{__make} %{?_smp_mflags}
+
+%install
+%{make_install}
+find %{buildroot} -type f -name "*.la" | xargs %{__rm}
+
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
+%post utils -p /sbin/ldconfig
+%postun utils -p /sbin/ldconfig
+%post btrfs -p /sbin/ldconfig
+%postun btrfs -p /sbin/ldconfig
+%post crypto -p /sbin/ldconfig
+%postun crypto -p /sbin/ldconfig
+%post dm -p /sbin/ldconfig
+%postun dm -p /sbin/ldconfig
+%post loop -p /sbin/ldconfig
+%postun loop -p /sbin/ldconfig
+%post lvm -p /sbin/ldconfig
+%postun lvm -p /sbin/ldconfig
+%post lvm-dbus -p /sbin/ldconfig
+%postun lvm-dbus -p /sbin/ldconfig
+%post mdraid -p /sbin/ldconfig
+%postun mdraid -p /sbin/ldconfig
+%post mpath -p /sbin/ldconfig
+%postun mpath -p /sbin/ldconfig
+%post swap -p /sbin/ldconfig
+%postun swap -p /sbin/ldconfig
+%post s390 -p /sbin/ldconfig
+%postun s390 -p /sbin/ldconfig
+%post kbd -p /sbin/ldconfig
+%postun kbd -p /sbin/ldconfig
+
+
+%files
+%{!?_licensedir:%global license %%doc}
+%license LICENSE
+%{_libdir}/libblockdev.so.*
+%{_libdir}/girepository*/BlockDev*.typelib
+%config %{_sysconfdir}/libblockdev/conf.d/00-default.cfg
+
+%files devel
+%doc features.rst specs.rst
+%{_libdir}/libblockdev.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/blockdev.h
+%{_includedir}/blockdev/plugins.h
+%{_libdir}/pkgconfig/blockdev.pc
+%{_datadir}/gtk-doc/html/libblockdev
+%{_datadir}/gir*/BlockDev*.gir
+
+%files -n python2-blockdev
+%{python2_sitearch}/gi/overrides/*
+
+%files -n python3-blockdev
+%{python3_sitearch}/gi/overrides/BlockDev*
+%{python3_sitearch}/gi/overrides/__pycache__/BlockDev*
+
+%files utils
+%{_libdir}/libbd_utils.so.*
+
+%files utils-devel
+%{_libdir}/libbd_utils.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/utils.h
+%{_includedir}/blockdev/sizes.h
+%{_includedir}/blockdev/exec.h
+
+
+%files btrfs
+%{_libdir}/libbd_btrfs.so.*
+
+%files btrfs-devel
+%{_libdir}/libbd_btrfs.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/btrfs.h
+
+
+%files crypto
+%{_libdir}/libbd_crypto.so.*
+
+%files crypto-devel
+%{_libdir}/libbd_crypto.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/crypto.h
+
+
+%files dm
+%{_libdir}/libbd_dm.so.*
+
+%files dm-devel
+%{_libdir}/libbd_dm.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/dm.h
+
+
+%files kbd
+%{_libdir}/libbd_kbd.so.*
+
+%files kbd-devel
+%{_libdir}/libbd_kbd.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/kbd.h
+
+
+%files loop
+%{_libdir}/libbd_loop.so.*
+
+%files loop-devel
+%{_libdir}/libbd_loop.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/loop.h
+
+
+%files lvm
+%{_libdir}/libbd_lvm.so.*
+
+%files lvm-devel
+%{_libdir}/libbd_lvm.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/lvm.h
+
+%files lvm-dbus
+%{_libdir}/libbd_lvm-dbus.so.*
+%config %{_sysconfdir}/libblockdev/conf.d/10-lvm-dbus.cfg
+
+%files lvm-dbus-devel
+%{_libdir}/libbd_lvm-dbus.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/lvm.h
+
+
+%files mdraid
+%{_libdir}/libbd_mdraid.so.*
+
+%files mdraid-devel
+%{_libdir}/libbd_mdraid.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/mdraid.h
+
+
+%files mpath
+%{_libdir}/libbd_mpath.so.*
+
+%files mpath-devel
+%{_libdir}/libbd_mpath.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/mpath.h
+
+
+%files swap
+%{_libdir}/libbd_swap.so.*
+
+%files swap-devel
+%{_libdir}/libbd_swap.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/swap.h
+
+%ifarch s390 s390x
+%files s390
+%{_libdir}/libbd_s390.so.*
+
+%files s390-devel
+%{_libdir}/libbd_s390.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/s390.h
+%endif
+
+%files plugins-all
+
+%changelog
+* Thu Feb 25 2016 Vratislav Podzimek <vpodzime@redhat.com> - 1.4-1
+- Merge pull request #62 from vpodzime/master-clean_up (vpodzime)
+- Use addCleanup() instead of tearDown() in tests (vpodzime)
+- Merge pull request #58 from vpodzime/master-lvm_dbus_pr (vpodzime)
+- Add the VG renaming functionality (vpodzime)
+- Packaging of the lvm-dbus plugin (vpodzime)
+- The LVM DBus plugin (vpodzime)
+- Add more generic functions for logging (vpodzime)
+- Use MAX(a, b) instead of CLAMP(b, a, b) (vpodzime)
+- Merge pull request #59 from vpodzime/master-vgrename (vpodzime)
+- Add a function for renaming VGs (vpodzime)
+- Merge pull request #57 from clumens/master (vpodzime)
+- Fix error reporting when running "make test". (clumens)
+- Merge pull request #54 from vojtechtrefny/master-pvsize (vpodzime)
+- Do not try to create a PV with 4KiB metadata space (vpodzime)
+- Add pv_info to BDLVMPVdata (vtrefny)
+- btrfs now requires at least 128MiB device(s) (vpodzime)
+- Merge pull request #52 from vpodzime/master (vpodzime)
+- Round size in thpoolcreate() to KiB (vpodzime)
+- Sync the %changelog in spec with downstream (vpodzime)
+
+* Wed Nov 25 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.3-4
+- Create the cache pool before the to-be-cached LV (vpodzime)
+
+* Thu Nov 05 2015 Robert Kuska <rkuska@redhat.com> - 1.3-3
+- Rebuilt for Python3.5 rebuild
+
+* Wed Nov 04 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.3-2
+- Fix the annotation of bd_try_init in blockdev.c (vpodzime)
+
+* Mon Oct 26 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.3-1
+- Add missing python GI requires (vpodzime)
+- Merge pull request #49 from dashea/libblockdev-python (vpodzime)
+- Merge pull request #50 from vpodzime/master-fix_striped_lv (vpodzime)
+- Merge pull request #46 from vpodzime/master-bcache_destroy (vpodzime)
+- Merge pull request #39 from vpodzime/master-lvm_physical_space (vpodzime)
+- Add a missing ldconfig that rpmlint found. (dshea)
+- Move python files to separate packages (#1256758) (dshea)
+- Fix lvcreate calls for striped LVs (vpodzime)
+- Merge pull request #48 from vojtechtrefny/master_pvfree (vpodzime)
+- Add pv_free to BDLVMPVdata (vtrefny)
+- Merge pull request #47 from atodorov/add_coverage_report (vpodzime)
+- Produce coverage report in CI (atodorov)
+- Check bcache device's state before trying to detach the cache in destroy() (vpodzime)
+- Fix URLs in the spec (vpodzime)
+- Fix the int-float less-than comparison (vpodzime)
+- Fix the calculation of physical space taken by an LV (vpodzime)
+
+* Wed Sep 23 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.2-1
+- Merge pull request #40 from vpodzime/master-config_support (vpodzime)
+- Add tests for configuration support (vpodzime)
+- Add a function for getting the loaded soname for a plugin (vpodzime)
+- Add the default configuration (vpodzime)
+- Load and respect configuration files when loading plugins (vpodzime)
+- Add functions for finding and processing configuration files (vpodzime)
+- Merge pull request #38 from vpodzime/master-md_superblock_size (vpodzime)
+- Better document how MD RAID superblock size should be calculated (vpodzime)
+- Merge pull request #36 from phatina/master (vpodzime)
+- BTRFS: allow an arbitrary label to be set for a btrfs volume (phatina)
+- Merge pull request #32 from phatina/master (vpodzime)
+- BTRFS: fix parsing empty partition label (phatina)
+- Merge pull request #35 from vpodzime/master (vpodzime)
+- Define env variables for sudo via the env utility (vpodzime)
+- Merge pull request #34 from dashea/python3-tests (vpodzime)
+- Use unittest.addCleanup to simplify crypto_test. (dshea)
+- Run tests with both python2 and python3 in the ci target. (dshea)
+- Fix python3 issues in the unittests. (dshea)
+- Do not run all tests in the 'ci' target (vpodzime)
+- Merge pull request #33 from clumens/master (vpodzime)
+- Add a new makefile target that does everything needed for jenkins. (clumens)
+- Synchronize the .spec file with downstream (vpodzime)
+
+* Fri Jul 24 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.1-2
+- Explicitly specify the type of the cert_data parameter (#1246096) (vpodzime)
+
+* Fri Jun 19 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.1-1
+- Clean generated boilerplate code on 'make clean' (vpodzime)
+- Merge pull request #31 from atodorov/use_lang_c (vpodzime)
+- tests: use LANG=C in test_backup_passphrase() (atodorov)
+- Merge pull request #30 from atodorov/makefile_updates (vpodzime)
+- Makefile.am:   - add separate check target   - add coverage targets   - make it possible to test with Python3 (atodorov)
+- Merge pull request #29 from atodorov/fix_issue_28 (vpodzime)
+- Merge pull request #27 from atodorov/fix_docs_url (vpodzime)
+- Merge pull request #26 from atodorov/test_docs (vpodzime)
+- Change the modified sources back in tearDown() method as well. Closes #28. (atodorov)
+- update URL to on-line documentation (atodorov)
+- add test documentation (atodorov)
+- Merge pull request #22 from dashea/escrow-tests (vpodzime)
+- Merge pull request #25 from dashea/python-dep (vpodzime)
+- Filter the python files from automatic rpm requires (dshea)
+- Added tests for escrow packets and backup passphrases (dshea)
+- Free leaked contexts from crypto_init (dshea)
+- Cooperate with volume_key's memory management (dshea)
+- Fix inheritance in the LVM tests to prevent multiple runs of some tests (vpodzime)
+- Make the regexp for testing crypto_generate_backup_passphrase() stricter (vpodzime)
+- Leave room in the backup passphrase for a trailing 0 (dshea)
+- Add functions to get names of data/metadata internal LVs (vpodzime)
+- Allow getting info for an internal LV (vpodzime)
+- Gather information about all LVs (vpodzime)
+- Round requested size to KBs in lvresize() (#1221247) (vpodzime)
+- Add overrides for the ensure_init() function (vpodzime)
+- Change the default value of the 'reload' parameter of try_reinit() (vpodzime)
+- Merge pull request #21 from vpodzime/master-thpool_size_discard (vpodzime)
+- Add overrides for the lvm_is_valid_thpool_chunk_size() function (vpodzime)
+
+* Wed Jun 17 2015 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1.0-2
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_23_Mass_Rebuild
+
+* Thu May 21 2015 Vratislav Podzimek <vpodzime@redhat.com> - 1.0-1
+- Adapt the release helper targets to autotools (vpodzime)
+- Fixes of paths in Makefile.am's inspired by build failures on s390 (vpodzime)
+- Add an s390-specific BuildRequires (vpodzime)
+- Distribute also the boilerplate_generator.py script (vpodzime)
+- Fix path to the generated blockdev.pc file (vpodzime)
+- Adapt tests that compile stuff to autotools (vpodzime)
+- Merge pull request #18 from vpodzime/master-autotools (vpodzime)
+- Merge pull request #20 from dashea/gtkdoc-sections (vpodzime)
+- Use the autotools building system instead of scons (vpodzime)
+- Add the two new functions to the 'blockdev' docs section (vpodzime)
+- Fix the line defining the docs file for the s390 section (vpodzime)
+- Add a missing #include to the kbd.api file (vpodzime)
+- Prevent s390-specific stuff from being used on other architectures (vpodzime)
+- Update the documentation of the is_initialized() function (vpodzime)
+- Merge pull request #19 from vpodzime/master-ensure_init (vpodzime)
+- Remove private macros from the gtkdoc sections file. (dshea)
+- Terminate ifdef statements for arch check. (sbueno+anaconda)
+- Return early from the init functions if setting up logging fails (vpodzime)
+- Add tests for the new and modified init functions (vpodzime)
+- Add new try_init() and try_reinit() functions (vpodzime)
+- Fix for adding number of loaded plugins (vpodzime)
+- Fix for ensure_init() (vpodzime)
+- Rename the try_init() function to ensure_init() and improve it (vpodzime)
+- Check number of loaded plugins and library initialization state (vpodzime)
+- Make 'reload' default to True instead of False in overrides (vpodzime)
+- Add the s390 plugin test file. (sbueno+anaconda)
+- Add the s390 plugin functions. (sbueno+anaconda)
+- Add the s390 plugin. (sbueno+anaconda)
+- Fix a typo in the spec file. (sbueno+anaconda)
+- Require the kmod-devel package for the build process (vpodzime)
+- Merge pull request #16 from dashea/escrow-encoding (vpodzime)
+- Merge pull request #13 from vpodzime/master-lvm_cache (vpodzime)
+- Merge pull request #12 from vpodzime/master-kbd_plugin (vpodzime)
+- Merge pull request #14 from vpodzime/master-better_is_multipath (vpodzime)
+- Use g_strdup() instead of g_strdup_printf() to just dup a string (vpodzime)
+- Fix the spelling of "escrow" (dshea)
+- Make the crypto plugin string parameters const (dshea)
+- Set encoding to NULL before writing the escrow packet. (dshea)
+- Get cache stats directly from the device mapper (vpodzime)
+- Reimplement the is_mpath_member() function using device mapper (vpodzime)
+- Add the LVM cache related symbols to the LVM section in the documentation (vpodzime)
+- Update the list of LVM cache related functions in features.rst (vpodzime)
+- Add tests for functions related to the LVM cache technology (vpodzime)
+- Implement the lvm_cache_stats() function (vpodzime)
+- Implement the lvm_cache_pool_name function (vpodzime)
+- Implement the lvm_cache_create_cached_lv() function (vpodzime)
+- Implement lvm_cache_attach/detach() functions (vpodzime)
+- Implement the lvm_cache_create_pool() function plus two support functions (vpodzime)
+- Implement the lvm_cache_get_default_md_size() function (vpodzime)
+- Add the 'type' parameter to the lvm_lvcreate function (vpodzime)
+- Teach boilerplate_generator to work with enum return types (vpodzime)
+- Teach boilerplate_generator to work with 'const' return types (vpodzime)
+- Add subpackages for the KBD plugin and its devel files (vpodzime)
+- Add provided symbols to the documentation section of the KBD plugin (vpodzime)
+- Implement the bcache_get_backing/cache_device functions (vpodzime)
+- Exclude bcache tests from the normal 'test' target (vpodzime)
+- Add some more and prolong some of the waits in KBD tests (vpodzime)
+- Zero all newly allocated structures (vpodzime)
+- Implement the bcache_status function and all it wants (vpodzime)
+- Fix for the zram stats (vpodzime)
+- Add bcache_get_mode and bcache_set_mode functions (vpodzime)
+- Teach boilerplate_generator to work with enum return types (vpodzime)
+- Teach boilerplate_generator to work with 'const' return types (vpodzime)
+- Add the zram_get_stats function (vpodzime)
+- Add the check() function for the KBD plugin (vpodzime)
+- Add ErrorProxy instance for the KBD plugin (vpodzime)
+- Add tests for bcache_create/attach/detach/destroy functions (vpodzime)
+- Add the 'rebuild' Makefile target (vpodzime)
+- Add bcache_create, bcache_attach, bcache_detach and bcache_destroy functions (vpodzime)
+- Implement a helper function to echo string into a file (vpodzime)
+- Add tests for zram_create_devices and zram_destroy_devices functions (vpodzime)
+- Add the zram_destroy_devices function to the KBD plugin (vpodzime)
+- Add first function to the KBD plugin: zram_create_devices (vpodzime)
+- Add the KernelBlockDevices plugin (vpodzime)
+
+* Wed May 13 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.13-1
+- Prevent a leaky test from running in Jenkins (vpodzime)
+- Try harder when cleaning up after MD RAID tests (vpodzime)
+- Improve the MD RAID activate/deactivate test (vpodzime)
+- One more @contextmanager that needs try-finally (vpodzime)
+- Do not require metadata version to be reported by 'mdadm --examine' (#1217900) (vpodzime)
+- Make sure we always set things back in context managers (vpodzime)
+- Make the release date for version 1.0 more realistic (vpodzime)
+- Merge pull request #11 from vpodzime/master (vpodzime)
+- Run utilities with LC_ALL=C (vpodzime) (#1219033)
+- Free GMatchInfo instance even in case of no match (vpodzime)
+- Resolve /dev/md/ symlinks when checking swap status. (dlehman)
+
+* Fri Apr 24 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.12-1
+- Require minimum version of libblockdev-utils in some plugins (vpodzime)
+- Report both stdout and stderr if exit code != 0 (vpodzime)
+
+* Fri Apr 17 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.11-1
+- Fix issues with using overriden functions over ErrorProxy (vpodzime)
+- Update the roadmap.rst and features.rst with new stuff (vpodzime)
+- Fix two minor issues with docs generation (vpodzime)
+
+* Thu Apr 16 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.10-1
+- Fix return type of the unload_plugins() function (vpodzime)
+- Close the DL handle when check() or init() fail (vpodzime)
+- Add one more check to the reload test (vpodzime)
+- Drop reference to check() and init() functions (vpodzime)
+- Add more cats to tests (vpodzime)
+- Make regexp for getting btrfs version more generic (vpodzime)
+- Merge pull request #8 from vpodzime/master-check_functions (vpodzime)
+- Fix parameters passed to unoverridden swapon function (vpodzime)
+- Implement and test swap plugin's check function (vpodzime)
+- Implement and test MD RAID plugin's check function (vpodzime)
+- Implement and test mpath plugin's check function (vpodzime)
+- Try harder to get util's version (vpodzime)
+- Implement and test loop plugin's check function (vpodzime)
+- Implement and test DM plugin's check function (vpodzime)
+- Implement and test BTRFS plugin's check function (vpodzime)
+- Implement and test LVM plugin's check function (vpodzime)
+- Init logging before loading plugins (vpodzime)
+- Add function for utility availability checking (vpodzime)
+- Fix default value for the fake_utils' path argument (vpodzime)
+- Add ErrorProxy instance for the utils functions (vpodzime)
+- Add function for version comparison (vpodzime)
+- Merge pull request #9 from clumens/master (vpodzime)
+- Disable pylint checking on the new exception proxy. (clumens)
+- Fix XRules application and add a test for it (vpodzime)
+- Raise NotImplementedError when an unavailable function is called (vpodzime)
+- Merge pull request #4 from vpodzime/master-error_proxy (vpodzime)
+- Merge branch 'master' into master-error_proxy (vpodzime)
+- Merge pull request #5 from vpodzime/master-not_implemented_error (vpodzime)
+- Add a simple test for unloaded/unavailable functions (vpodzime)
+- Unload the plugins properly when reinit() is called (vpodzime)
+- Raise error/exception when an unimplemented function is called (#1201475) (vpodzime)
+- Do an ugly but necessary hack to make local GI overrides work (vpodzime)
+- Add the __dir__ method to ErrorProxy (vpodzime)
+- Add a rationale for the ErrorProxy to the overrides' docstring (vpodzime)
+- Add some basic info about GI overrides to the documentation (vpodzime)
+- Use pylint to check for errors in python overrides (vpodzime)
+- Add the first small test for the ErrorProxy (vpodzime)
+- Put the GI overrides in a special dir so that they are preferred (vpodzime)
+- Add a cache for attributes already resolved by ErrorProxy (vpodzime)
+- Implement the ErrorProxy python class and use it (vpodzime)
+
+* Tue Apr 07 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.9-1
+- Merge pull request #7 from vpodzime/master-fw_raid_fixes (vpodzime)
+- Try a bit harder when trying to determine MD RAID name (#1207317) (vpodzime)
+- Don't be naïve about mdadm --detail telling us what we want (#1207317) (vpodzime)
+- Ignore libblockdev tarballs (vpodzime)
+- Implement a test of btrfs_list_subvolumes on data from bug report (vpodzime)
+- Implement a context manager for running tests with fake utils (vpodzime)
+- Do not try to cannonicalize MD UUIDs if we didn't get them (#1207317) (vpodzime)
+- Fix the table in roadmap.rst (vpodzime)
+- Enrich the roadmap.rst file and add info about new plans (vpodzime)
+- Sync spec file with downstream (vpodzime)
+
+* Fri Mar 27 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.8-1
+- Merge pull request #6 from vpodzime/master-sort_btrfs_subvolumes (vpodzime)
+- Don't be naïve about mdadm providing us data we would like (#1206394) (vpodzime)
+- Sort BTRFS subvolumes in a way that child never appears before parent (#1201120) (vpodzime)
+- Let libcryptsetup handle LUKSname->/dev/mapper/LUKSname for us (vpodzime)
+- Fix the crypto_luks_resize and create a test for it (vpodzime)
+- Add targets to create the SRPM and RPM files easily (vpodzime)
+- Don't round up to multiple of PE size bigger than max value of the rtype (vpodzime)
+- Mark majority of MD RAID tests as slow (vpodzime)
+- Merge pull request #1 from dashea/file-paths (vpodzime)
+- Don't report error for no loop device associated with given file (vpodzime)
+- Skip the detail_data.clean check when running tests in Jenkins (vpodzime)
+- Make package file paths more specific (dshea)
+- Implement and use MD RAID-specific wait for tests (vpodzime)
+- Try to give MD RAID time to sync things before querying them (vpodzime)
+- Fix the default value of the BDMDDetailData.clean field (vpodzime)
+- Do cleanup after every single MD RAID tests (vpodzime)
+- Do cleanup after every single LVM test (vpodzime)
+- Do cleanup after every single BTRFS test (vpodzime)
+- Make sure the LUKS device is closed and removed after tests (vpodzime)
+- Make sure DM maps from tests are removed after tests (vpodzime)
+- Make sure that loop devices are deactivated after tests (vpodzime)
+- Make the tearDown method of the mpath test case better visible (vpodzime)
+- Make sure that the swap is deactivated after tests (vpodzime)
+- Fix docstrings in tests' utils helper functions (vpodzime)
+- Improve the logging tests in utils_test.py (vpodzime)
+- Update the features.rst file (vpodzime)
+- Update the roadmap (vpodzime)
+- Don't check if we get a mountpoint for BTRFS operations (vpodzime)
+
+* Sun Mar 22 2015 Peter Robinson <pbrobinson@fedoraproject.org> 0.7-2
+- Ship license as per packaging guidelines
+- plugins-all should depend on base library too
+- Add dev docs
+
+* Fri Feb 27 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.7-1
+- Be ready for mdadm --examine to not provide some of the values we want (vpodzime)
+- Add exit code information to exec logging (vpodzime)
+- Improve and add tests (vpodzime)
+- Mark the test_force_plugin and test_reload as slow (vpodzime)
+- Make sure we get some devices when creating btrfs volume (vpodzime)
+- Add override for the lvremove function (vpodzime)
+- Do not create LUKS format with no passphrase and no key file (vpodzime)
+- Make sure we use the /dev/mapper/... path for luks_status (vpodzime)
+
+* Thu Feb 19 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.6-1
+- Don't report error when non-existing swap's status is queried (vpodzime)
+- Make libblockdev-plugins-all pull the same version of plugins (vpodzime)
+- Don't report error when asked for a backing file of an uknown loop (vpodzime)
+- Fix accidental change in the spec's changelog (vpodzime)
+
+* Mon Feb 16 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.5-1
+- Add tests for what we can easily test from the mpath plugin (vpodzime)
+- Add link to sources to the documentation (vpodzime)
+- Add missing symbols into the libblockdev-sections.txt file (vpodzime)
+- Do not build docs for testing (vpodzime)
+- Add the bd_try_init function (vpodzime)
+- Log stdout and stderr output when running processes (vpodzime)
+- Allow a subset of plugins to be load instead of all (vpodzime)
+- Make sure devmapper doesn't spam stdout with tons of messages (vpodzime)
+- Let debug messages go to stderr when running ipython (vpodzime)
+- Give plugins a way to initialize themselves (vpodzime)
+- Give plugins a way how to check if they could run properly (vpodzime)
+- Allow a subset of plugins to be load instead of all [TEST NEEDED] (vpodzime)
+- Make sure we use the whole /dev/mapper path for cryptsetup (vpodzime)
+- Fix vg_pv_count parsing when getting info about PV (vpodzime)
+- Set default values to data structures if real values are not available (vpodzime)
+- Fix the parameter name specifying pool metadata size (vpodzime)
+- Activate LUKS as ReadWrite in luks_open (vpodzime)
+- Make sure we pass key_size to cryptsetup in bytes (vpodzime)
+- Add the min_entropy parameter to luks_format Python overrides (vpodzime)
+- Pass size in KiB instead of B to lvcreate (vpodzime)
+- Add underscore into dataalignment and metadatasize parameter names (vpodzime)
+- Don't report error if non-mpath device is tested for being mpath member (vpodzime)
+- Fix name of the invoked utility in mpath_set_friendly_names (vpodzime)
+
+* Sat Jan 31 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.4-1
+- Improve the test for lvm_set_global_config (vpodzime)
+- Fix some minor issues in the spec file (vpodzime)
+- Fix issues with the LVM global config str (vpodzime)
+- Add couple more Python overrides (vpodzime)
+- Fix the name of the lvm_thlvpoolname() function in the header file (vpodzime)
+- Use assertEqual instead of assertTrue(a == b) (vpodzime)
+- Add the min_entropy parameter to luks_format (vpodzime)
+- Move internal dmraid-related macros into the source file (vpodzime)
+- Add an override for the md_add function (vpodzime)
+- Fix parameters in luks_open python overrides (vpodzime)
+- Prevent init() from being done multiple times and provide a test function (vpodzime)
+- Add the roadmap.rst document (vpodzime)
+- Remove an extra parenthesis in one of the docstrings (vpodzime)
+- Move the mddetail function next to the mdexamine function (vpodzime)
+- Add some more constants required by blivet (vpodzime)
+
+* Wed Jan 21 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.3-1
+- Require volume_key-devel in a version that fixes build issues (vpodzime)
+- Fix Python 2 devel package name in BuildRequires (vpodzime)
+- Generate docs for the library and all plugins (vpodzime)
+- Make doc comments better for documentation generation (vpodzime)
+- Fix parameter names in function prototypes (vpodzime)
+- Add the metadatasize parameter to pvcreate (vpodzime)
+- Add the dataalignment parameter to lvm_pvcreate (vpodzime)
+- Export non-internal constants via introspection (vpodzime)
+- Expand size constants in the GI-scanned files (vpodzime)
+- Fix usage printing in the boilerplate_generator (vpodzime)
+- Add the build directory to .gitignore (vpodzime)
+- Add the md_run function (vpodzime)
+- Fix some issues in Python overrides (vpodzime)
+- Add the escrow_device function to the crypto plugin (vpodzime)
+- Fix version of GI files in the Makefile (vpodzime)
+- Make the order of release target's dependencies more explicit (vpodzime)
+
+* Mon Jan 12 2015 Vratislav Podzimek <vpodzime@redhat.com> - 0.2-1
+- Fix dependencies of the release target (vpodzime)
+- Python overrides for the GI-generated bindings (vpodzime)
+- Pass version info to the code and use it to load plugins (vpodzime)
+
+* Wed Dec 10 2014 Vratislav Podzimek <vpodzime@redhat.com> - 0.1-1
+- Initial release
