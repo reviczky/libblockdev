@@ -1,0 +1,18 @@
+From: Andreas Henriksson <andreas@fatal.se>
+Subject: libparted-fs-resize.pc not available in 3.2
+
+Bump the version of libparted that's expected to have a .pc file for
+libparted-fs-resize since that was not yet shipped in 3.2 it seems.
+(Atleast not available in debian packages of libparted 3.2)
+
+--- a/configure.ac
++++ b/configure.ac
+@@ -177,7 +177,7 @@
+               [Define as neutral value if libblkid doesn't provide the definition])])
+ 
+        # older versions of parted don't provide the libparted-fs-resize.pc file
+-       AS_IF([pkg-config --atleast-version=3.2 libparted],
++       AS_IF([pkg-config --atleast-version=3.3 libparted],
+              [LIBBLOCKDEV_PKG_CHECK_MODULES([PARTED_FS], [libparted-fs-resize >= 3.2])],
+              [AC_SUBST([PARTED_FS_LIBS], [-lparted-fs-resize])
+               AC_SUBST([PARTED_FS_CFLAGS], [])])],
