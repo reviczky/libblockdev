@@ -1,5 +1,6 @@
 import unittest
 import os
+import overrides_hack
 
 from utils import fake_path
 from gi.repository import BlockDev, GLib
@@ -11,6 +12,9 @@ class S390TestCase(unittest.TestCase):
     def test_device_input(self):
         """Verify that s390_sanitize_dev_input works as expected"""
         dev = "1234"
+        self.assertEqual(BlockDev.s390.sanitize_dev_input(dev), '0.0.' + dev)
+
+        dev = "123456"
         self.assertEqual(BlockDev.s390.sanitize_dev_input(dev), '0.0.' + dev)
 
         # the device number is padded on the left with 0s up to 4 digits
@@ -25,6 +29,10 @@ class S390TestCase(unittest.TestCase):
         dev = "0.0.abcd"
         self.assertEqual(BlockDev.s390.sanitize_dev_input(dev), dev)
 
+        # a too long number doesn't mean a crash no matter if it makes sense
+        dev = "0.0.abcdefgh"
+        self.assertEqual(BlockDev.s390.sanitize_dev_input(dev), dev)
+
     @unittest.skipUnless(os.uname()[4].startswith('s390'), "s390x architecture required")
     def test_wwpn_input(self):
         """Verify that s390_zfcp_sanitize_wwpn_input works as expected"""
@@ -34,6 +42,11 @@ class S390TestCase(unittest.TestCase):
         # this should be fine as-is
         wwpn = "0x01234567abcdefab"
         self.assertEqual(BlockDev.s390.zfcp_sanitize_wwpn_input(wwpn), wwpn)
+
+        # too short
+        wwpn = "a"
+        with self.assertRaises(GLib.GError):
+            BlockDev.s390.zfcp_sanitize_wwpn_input(wwpn)
 
     @unittest.skipUnless(os.uname()[4].startswith('s390'), "s390x architecture required")
     def test_lun_input(self):
@@ -51,6 +64,11 @@ class S390TestCase(unittest.TestCase):
         # this should be fine as-is
         lun = "0x1234567800000000"
         self.assertEqual(BlockDev.s390.zfcp_sanitize_lun_input(lun), lun)
+
+        # too long
+        lun = "12345678901234567890"
+        with self.assertRaises(GLib.GError):
+            BlockDev.s390.zfcp_sanitize_lun_input(lun)
 
 class S390UnloadTest(unittest.TestCase):
 

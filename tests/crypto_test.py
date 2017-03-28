@@ -5,8 +5,9 @@ import overrides_hack
 import shutil
 import subprocess
 import six
+import locale
 
-from utils import create_sparse_tempfile
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device
 from gi.repository import BlockDev, GLib
 if not BlockDev.is_initialized():
     BlockDev.init(None, None)
@@ -29,15 +30,14 @@ class CryptoTestCase(unittest.TestCase):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("crypto_test", 1024**3)
         self.dev_file2 = create_sparse_tempfile("crypto_test2", 1024**3)
-        succ, loop = BlockDev.loop_setup(self.dev_file)
-        if not succ:
-            raise RuntimeError("Failed to setup loop device for testing")
-        self.loop_dev = "/dev/%s" % loop
-
-        succ, loop = BlockDev.loop_setup(self.dev_file2)
-        if not succ:
-            raise RuntimeError("Failed to setup loop device for testing")
-        self.loop_dev2 = "/dev/%s" % loop
+        try:
+            self.loop_dev = create_lio_device(self.dev_file)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
+        try:
+            self.loop_dev2 = create_lio_device(self.dev_file2)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
         # make a key file
         handle, self.keyfile = tempfile.mkstemp(prefix="libblockdev_test_keyfile", text=False)
@@ -50,19 +50,20 @@ class CryptoTestCase(unittest.TestCase):
         except:
             pass
 
-        succ = BlockDev.loop_teardown(self.loop_dev)
-        if not succ:
-            os.unlink(self.dev_file)
-            raise RuntimeError("Failed to tear down loop device used for testing")
-
+        try:
+            delete_lio_device(self.loop_dev)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
         os.unlink(self.dev_file)
 
-        succ = BlockDev.loop_teardown(self.loop_dev2)
-        if not succ:
-            os.unlink(self.dev_file2)
-            raise RuntimeError("Failed to tear down loop device used for testing")
-
+        try:
+            delete_lio_device(self.loop_dev2)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
         os.unlink(self.dev_file2)
+
         os.unlink(self.keyfile)
 
 class CryptoTestFormat(CryptoTestCase):
@@ -82,6 +83,10 @@ class CryptoTestFormat(CryptoTestCase):
         succ = BlockDev.crypto_luks_format(self.loop_dev, "aes-cbc-essiv:sha256", 0, None, self.keyfile, 0)
         self.assertTrue(succ)
 
+        # the simple case with password blob
+        succ = BlockDev.crypto_luks_format_blob(self.loop_dev, "aes-cbc-essiv:sha256", 0, [ord(c) for c in PASSWD], 0)
+        self.assertTrue(succ)
+
 class CryptoTestResize(CryptoTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
     def test_resize(self):
@@ -91,7 +96,7 @@ class CryptoTestResize(CryptoTestCase):
         succ = BlockDev.crypto_luks_format(self.loop_dev, "aes-cbc-essiv:sha256", 0, PASSWD, None, 0)
         self.assertTrue(succ)
 
-        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None, False)
         self.assertTrue(succ)
 
         # resize to 512 KiB (1024 * 512B sectors)
@@ -114,25 +119,25 @@ class CryptoTestOpenClose(CryptoTestCase):
         self.assertTrue(succ)
 
         with self.assertRaises(GLib.GError):
-            BlockDev.crypto_luks_open("/non/existing/device", "libblockdevTestLUKS", PASSWD, None)
+            BlockDev.crypto_luks_open("/non/existing/device", "libblockdevTestLUKS", PASSWD, None, False)
 
         with self.assertRaises(GLib.GError):
-            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, None)
+            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, None, False)
 
         with self.assertRaises(GLib.GError):
-            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", "wrong-passhprase", None)
+            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", "wrong-passhprase", None, False)
 
         with self.assertRaises(GLib.GError):
-            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, "wrong-keyfile")
+            BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, "wrong-keyfile", False)
 
-        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None, False)
         self.assertTrue(succ)
 
         # use the full /dev/mapper/ path
         succ = BlockDev.crypto_luks_close("/dev/mapper/libblockdevTestLUKS")
         self.assertTrue(succ)
 
-        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, self.keyfile)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", None, self.keyfile, False)
         self.assertTrue(succ)
 
         # use just the LUKS device name
@@ -153,6 +158,9 @@ class CryptoTestAddKey(CryptoTestCase):
         succ = BlockDev.crypto_luks_add_key(self.loop_dev, PASSWD, None, PASSWD2, None)
         self.assertTrue(succ)
 
+        succ = BlockDev.crypto_luks_add_key_blob(self.loop_dev, [ord(c) for c in PASSWD2], [ord(c) for c in PASSWD3])
+        self.assertTrue(succ)
+
 class CryptoTestRemoveKey(CryptoTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
     def test_remove_key(self):
@@ -164,11 +172,41 @@ class CryptoTestRemoveKey(CryptoTestCase):
         succ = BlockDev.crypto_luks_add_key(self.loop_dev, PASSWD, None, PASSWD2, None)
         self.assertTrue(succ)
 
+        succ = BlockDev.crypto_luks_add_key(self.loop_dev, PASSWD, None, PASSWD3, None)
+        self.assertTrue(succ)
+
         with self.assertRaises(GLib.GError):
             BlockDev.crypto_luks_remove_key(self.loop_dev, "wrong-passphrase", None)
 
         succ = BlockDev.crypto_luks_remove_key(self.loop_dev, PASSWD, None)
         self.assertTrue(succ)
+
+        succ = BlockDev.crypto_luks_remove_key_blob(self.loop_dev, [ord(c) for c in PASSWD2])
+        self.assertTrue(succ)
+
+class CryptoTestErrorLocale(CryptoTestCase):
+    def setUp(self):
+        self._orig_loc = None
+        CryptoTestCase.setUp(self)
+        self._orig_loc = ".".join(locale.getdefaultlocale())
+
+    def _clean_up(self):
+        CryptoTestCase._clean_up(self)
+        if self._orig_loc:
+            locale.setlocale(locale.LC_ALL, self._orig_loc)
+
+    @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    def test_error_locale_key(self):
+        """Verify that the error msg is locale agnostic"""
+
+        succ = BlockDev.crypto_luks_format(self.loop_dev, None, 0, PASSWD, None, 0)
+        self.assertTrue(succ)
+
+        locale.setlocale(locale.LC_ALL, "cs_CZ.UTF-8")
+        try:
+            BlockDev.crypto_luks_remove_key(self.loop_dev, "wrong-passphrase", None)
+        except GLib.GError as e:
+            self.assertIn("Operation not permitted", str(e))
 
 class CryptoTestChangeKey(CryptoTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
@@ -179,6 +217,9 @@ class CryptoTestChangeKey(CryptoTestCase):
         self.assertTrue(succ)
 
         succ = BlockDev.crypto_luks_change_key(self.loop_dev, PASSWD, PASSWD2)
+        self.assertTrue(succ)
+
+        succ = BlockDev.crypto_luks_change_key_blob(self.loop_dev, [ord(c) for c in PASSWD2], [ord(c) for c in PASSWD3])
         self.assertTrue(succ)
 
 class CryptoTestIsLuks(CryptoTestCase):
@@ -209,7 +250,7 @@ class CryptoTestLuksStatus(CryptoTestCase):
         succ = BlockDev.crypto_luks_format(self.loop_dev, None, 0, PASSWD, None, 0)
         self.assertTrue(succ)
 
-        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None, False)
         self.assertTrue(succ)
 
         # use the full /dev/mapper path
@@ -243,12 +284,12 @@ class CryptoTestGetUUID(CryptoTestCase):
 class CryptoTestLuksOpenRW(CryptoTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
     def test_luks_open_rw(self):
-        """Verify that opened LUKS device is usable (activated as RW)"""
+        """Verify that a LUKS device can be activated as RW as well as RO"""
 
         succ = BlockDev.crypto_luks_format(self.loop_dev, None, 0, PASSWD, None, 0)
         self.assertTrue(succ)
 
-        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None, False)
         self.assertTrue(succ)
 
         # tests that we can write something to the raw LUKS device
@@ -257,6 +298,18 @@ class CryptoTestLuksOpenRW(CryptoTestCase):
 
         succ = BlockDev.crypto_luks_close("libblockdevTestLUKS")
         self.assertTrue(succ)
+
+        # now try the same with LUKS device opened as RO
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", PASSWD, None, True)
+        self.assertTrue(succ)
+
+        # tests that we can write something to the raw LUKS device
+        with self.assertRaises(GLib.GError):
+            BlockDev.utils_exec_and_report_error(["dd", "if=/dev/zero", "of=/dev/mapper/libblockdevTestLUKS", "bs=1M", "count=1"])
+
+        succ = BlockDev.crypto_luks_close("libblockdevTestLUKS")
+        self.assertTrue(succ)
+
 
 class CryptoTestEscrow(CryptoTestCase):
     def setUp(self):

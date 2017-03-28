@@ -15,6 +15,8 @@ typedef enum {
     BD_PLUGIN_MDRAID,
     BD_PLUGIN_KBD,
     BD_PLUGIN_S390,
+    BD_PLUGIN_PART,
+    BD_PLUGIN_FS,
     BD_PLUGIN_UNDEF
 } BDPlugin;
 
@@ -23,7 +25,7 @@ GType bd_plugin_spec_get_type();
 
 typedef struct BDPluginSpec {
     BDPlugin name;
-    gchar *so_name;
+    const gchar *so_name;
 } BDPluginSpec;
 
 BDPluginSpec* bd_plugin_spec_copy (BDPluginSpec *spec);

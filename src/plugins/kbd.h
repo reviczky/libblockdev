@@ -1,4 +1,5 @@
 #include <glib.h>
+#include <blockdev/utils.h>
 
 #ifndef BD_KBD
 #define BD_KBD
@@ -23,6 +24,7 @@ typedef enum {
     BD_KBD_ERROR_BCACHE_INVAL,
 } BDKBDError;
 
+#ifdef WITH_BD_BCACHE
 typedef enum {
     BD_KBD_MODE_WRITETHROUGH,
     BD_KBD_MODE_WRITEBACK,
@@ -30,6 +32,7 @@ typedef enum {
     BD_KBD_MODE_NONE,
     BD_KBD_MODE_UNKNOWN,
 } BDKBDBcacheMode;
+#endif  /* WITH_BCACHE */
 
 /* see zRAM kernel documentation for details */
 typedef struct BDKBDZramStats {
@@ -48,6 +51,7 @@ typedef struct BDKBDZramStats {
 BDKBDZramStats* bd_kbd_zram_stats_copy (BDKBDZramStats *data);
 void bd_kbd_zram_stats_free (BDKBDZramStats *data);
 
+#ifdef WITH_BD_BCACHE
 typedef struct BDKBDBcacheStats {
     gchar *state;
     guint64 block_size;
@@ -61,21 +65,39 @@ typedef struct BDKBDBcacheStats {
 
 BDKBDBcacheStats* bd_kbd_bcache_stats_copy (BDKBDBcacheStats *data);
 void bd_kbd_bcache_stats_free (BDKBDBcacheStats *data);
+#endif  /* WITH_BCACHE */
 
-gboolean bd_kbd_zram_create_devices (guint64 num_devices, guint64 *sizes, guint64 *nstreams, GError **error);
+/*
+ * If using the plugin as a standalone library, the following functions should
+ * be called to:
+ *
+ * check_deps() - check plugin's dependencies, returning TRUE if satisfied
+ * init()       - initialize the plugin, returning TRUE on success
+ * close()      - clean after the plugin at the end or if no longer used
+ *
+ */
+gboolean bd_kbd_check_deps ();
+gboolean bd_kbd_init ();
+void bd_kbd_close ();
+
+gboolean bd_kbd_zram_create_devices (guint64 num_devices, const guint64 *sizes, const guint64 *nstreams, GError **error);
 gboolean bd_kbd_zram_destroy_devices (GError **error);
-BDKBDZramStats* bd_kbd_zram_get_stats (gchar *device, GError **error);
+gboolean bd_kbd_zram_add_device (guint64 size, guint64 nstreams, gchar **device, GError **error);
+gboolean bd_kbd_zram_remove_device (const gchar *device, GError **error);
+BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error);
 
-gboolean bd_kbd_bcache_create (gchar *backing_device, gchar *cache_device, gchar **bcache_device, GError **error);
-gboolean bd_kbd_bcache_attach (gchar *c_set_uuid, gchar *bcache_device, GError **error);
-gboolean bd_kbd_bcache_detach (gchar *bcache_device, gchar **c_set_uuid, GError **error);
-gboolean bd_kbd_bcache_destroy (gchar *bcache_device, GError **error);
-BDKBDBcacheMode bd_kbd_bcache_get_mode (gchar *bcache_device, GError **error);
+#ifdef WITH_BD_BCACHE
+gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_device, const BDExtraArg **extra, const gchar **bcache_device, GError **error);
+gboolean bd_kbd_bcache_attach (const gchar *c_set_uuid, const gchar *bcache_device, GError **error);
+gboolean bd_kbd_bcache_detach (const gchar *bcache_device, gchar **c_set_uuid, GError **error);
+gboolean bd_kbd_bcache_destroy (const gchar *bcache_device, GError **error);
+BDKBDBcacheMode bd_kbd_bcache_get_mode (const gchar *bcache_device, GError **error);
 const gchar* bd_kbd_bcache_get_mode_str (BDKBDBcacheMode mode, GError **error);
-BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (gchar *mode_str, GError **error);
-gboolean bd_kbd_bcache_set_mode (gchar *bcache_device, BDKBDBcacheMode mode, GError **error);
-BDKBDBcacheStats* bd_kbd_bcache_status (gchar *bcache_device, GError **error);
-gchar* bd_kbd_bcache_get_backing_device (gchar *bcache_device, GError **error);
-gchar* bd_kbd_bcache_get_cache_device (gchar *bcache_device, GError **error);
+BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (const gchar *mode_str, GError **error);
+gboolean bd_kbd_bcache_set_mode (const gchar *bcache_device, BDKBDBcacheMode mode, GError **error);
+BDKBDBcacheStats* bd_kbd_bcache_status (const gchar *bcache_device, GError **error);
+gchar* bd_kbd_bcache_get_backing_device (const gchar *bcache_device, GError **error);
+gchar* bd_kbd_bcache_get_cache_device (const gchar *bcache_device, GError **error);
+#endif  /* WITH_BCACHE */
 
 #endif  /* BD_KBD */
