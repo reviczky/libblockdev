@@ -2,7 +2,7 @@ import unittest
 import os
 import time
 from contextlib import contextmanager
-from utils import create_sparse_tempfile, wipe_all, fake_path
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, wipe_all, fake_path
 import overrides_hack
 
 from gi.repository import BlockDev, GLib
@@ -97,7 +97,56 @@ class KbdZRAMTestCase(unittest.TestCase):
             self.assertTrue(BlockDev.kbd_zram_destroy_devices())
             time.sleep(1)
 
+    @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
+    @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    def test_zram_add_remove_device(self):
+        """Verify that it is possible to add and remove a zram device"""
+
+        # the easiest case
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
+            self.assertTrue(succ)
+            self.assertTrue(device.startswith("/dev/zram"))
+            time.sleep(1)
+            self.assertTrue(BlockDev.kbd_zram_remove_device(device))
+
+        # no nstreams specified
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 0)
+            self.assertTrue(succ)
+            self.assertTrue(device.startswith("/dev/zram"))
+            time.sleep(1)
+            self.assertTrue(BlockDev.kbd_zram_remove_device(device))
+
+        # create two devices
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
+            self.assertTrue(succ)
+            self.assertTrue(device.startswith("/dev/zram"))
+
+            succ, device2 = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
+            self.assertTrue(succ)
+            self.assertTrue(device2.startswith("/dev/zram"))
+
+            time.sleep(1)
+            self.assertTrue(BlockDev.kbd_zram_remove_device(device))
+            self.assertTrue(BlockDev.kbd_zram_remove_device(device2))
+
+        # mixture of multiple devices and a single device
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            self.assertTrue(BlockDev.kbd_zram_create_devices(2, [10 * 1024**2, 10 * 1024**2], [1, 2]))
+            time.sleep(1)
+            succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
+            self.assertTrue(succ)
+            self.assertTrue(device.startswith("/dev/zram"))
+
+            time.sleep(1)
+            self.assertTrue(BlockDev.kbd_zram_destroy_devices())
+            time.sleep(1)
+
+
 class KbdZRAMStatsTestCase(KbdZRAMTestCase):
+    @unittest.skip("unstable test failing on some arches")
     @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
     def test_zram_get_stats(self):
         """Verify that it is possible to get stats for a zram device"""
@@ -145,14 +194,14 @@ class KbdBcacheTestCase(unittest.TestCase):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("lvm_test", 10 * 1024**3)
         self.dev_file2 = create_sparse_tempfile("lvm_test", 10 * 1024**3)
-        succ, loop = BlockDev.loop_setup(self.dev_file)
-        if  not succ:
-            raise RuntimeError("Failed to setup loop device for testing")
-        self.loop_dev = "/dev/%s" % loop
-        succ, loop = BlockDev.loop_setup(self.dev_file2)
-        if  not succ:
-            raise RuntimeError("Failed to setup loop device for testing")
-        self.loop_dev2 = "/dev/%s" % loop
+        try:
+            self.loop_dev = create_lio_device(self.dev_file)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
+        try:
+            self.loop_dev2 = create_lio_device(self.dev_file2)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
         self.bcache_dev = None
 
@@ -163,17 +212,18 @@ class KbdBcacheTestCase(unittest.TestCase):
             except:
                 pass
 
-        succ = BlockDev.loop_teardown(self.loop_dev)
-        if not succ:
-            os.unlink(self.dev_file)
-            raise RuntimeError("Failed to tear down loop device used for testing")
-
+        try:
+            delete_lio_device(self.loop_dev)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
         os.unlink(self.dev_file)
-        succ = BlockDev.loop_teardown(self.loop_dev2)
-        if  not succ:
-            os.unlink(self.dev_file2)
-            raise RuntimeError("Failed to tear down loop device used for testing")
 
+        try:
+            delete_lio_device(self.loop_dev2)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
         os.unlink(self.dev_file2)
 
 class KbdTestBcacheCreate(KbdBcacheTestCase):
@@ -181,7 +231,7 @@ class KbdTestBcacheCreate(KbdBcacheTestCase):
     def test_bcache_create_destroy(self):
         """Verify that it's possible to create and destroy a bcache device"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -199,7 +249,7 @@ class KbdTestBcacheCreate(KbdBcacheTestCase):
     def test_bcache_create_destroy_full_path(self):
         """Verify that it's possible to create and destroy a bcache device with full device path"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -218,7 +268,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
     def test_bcache_attach_detach(self):
         """Verify that it's possible to detach/attach a cache from/to a bcache device"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -243,7 +293,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
     def test_bcache_attach_detach_full_path(self):
         """Verify that it's possible to detach/attach a cache from/to a bcache device with full device path"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -268,7 +318,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
     def test_bcache_detach_destroy(self):
         """Verify that it's possible to destroy a bcache device with no cache attached"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -291,7 +341,7 @@ class KbdTestBcacheGetSetMode(KbdBcacheTestCase):
     def test_bcache_get_set_mode(self):
         """Verify that it is possible to get and set Bcache mode"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -337,7 +387,7 @@ class KbdTestBcacheGetSetMode(KbdBcacheTestCase):
 class KbdTestBcacheStatusTest(KbdBcacheTestCase):
     @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
     def test_bcache_status(self):
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev
@@ -368,7 +418,7 @@ class KbdTestBcacheBackingCacheDevTest(KbdBcacheTestCase):
     def test_bcache_backing_cache_dev(self):
         """Verify that is is possible to get the backing and cache devices for a Bcache"""
 
-        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2)
+        succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
         self.assertTrue(dev)
         self.bcache_dev = dev

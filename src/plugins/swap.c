@@ -20,7 +20,8 @@
 #include <glib.h>
 #include <string.h>
 #include <unistd.h>
-#include <utils.h>
+#include <sys/swap.h>
+#include <blockdev/utils.h>
 #include "swap.h"
 
 /**
@@ -41,30 +42,17 @@ GQuark bd_swap_error_quark (void)
 }
 
 /**
- * check: (skip)
+ * bd_swap_check_deps:
+ *
+ * Returns: whether the plugin's runtime dependencies are satisfied or not
+ *
+ * Function checking plugin's runtime dependencies.
+ *
  */
-gboolean check() {
+gboolean bd_swap_check_deps () {
     GError *error = NULL;
     gboolean ret = bd_utils_check_util_version ("mkswap", MKSWAP_MIN_VERSION, NULL, "mkswap from util-linux ([\\d\\.]+)", &error);
 
-    if (!ret && error) {
-        g_warning("Cannot load the swap plugin: %s" , error->message);
-        g_clear_error (&error);
-    }
-
-    if (!ret)
-        return FALSE;
-
-    ret = bd_utils_check_util_version ("swapon", SWAPON_MIN_VERSION, NULL, "swapon from util-linux ([\\d\\.]+)", &error);
-    if (!ret && error) {
-        g_warning("Cannot load the swap plugin: %s" , error->message);
-        g_clear_error (&error);
-    }
-
-    if (!ret)
-        return FALSE;
-
-    ret = bd_utils_check_util_version ("swapoff", SWAPOFF_MIN_VERSION, NULL, "swapoff from util-linux ([\\d\\.]+)", &error);
     if (!ret && error) {
         g_warning("Cannot load the swap plugin: %s" , error->message);
         g_clear_error (&error);
@@ -74,19 +62,44 @@ gboolean check() {
 }
 
 /**
+ * bd_swap_init:
+ *
+ * Initializes the plugin. **This function is called automatically by the
+ * library's initialization functions.**
+ *
+ */
+gboolean bd_swap_init () {
+    /* nothing to do here */
+    return TRUE;
+};
+
+/**
+ * bd_swap_close:
+ *
+ * Cleans up after the plugin. **This function is called automatically by the
+ * library's functions that unload it.**
+ *
+ */
+void bd_swap_close () {
+    /* nothing to do here */
+}
+
+/**
  * bd_swap_mkswap:
  * @device: a device to create swap space on
  * @label: (allow-none): a label for the swap space device
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ *                                                 passed to the 'mkswap' utility)
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the swap space was successfully created or not
  */
-gboolean bd_swap_mkswap (gchar *device, gchar *label, GError **error) {
+gboolean bd_swap_mkswap (const gchar *device, const gchar *label, const BDExtraArg **extra, GError **error) {
     guint8 next_arg = 2;
 
     /* We use -f to force since mkswap tends to refuse creation on lvs with
        a message about erasing bootbits sectors on whole disks. Bah. */
-    gchar *argv[6] = {"mkswap", "-f", NULL, NULL, NULL, NULL};
+    const gchar *argv[6] = {"mkswap", "-f", NULL, NULL, NULL, NULL};
 
     if (label) {
         argv[next_arg] = "-L";
@@ -97,7 +110,7 @@ gboolean bd_swap_mkswap (gchar *device, gchar *label, GError **error) {
 
     argv[next_arg] = device;
 
-    return bd_utils_exec_and_report_error (argv, error);
+    return bd_utils_exec_and_report_error (argv, extra, error);
 }
 
 /**
@@ -108,10 +121,7 @@ gboolean bd_swap_mkswap (gchar *device, gchar *label, GError **error) {
  *
  * Returns: whether the swap device was successfully activated or not
  */
-gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
-    gboolean success = FALSE;
-    guint8 next_arg = 1;
-    guint8 to_free_idx = 0;
+gboolean bd_swap_swapon (const gchar *device, gint priority, GError **error) {
     GIOChannel *dev_file = NULL;
     GIOStatus io_status = G_IO_STATUS_ERROR;
     GError *tmp_error = NULL;
@@ -119,13 +129,22 @@ gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
     gchar dev_status[11];
     dev_status[10] = '\0';
     gint page_size;
+    gint flags = 0;
+    gint ret = 0;
+    guint64 progress_id = 0;
+    gchar *msg = NULL;
 
-    gchar *argv[5] = {"swapon", NULL, NULL, NULL, NULL};
+    msg = g_strdup_printf ("Started 'swapon %s'", device);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
 
+
+    bd_utils_report_progress (progress_id, 0, "Analysing the swap device");
     /* check the device if it is an activatable swap */
     dev_file = g_io_channel_new_file (device, "r", error);
     if (!dev_file) {
         /* error is already populated */
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
 
@@ -137,6 +156,7 @@ gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
                      "Failed to determine device's state: %s", tmp_error->message);
         g_clear_error (&tmp_error);
         g_io_channel_shutdown (dev_file, FALSE, &tmp_error);
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
 
@@ -147,6 +167,7 @@ gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
         g_clear_error (&tmp_error);
         g_io_channel_shutdown (dev_file, FALSE, &tmp_error);
         g_clear_error (&tmp_error);
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
 
@@ -156,33 +177,35 @@ gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
     if (g_str_has_prefix (dev_status, "SWAP-SPACE")) {
         g_set_error (error, BD_SWAP_ERROR, BD_SWAP_ERROR_ACTIVATE,
                      "Old swap format, cannot activate.");
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     } else if (g_str_has_prefix (dev_status, "S1SUSPEND") || g_str_has_prefix (dev_status, "S2SUSPEND")) {
         g_set_error (error, BD_SWAP_ERROR, BD_SWAP_ERROR_ACTIVATE,
                      "Suspended system on the swap device, cannot activate.");
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     } else if (!g_str_has_prefix (dev_status, "SWAPSPACE2")) {
         g_set_error (error, BD_SWAP_ERROR, BD_SWAP_ERROR_ACTIVATE,
                      "Unknown swap space format, cannot activate.");
+        bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
 
+    bd_utils_report_progress (progress_id, 10, "Swap device analysed, enabling");
     if (priority >= 0) {
-        argv[next_arg] = "-p";
-        next_arg++;
-        to_free_idx = next_arg;
-        argv[next_arg] = g_strdup_printf ("%d", priority);
-        next_arg++;
+        flags = SWAP_FLAG_PREFER;
+        flags |= (priority << SWAP_FLAG_PRIO_SHIFT) & SWAP_FLAG_PRIO_MASK;
     }
 
-    argv[next_arg] = device;
+    ret = swapon (device, flags);
+    if (ret != 0) {
+        g_set_error (error, BD_SWAP_ERROR, BD_SWAP_ERROR_ACTIVATE,
+                     "Failed to activate swap on %s: %m", device);
+        bd_utils_report_finished (progress_id, (*error)->message);
+    }
 
-    success = bd_utils_exec_and_report_error (argv, error);
-
-    if (to_free_idx > 0)
-        g_free (argv[to_free_idx]);
-
-    return success;
+    bd_utils_report_finished (progress_id, "Completed");
+    return ret == 0;
 }
 
 /**
@@ -192,11 +215,24 @@ gboolean bd_swap_swapon (gchar *device, gint priority, GError **error) {
  *
  * Returns: whether the swap device was successfully deactivated or not
  */
-gboolean bd_swap_swapoff (gchar *device, GError **error) {
-    gchar *argv[3] = {"swapoff", NULL, NULL};
-    argv[1] = device;
+gboolean bd_swap_swapoff (const gchar *device, GError **error) {
+    gint ret = 0;
+    guint64 progress_id = 0;
+    gchar *msg = NULL;
 
-    return bd_utils_exec_and_report_error (argv, error);
+    msg = g_strdup_printf ("Started 'swapoff %s'", device);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
+
+    ret = swapoff (device);
+    if (ret != 0) {
+        g_set_error (error, BD_SWAP_ERROR, BD_SWAP_ERROR_ACTIVATE,
+                     "Failed to deactivate swap on %s: %m", device);
+        bd_utils_report_finished (progress_id, (*error)->message);
+    }
+
+    bd_utils_report_finished (progress_id, "Completed");
+    return ret == 0;
 }
 
 /**
@@ -207,7 +243,7 @@ gboolean bd_swap_swapoff (gchar *device, GError **error) {
  * Returns: %TRUE if the swap device is active, %FALSE if not active or failed
  * to determine (@error) is set not a non-NULL value in such case)
  */
-gboolean bd_swap_swapstatus (gchar *device, GError **error) {
+gboolean bd_swap_swapstatus (const gchar *device, GError **error) {
     gchar *file_content;
     gchar *real_device = NULL;
     gchar *symlink = NULL;

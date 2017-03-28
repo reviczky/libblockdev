@@ -1,8 +1,13 @@
 #include <glib.h>
 #include <glib-object.h>
+#include <blockdev/utils.h>
 
 #ifndef BD_KBD_API
 #define BD_KBD_API
+
+GQuark bd_kbd_error_quark (void) {
+    return g_quark_from_static_string ("g-bd-kbd-error-quark");
+}
 
 #define BD_KBD_ERROR bd_kbd_error_quark ()
 typedef enum {
@@ -31,7 +36,12 @@ typedef enum {
 #define BD_KBD_TYPE_ZRAM_STATS (bd_kbd_zram_stats_get_type ())
 GType bd_kbd_zram_stats_get_type();
 
-/* see zRAM kernel documentation for details */
+/**
+ * BDKBDZramStats:
+ *
+ * see zRAM kernel documentation for details
+ * (https://www.kernel.org/doc/Documentation/blockdev/zram.txt)
+ */
 typedef struct BDKBDZramStats {
     guint64 disksize;
     guint64 num_reads;
@@ -91,6 +101,17 @@ GType bd_kbd_zram_stats_get_type () {
 #define BD_KBD_TYPE_BCACHE_STATS (bd_kbd_bcache_stats_get_type ())
 GType bd_kbd_bcache_stats_get_type();
 
+/**
+ * BDKBDBcacheStats:
+ * @state: state of the cache
+ * @block_size: block size used by the cache
+ * @cache_size: size of the cache
+ * @cache_used: size of the used space in the cache
+ * @hits: number of hits
+ * @misses: number of misses
+ * @bypass_hits: number of bypass hits
+ * @bypass_misses: number of bypass misses
+ */
 typedef struct BDKBDBcacheStats {
     gchar *state;
     guint64 block_size;
@@ -158,7 +179,7 @@ GType bd_kbd_bcache_stats_get_type () {
  *
  * **Lengths of @size and @nstreams (if given) have to be >= @num_devices!**
  */
-gboolean bd_kbd_zram_create_devices (guint64 num_devices, guint64 *sizes, guint64 *nstreams, GError **error);
+gboolean bd_kbd_zram_create_devices (guint64 num_devices, const guint64 *sizes, const guint64 *nstreams, GError **error);
 
 /**
  * bd_kbd_zram_destroy_devices:
@@ -173,24 +194,46 @@ gboolean bd_kbd_zram_create_devices (guint64 num_devices, guint64 *sizes, guint6
 gboolean bd_kbd_zram_destroy_devices (GError **error);
 
 /**
+ * bd_kbd_zram_add_device:
+ * @size: size of the zRAM device to add
+ * @nstreams: number of streams to use for the new device (or 0 to use the defaults)
+ * @device: (allow-none) (out): place to store the name of the newly added device
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether a new zRAM device was added or not
+ */
+gboolean bd_kbd_zram_add_device (guint64 size, guint64 nstreams, gchar **device, GError **error);
+
+/**
+ * bd_kbd_zram_remove_device:
+ * @device: zRAM device to remove
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the @device was successfully removed or not
+ */
+gboolean bd_kbd_zram_remove_device (const gchar *device, GError **error);
+
+/**
  * bd_kbd_zram_get_stats:
  * @device: zRAM device to get stats for
  * @error: (out): place to store error (if any)
  *
  * Returns: (transfer full): statistics for the zRAM device
  */
-BDKBDZramStats* bd_kbd_zram_get_stats (gchar *device, GError **error);
+BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error);
 
 /**
  * bd_kbd_bcache_create:
  * @backing_device: backing (slow) device of the cache
  * @cache_device: cache (fast) device of the cache
- * @bcache_device: (out) (allow-none): place to store the name of the new bcache device (if any)
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ *                                                 passed to the 'make-bcache' utility)
+ * @bcache_device: (out) (allow-none) (transfer full): place to store the name of the new bcache device (if any)
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the bcache device was successfully created or not
  */
-gboolean bd_kbd_bcache_create (gchar *backing_device, gchar *cache_device, gchar **bcache_device, GError **error);
+gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_device, const BDExtraArg **extra, const gchar **bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_attach:
@@ -200,7 +243,7 @@ gboolean bd_kbd_bcache_create (gchar *backing_device, gchar *cache_device, gchar
  *
  * Returns: whether the @c_set_uuid cache was successfully attached to @bcache_device or not
  */
-gboolean bd_kbd_bcache_attach (gchar *c_set_uuid, gchar *bcache_device, GError **error);
+gboolean bd_kbd_bcache_attach (const gchar *c_set_uuid, const gchar *bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_detach:
@@ -211,7 +254,7 @@ gboolean bd_kbd_bcache_attach (gchar *c_set_uuid, gchar *bcache_device, GError *
  *
  * Note: Flushes the cache first.
  */
-gboolean bd_kbd_bcache_detach (gchar *bcache_device, gchar **c_set_uuid, GError **error);
+gboolean bd_kbd_bcache_detach (const gchar *bcache_device, gchar **c_set_uuid, GError **error);
 
 /**
  * bd_kbd_bcache_destroy:
@@ -220,7 +263,7 @@ gboolean bd_kbd_bcache_detach (gchar *bcache_device, gchar **c_set_uuid, GError 
  *
  * Returns: whether the bcache device @bcache_device was successfully destroyed or not
  */
-gboolean bd_kbd_bcache_destroy (gchar *bcache_device, GError **error);
+gboolean bd_kbd_bcache_destroy (const gchar *bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_get_mode:
@@ -229,7 +272,7 @@ gboolean bd_kbd_bcache_destroy (gchar *bcache_device, GError **error);
  *
  * Returns: current mode of the @bcache_device
  */
-BDKBDBcacheMode bd_kbd_bcache_get_mode (gchar *bcache_device, GError **error);
+BDKBDBcacheMode bd_kbd_bcache_get_mode (const gchar *bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_get_mode_str:
@@ -247,7 +290,7 @@ const gchar* bd_kbd_bcache_get_mode_str (BDKBDBcacheMode mode, GError **error);
  *
  * Returns: mode matching the @mode_str given or %BD_KBD_MODE_UNKNOWN in case of no match
  */
-BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (gchar *mode_str, GError **error);
+BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (const gchar *mode_str, GError **error);
 
 /**
  * bd_kbd_bcache_set_mode:
@@ -257,7 +300,7 @@ BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (gchar *mode_str, GError **error
  *
  * Returns: whether the mode was successfully set or not
  */
-gboolean bd_kbd_bcache_set_mode (gchar *bcache_device, BDKBDBcacheMode mode, GError **error);
+gboolean bd_kbd_bcache_set_mode (const gchar *bcache_device, BDKBDBcacheMode mode, GError **error);
 
 /**
  * bd_kbd_bcache_status:
@@ -267,7 +310,7 @@ gboolean bd_kbd_bcache_set_mode (gchar *bcache_device, BDKBDBcacheMode mode, GEr
  * Returns: (transfer full): status of the @bcache_device or %NULL in case of
  *                           error (@error is set)
  */
-BDKBDBcacheStats* bd_kbd_bcache_status (gchar *bcache_device, GError **error);
+BDKBDBcacheStats* bd_kbd_bcache_status (const gchar *bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_get_backing_device:
@@ -277,7 +320,7 @@ BDKBDBcacheStats* bd_kbd_bcache_status (gchar *bcache_device, GError **error);
  * Returns: (transfer full): name of the backing device of the @bcache_device
  *                           or %NULL if failed to determine (@error is populated)
  */
-gchar* bd_kbd_bcache_get_backing_device (gchar *bcache_device, GError **error);
+gchar* bd_kbd_bcache_get_backing_device (const gchar *bcache_device, GError **error);
 
 /**
  * bd_kbd_bcache_get_cache_device:
@@ -290,6 +333,6 @@ gchar* bd_kbd_bcache_get_backing_device (gchar *bcache_device, GError **error);
  * Note: returns the name of the first cache device of @bcache_device (in case
  *       there are more)
  */
-gchar* bd_kbd_bcache_get_cache_device (gchar *bcache_device, GError **error);
+gchar* bd_kbd_bcache_get_cache_device (const gchar *bcache_device, GError **error);
 
 #endif  /* BD_KBD_API */

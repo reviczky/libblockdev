@@ -22,7 +22,7 @@
 #include <linux/kdev_t.h>
 #include <libdevmapper.h>
 #include <unistd.h>
-#include <utils.h>
+#include <blockdev/utils.h>
 #include "mpath.h"
 
 /**
@@ -43,9 +43,14 @@ GQuark bd_mpath_error_quark (void)
 }
 
 /**
- * check: (skip)
+ * bd_mpath_check_deps:
+ *
+ * Returns: whether the plugin's runtime dependencies are satisfied or not
+ *
+ * Function checking plugin's runtime dependencies.
+ *
  */
-gboolean check() {
+gboolean bd_mpath_check_deps () {
     GError *error = NULL;
     gboolean ret = bd_utils_check_util_version ("multipath", MULTIPATH_MIN_VERSION, NULL, "multipath-tools v([\\d\\.]+)", &error);
 
@@ -67,6 +72,29 @@ gboolean check() {
 }
 
 /**
+ * bd_mpath_init:
+ *
+ * Initializes the plugin. **This function is called automatically by the
+ * library's initialization functions.**
+ *
+ */
+gboolean bd_mpath_init () {
+    /* nothing to do here */
+    return TRUE;
+};
+
+/**
+ * bd_mpath_close:
+ *
+ * Cleans up after the plugin. **This function is called automatically by the
+ * library's functions that unload it.**
+ *
+ */
+void bd_mpath_close () {
+    /* nothing to do here */
+}
+
+/**
  * bd_mpath_flush_mpaths:
  * @error: (out): place to store error (if any)
  *
@@ -75,18 +103,18 @@ gboolean check() {
  * Flushes all unused multipath device maps.
  */
 gboolean bd_mpath_flush_mpaths (GError **error) {
-    gchar *argv[3] = {"multipath", "-F", NULL};
+    const gchar *argv[3] = {"multipath", "-F", NULL};
     gboolean success = FALSE;
     gchar *output = NULL;
 
     /* try to flush the device maps */
-    success = bd_utils_exec_and_report_error (argv, error);
+    success = bd_utils_exec_and_report_error (argv, NULL, error);
     if (!success)
         return FALSE;
 
     /* list devices (there should be none) */
     argv[1] = "-ll";
-    success = bd_utils_exec_and_capture_output (argv, &output, error);
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
     if (success && output && (g_strcmp0 (output, "") != 0)) {
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_FLUSH,
                      "Some device cannot be flushed: %s", output);
@@ -98,7 +126,7 @@ gboolean bd_mpath_flush_mpaths (GError **error) {
     return TRUE;
 }
 
-static gchar* get_device_name (gchar *major_minor, GError **error) {
+static gchar* get_device_name (const gchar *major_minor, GError **error) {
     gchar *path = NULL;
     gchar *link = NULL;
     gchar *ret = NULL;
@@ -132,7 +160,7 @@ static gchar* get_device_name (gchar *major_minor, GError **error) {
     return ret;
 }
 
-static gboolean map_is_multipath (gchar *map_name, GError **error) {
+static gboolean map_is_multipath (const gchar *map_name, GError **error) {
     struct dm_task *task = NULL;
     struct dm_info info;
     guint64 start = 0;
@@ -186,7 +214,7 @@ static gboolean map_is_multipath (gchar *map_name, GError **error) {
     return ret;
 }
 
-static gchar** get_map_deps (gchar *map_name, GError **error) {
+static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **error) {
     struct dm_task *task;
     struct dm_deps *deps;
     guint64 major = 0;
@@ -249,6 +277,8 @@ static gchar** get_map_deps (gchar *map_name, GError **error) {
         g_free (major_minor);
     }
     dep_devs[deps->count] = NULL;
+    if (n_deps)
+        *n_deps = deps->count;
 
     dm_task_destroy (task);
     return dep_devs;
@@ -262,7 +292,7 @@ static gchar** get_map_deps (gchar *map_name, GError **error) {
  * Returns: %TRUE if the device is a multipath member, %FALSE if not or an error
  * appeared when queried (@error is set in those cases)
  */
-gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
+gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
     struct dm_task *task_names = NULL;
 	struct dm_names *names = NULL;
     gchar *symlink = NULL;
@@ -280,7 +310,7 @@ gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
     /* we check if the 'device' is a dependency of any multipath map  */
     /* get maps */
     task_names = dm_task_create(DM_DEVICE_LIST);
-	if (!task_names) {
+    if (!task_names) {
         g_warning ("Failed to create DM task");
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
                      "Failed to create DM task");
@@ -288,7 +318,7 @@ gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
     }
 
     dm_task_run(task_names);
-	names = dm_task_get_names(task_names);
+    names = dm_task_get_names(task_names);
 
     if (!names || !names->dev)
         return FALSE;
@@ -318,7 +348,7 @@ gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
 
         /* we are only interested in multipath maps */
         if (map_is_multipath (names->name, error)) {
-            deps = get_map_deps (names->name, error);
+            deps = get_map_deps (names->name, NULL, error);
             if (*error) {
                 g_prefix_error (error, "Failed to determine deps for '%s'", names->name);
                 g_free (symlink);
@@ -342,6 +372,90 @@ gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
 }
 
 /**
+ * bd_mpath_get_mpath_members:
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: (transfer full) (array zero-terminated=1): list of names of all devices that are
+ *                                                     members of the mpath mappings
+ *                                                     (or %NULL in case of error)
+ */
+gchar** bd_mpath_get_mpath_members (GError **error) {
+    struct dm_task *task_names = NULL;
+	struct dm_names *names = NULL;
+    guint64 next = 0;
+    gchar **deps = NULL;
+    gchar **dev_name = NULL;
+    guint64 n_deps = 0;
+    guint64 n_devs = 0;
+    guint64 top_dev = 0;
+    gchar **ret = NULL;
+    guint64 progress_id = 0;
+
+    progress_id = bd_utils_report_started ("Started getting mpath members");
+
+    if (geteuid () != 0) {
+        g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
+                     "Not running as root, cannot query DM maps");
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return NULL;
+    }
+
+    /* we check if the 'device' is a dependency of any multipath map  */
+    /* get maps */
+    task_names = dm_task_create(DM_DEVICE_LIST);
+	if (!task_names) {
+        g_warning ("Failed to create DM task");
+        g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
+                     "Failed to create DM task");
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return NULL;
+    }
+
+    dm_task_run(task_names);
+	names = dm_task_get_names(task_names);
+
+    if (!names || !names->dev) {
+        bd_utils_report_finished (progress_id, "Completed");
+        return NULL;
+    }
+
+    ret = g_new0 (gchar*, 1);
+    n_devs = 1;
+
+    /* check all maps */
+    do {
+        names = (void *)names + next;
+        next = names->next;
+
+        /* we are only interested in multipath maps */
+        if (map_is_multipath (names->name, error)) {
+            deps = get_map_deps (names->name, &n_deps, error);
+            if (*error) {
+                g_prefix_error (error, "Failed to determine deps for '%s'", names->name);
+                dm_task_destroy (task_names);
+                bd_utils_report_finished (progress_id, (*error)->message);
+                return NULL;
+            }
+            if (deps) {
+                n_devs += n_deps;
+                ret = g_renew (gchar*, ret, n_devs);
+                for (dev_name=deps; *dev_name; dev_name++) {
+                    ret[top_dev] = *dev_name;
+                    top_dev += 1;
+                }
+                g_free (deps);
+            }
+        }
+    } while (next);
+
+    ret[top_dev] = NULL;
+    bd_utils_report_finished (progress_id, "Completed");
+
+    return ret;
+}
+
+
+/**
  * bd_mpath_set_friendly_names:
  * @enabled: whether friendly names should be enabled or not
  * @error: (out): place to store error (if any)
@@ -349,8 +463,8 @@ gboolean bd_mpath_is_mpath_member (gchar *device, GError **error) {
  * Returns: if successfully set or not
  */
 gboolean bd_mpath_set_friendly_names (gboolean enabled, GError **error) {
-    gchar *argv[8] = {"mpathconf", "--find_multipaths", "y", "--user_friendly_names", NULL, "--with_multipathd", "y", NULL};
+    const gchar *argv[8] = {"mpathconf", "--find_multipaths", "y", "--user_friendly_names", NULL, "--with_multipathd", "y", NULL};
     argv[4] = enabled ? "y" : "n";
 
-    return bd_utils_exec_and_report_error (argv, error);
+    return bd_utils_exec_and_report_error (argv, NULL, error);
 }

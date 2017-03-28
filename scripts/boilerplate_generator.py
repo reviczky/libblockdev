@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python
 
 """
 Simple helper script generating boilerplate code for a set of functions in order
@@ -36,6 +36,9 @@ EB = 1000 * PB
 
 UNIT_MULTS = {"KiB": KiB, "MiB": MiB, "GiB": GiB, "TiB": TiB, "PiB": PiB, "EiB": EiB,
               "KB": KB, "MB": MB, "GB": GB, "TB": TB, "PB": PB, "EB": EB}
+
+# overrides for function prefixes not matching the modules' names
+MOD_FNAME_OVERRIDES = {"mdraid": "md"}
 
 def expand_size_constants(definitions):
     """
@@ -207,7 +210,7 @@ def get_funcs_info(fn_infos, module_name):
 def get_loading_func(fn_infos, module_name):
     # TODO: only error on functions provided by the plugin that fail to load
     # TODO: implement the 'gchar **errors' argument
-    ret =  'gpointer load_{0}_from_plugin(gchar *so_name) {{\n'.format(module_name)
+    ret =  'gpointer load_{0}_from_plugin(const gchar *so_name) {{\n'.format(module_name)
     ret += '    void *handle = NULL;\n'
     ret += '    char *error = NULL;\n'
     ret += '    gboolean (*check_fn) (void) = NULL;\n'
@@ -220,7 +223,7 @@ def get_loading_func(fn_infos, module_name):
     ret += '    }\n\n'
 
     ret += '    dlerror();\n'
-    ret += '    * (void**) (&check_fn) = dlsym(handle, "check");\n'
+    ret += '    * (void**) (&check_fn) = dlsym(handle, "bd_{0}_check_deps");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
     ret += '    if ((error = dlerror()) != NULL)\n'
     ret += '        g_debug("failed to load the check() function for {0}: %s", error);\n'.format(module_name)
     ret += '    if (check_fn && !check_fn()) {\n'
@@ -230,7 +233,7 @@ def get_loading_func(fn_infos, module_name):
     ret += '    check_fn = NULL;\n\n'
 
     ret += '    dlerror();\n'
-    ret += '    * (void**) (&init_fn) = dlsym(handle, "init");\n'
+    ret += '    * (void**) (&init_fn) = dlsym(handle, "bd_{0}_init");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
     ret += '    if ((error = dlerror()) != NULL)\n'
     ret += '        g_debug("failed to load the init() function for {0}: %s", error);\n'.format(module_name)
     ret += '    if (init_fn && !init_fn()) {\n'
@@ -252,11 +255,22 @@ def get_loading_func(fn_infos, module_name):
     return ret
 
 def get_unloading_func(fn_infos, module_name):
-    ret = 'gboolean unload_{0} (gpointer handle) {{\n'.format(module_name)
+    ret =  'gboolean unload_{0} (gpointer handle) {{\n'.format(module_name)
+    ret += '    char *error = NULL;\n'
+    ret += '    gboolean (*close_fn) (void) = NULL;\n\n'
+
+    # revert the functions to stubs
     for info in fn_infos:
-        # revert the functions to stubs
         ret += '    _{0.name} = {0.name}_stub;\n'.format(info)
+
     ret += '\n'
+    ret += '    dlerror();\n'
+    ret += '    * (void**) (&close_fn) = dlsym(handle, "bd_{0}_close");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
+    ret += '    if (((error = dlerror()) != NULL) || !close_fn)\n'
+    ret += '        g_debug("failed to load the close_plugin() function for {0}: %s", error);\n'.format(module_name)
+    ret += '    if (close_fn) {\n'
+    ret += '        close_fn();\n'
+    ret += '    }\n\n'
     ret += '    return dlclose(handle) == 0;\n'
     ret += '}\n\n'
 
@@ -272,7 +286,8 @@ def get_fn_code(fn_info):
 def get_fn_header(fn_info):
     return "{0.doc}{0.rtype} {0.name} ({0.args});\n\n".format(fn_info)
 
-def generate_source_header(api_file, out_dir):
+def generate_source_header(api_file, out_dir, skip_patterns=None):
+    skip_patterns = skip_patterns or list()
     file_name = os.path.basename(api_file)
     mod_name, dot, ext = file_name.partition(".")
     if not dot or ext != "api":
@@ -280,6 +295,15 @@ def generate_source_header(api_file, out_dir):
         return 1
 
     includes, items = process_file(open(api_file, "r"))
+    filtered = list()
+    for item in items:
+        if isinstance(item, FuncInfo):
+            if not any(re.search(pattern, item.name) for pattern in skip_patterns):
+                filtered.append(item)
+        elif not any(re.search(pattern, item) for pattern in skip_patterns):
+            filtered.append(item)
+    items = filtered
+
     nonapi_fn_infos = [item for item in items if isinstance(item, FuncInfo) and item.body]
     api_fn_infos = [item for item in items if isinstance(item, FuncInfo) and not item.body and item.doc]
     with open(os.path.join(out_dir, mod_name + ".c"), "w") as src_f:
@@ -307,17 +331,21 @@ def generate_source_header(api_file, out_dir):
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         print("Needs a file name and output directory, exitting.")
-        print("Usage: %s FILE_NAME OUTPUT_DIR" % sys.argv[0])
+        print("Usage: %s FILE_NAME OUTPUT_DIR [SKIP_PATTERNS]" % sys.argv[0])
         sys.exit(1)
 
     if not os.path.exists(sys.argv[1]):
         print("Input file '%s' doesn't exist" % sys.argv[1])
         sys.exit(1)
 
+    skip_patterns = None
+    if len(sys.argv) > 3:
+        skip_patterns = sys.argv[3:]
+
     out_dir = sys.argv[2]
     if not os.path.exists (out_dir):
         os.makedirs(out_dir)
 
-    status = generate_source_header(sys.argv[1], out_dir)
+    status = generate_source_header(sys.argv[1], out_dir, skip_patterns)
 
     sys.exit(status)

@@ -1,5 +1,5 @@
 #include <glib.h>
-#include <utils.h>
+#include <blockdev/utils.h>
 
 #ifndef BD_LVM
 #define BD_LVM
@@ -25,6 +25,8 @@
 #define BD_LVM_MAX_THPOOL_MD_SIZE (16 GiB)
 #define BD_LVM_MIN_THPOOL_CHUNK_SIZE (64 KiB)
 #define BD_LVM_MAX_THPOOL_CHUNK_SIZE (1 GiB)
+#define BD_LVM_DEFAULT_CHUNK_SIZE (64 KiB)
+
 #define THPOOL_MD_FACTOR_NEW (0.2)
 #define THPOOL_MD_FACTOR_EXISTS (1 / 6.0)
 
@@ -102,6 +104,15 @@ typedef struct BDLVMLVdata {
     guint64 size;
     gchar *attr;
     gchar *segtype;
+    gchar *origin;
+    gchar *pool_lv;
+    gchar *data_lv;
+    gchar *metadata_lv;
+    gchar *roles;
+    gchar *move_pv;
+    guint64 data_percent;
+    guint64 metadata_percent;
+    guint64 copy_percent;
 } BDLVMLVdata;
 
 void bd_lvm_lvdata_free (BDLVMLVdata *data);
@@ -124,64 +135,81 @@ typedef struct BDLVMCacheStats {
 void bd_lvm_cache_stats_free (BDLVMCacheStats *data);
 BDLVMCacheStats* bd_lvm_cache_stats_copy (BDLVMCacheStats *data);
 
+/*
+ * If using the plugin as a standalone library, the following functions should
+ * be called to:
+ *
+ * check_deps() - check plugin's dependencies, returning TRUE if satisfied
+ * init()       - initialize the plugin, returning TRUE on success
+ * close()      - clean after the plugin at the end or if no longer used
+ *
+ */
+gboolean bd_lvm_check_deps ();
+gboolean bd_lvm_init ();
+void bd_lvm_close ();
+
 gboolean bd_lvm_is_supported_pe_size (guint64 size, GError **error);
 guint64 *bd_lvm_get_supported_pe_sizes (GError **error);
 guint64 bd_lvm_get_max_lv_size (GError **error);
 guint64 bd_lvm_round_size_to_pe (guint64 size, guint64 pe_size, gboolean roundup, GError **error);
 guint64 bd_lvm_get_lv_physical_size (guint64 lv_size, guint64 pe_size, GError **error);
 guint64 bd_lvm_get_thpool_padding (guint64 size, guint64 pe_size, gboolean included, GError **error);
+guint64 bd_lvm_get_thpool_meta_size (guint64 size, guint64 chunk_size, guint64 n_snapshots, GError **error);
 gboolean bd_lvm_is_valid_thpool_md_size (guint64 size, GError **error);
 gboolean bd_lvm_is_valid_thpool_chunk_size (guint64 size, gboolean discard, GError **error);
 
-gboolean bd_lvm_pvcreate (gchar *device, guint64 data_alignment, guint64 metadata_size, GError **error);
-gboolean bd_lvm_pvresize (gchar *device, guint64 size, GError **error);
-gboolean bd_lvm_pvremove (gchar *device, GError **error);
-gboolean bd_lvm_pvmove (gchar *src, gchar *dest, GError **error);
-gboolean bd_lvm_pvscan (gchar *device, gboolean update_cache, GError **error);
-BDLVMPVdata* bd_lvm_pvinfo (gchar *device, GError **error);
+gboolean bd_lvm_pvcreate (const gchar *device, guint64 data_alignment, guint64 metadata_size, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_pvresize (const gchar *device, guint64 size, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_pvremove (const gchar *device, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_pvmove (const gchar *src, const gchar *dest, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_pvscan (const gchar *device, gboolean update_cache, const BDExtraArg **extra, GError **error);
+BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error);
 BDLVMPVdata** bd_lvm_pvs (GError **error);
 
-gboolean bd_lvm_vgcreate (gchar *name, gchar **pv_list, guint64 pe_size, GError **error);
-gboolean bd_lvm_vgremove (gchar *vg_name, GError **error);
-gboolean bd_lvm_vgrename (gchar *old_vg_name, gchar *new_vg_name, GError **error);
-gboolean bd_lvm_vgactivate (gchar *vg_name, GError **error);
-gboolean bd_lvm_vgdeactivate (gchar *vg_name, GError **error);
-gboolean bd_lvm_vgextend (gchar *vg_name, gchar *device, GError **error);
-gboolean bd_lvm_vgreduce (gchar *vg_name, gchar *device, GError **error);
-BDLVMVGdata* bd_lvm_vginfo (gchar *vg_name, GError **error);
+gboolean bd_lvm_vgcreate (const gchar *name, const gchar **pv_list, guint64 pe_size, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgremove (const gchar *vg_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgrename (const gchar *old_vg_name, const gchar *new_vg_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgactivate (const gchar *vg_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgdeactivate (const gchar *vg_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgextend (const gchar *vg_name, const gchar *device, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vgreduce (const gchar *vg_name, const gchar *device, const BDExtraArg **extra, GError **error);
+BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error);
 BDLVMVGdata** bd_lvm_vgs (GError **error);
 
-gchar* bd_lvm_lvorigin (gchar *vg_name, gchar *lv_name, GError **error);
-gboolean bd_lvm_lvcreate (gchar *vg_name, gchar *lv_name, guint64 size, gchar *type, gchar **pv_list, GError **error);
-gboolean bd_lvm_lvremove (gchar *vg_name, gchar *lv_name, gboolean force, GError **error);
-gboolean bd_lvm_lvrename (gchar *vg_name, gchar *lv_name, gchar *new_name, GError **error);
-gboolean bd_lvm_lvresize (gchar *vg_name, gchar *lv_name, guint64 size, GError **error);
-gboolean bd_lvm_lvactivate (gchar *vg_name, gchar *lv_name, gboolean ignore_skip, GError **error);
-gboolean bd_lvm_lvdeactivate (gchar *vg_name, gchar *lv_name, GError **error);
-gboolean bd_lvm_lvsnapshotcreate (gchar *vg_name, gchar *origin_name, gchar *snapshot_name, guint64 size, GError **error);
-gboolean bd_lvm_lvsnapshotmerge (gchar *vg_name, gchar *snapshot_name, GError **error);
-BDLVMLVdata* bd_lvm_lvinfo (gchar *vg_name, gchar *lv_name, GError **error);
-BDLVMLVdata** bd_lvm_lvs (gchar *vg_name, GError **error);
+gchar* bd_lvm_lvorigin (const gchar *vg_name, const gchar *lv_name, GError **error);
+gboolean bd_lvm_lvcreate (const gchar *vg_name, const gchar *lv_name, guint64 size, const gchar *type, const gchar **pv_list, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvremove (const gchar *vg_name, const gchar *lv_name, gboolean force, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvrename (const gchar *vg_name, const gchar *lv_name, const gchar *new_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvresize (const gchar *vg_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean ignore_skip, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvdeactivate (const gchar *vg_name, const gchar *lv_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvsnapshotcreate (const gchar *vg_name, const gchar *origin_name, const gchar *snapshot_name, guint64 size, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvsnapshotmerge (const gchar *vg_name, const gchar *snapshot_name, const BDExtraArg **extra, GError **error);
+BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError **error);
+BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error);
 
-gboolean bd_lvm_thpoolcreate (gchar *vg_name, gchar *lv_name, guint64 size, guint64 md_size, guint64 chunk_size, gchar *profile, GError **error);
-gboolean bd_lvm_thlvcreate (gchar *vg_name, gchar *pool_name, gchar *lv_name, guint64 size, GError **error);
-gchar* bd_lvm_thlvpoolname (gchar *vg_name, gchar *lv_name, GError **error);
-gboolean bd_lvm_thsnapshotcreate (gchar *vg_name, gchar *origin_name, gchar *snapshot_name, gchar *pool_name, GError **error);
-gboolean bd_lvm_set_global_config (gchar *new_config, GError **error);
+gboolean bd_lvm_thpoolcreate (const gchar *vg_name, const gchar *lv_name, guint64 size, guint64 md_size, guint64 chunk_size, const gchar *profile, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_thlvcreate (const gchar *vg_name, const gchar *pool_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error);
+gchar* bd_lvm_thlvpoolname (const gchar *vg_name, const gchar *lv_name, GError **error);
+gboolean bd_lvm_thsnapshotcreate (const gchar *vg_name, const gchar *origin_name, const gchar *snapshot_name, const gchar *pool_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_set_global_config (const gchar *new_config, GError **error);
 gchar* bd_lvm_get_global_config (GError **error);
 
 guint64 bd_lvm_cache_get_default_md_size (guint64 cache_size, GError **error);
 const gchar* bd_lvm_cache_get_mode_str (BDLVMCacheMode mode, GError **error);
-BDLVMCacheMode bd_lvm_cache_get_mode_from_str (gchar *mode_str, GError **error);
-gboolean bd_lvm_cache_create_pool (gchar *vg_name, gchar *pool_name, guint64 pool_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags, gchar **fast_pvs, GError **error);
-gboolean bd_lvm_cache_attach (gchar *vg_name, gchar *data_lv, gchar *cache_pool_lv, GError **error);
-gboolean bd_lvm_cache_detach (gchar *vg_name, gchar *cached_lv, gboolean destroy, GError **error);
-gboolean bd_lvm_cache_create_cached_lv (gchar *vg_name, gchar *lv_name, guint64 data_size, guint64 cache_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags,
-                                        gchar **slow_pvs, gchar **fast_pvs, GError **error);
-gchar* bd_lvm_cache_pool_name (gchar *vg_name, gchar *cached_lv, GError **error);
-BDLVMCacheStats* bd_lvm_cache_stats (gchar *vg_name, gchar *cached_lv, GError **error);
+BDLVMCacheMode bd_lvm_cache_get_mode_from_str (const gchar *mode_str, GError **error);
+gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name, guint64 pool_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags, const gchar **fast_pvs, GError **error);
+gboolean bd_lvm_cache_attach (const gchar *vg_name, const gchar *data_lv, const gchar *cache_pool_lv, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_cache_detach (const gchar *vg_name, const gchar *cached_lv, gboolean destroy, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_cache_create_cached_lv (const gchar *vg_name, const gchar *lv_name, guint64 data_size, guint64 cache_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags,
+                                        const gchar **slow_pvs, const gchar **fast_pvs, GError **error);
+gchar* bd_lvm_cache_pool_name (const gchar *vg_name, const gchar *cached_lv, GError **error);
+BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_lv, GError **error);
 
-gchar* bd_lvm_data_lv_name (gchar *vg_name, gchar *lv_name, GError **error);
-gchar* bd_lvm_metadata_lv_name (gchar *vg_name, gchar *lv_name, GError **error);
+gchar* bd_lvm_data_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error);
+gchar* bd_lvm_metadata_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error);
+
+gboolean bd_lvm_thpool_convert (const gchar *vg_name, const gchar *data_lv, const gchar *metadata_lv, const gchar *name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_cache_pool_convert (const gchar *vg_name, const gchar *data_lv, const gchar *metadata_lv, const gchar *name, const BDExtraArg **extra, GError **error);
 
 #endif /* BD_LVM */

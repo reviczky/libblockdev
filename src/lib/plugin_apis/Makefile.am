@@ -4,8 +4,8 @@ HEADER_FILES := $(patsubst %.api,%.h,${API_FILES})
 
 all-local: generate_boilerplate
 
-%.c %.h: %.api
-	${srcdir}/../../../scripts/boilerplate_generator.py $*.api ./
+%.c %.h: %.api ${srcdir}/../../../scripts/boilerplate_generator.py
+	${srcdir}/../../../scripts/boilerplate_generator.py $*.api ./ ${skip_patterns}
 
 generate_boilerplate: ${SOURCE_FILES} ${HEADER_FILES}
 

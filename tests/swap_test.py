@@ -2,7 +2,7 @@ import unittest
 import os
 import overrides_hack
 
-from utils import create_sparse_tempfile, fake_utils, fake_path
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path
 from gi.repository import BlockDev, GLib
 if not BlockDev.is_initialized():
     BlockDev.init(None, None)
@@ -11,10 +11,10 @@ class SwapTestCase(unittest.TestCase):
     def setUp(self):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("swap_test", 1024**3)
-        succ, loop = BlockDev.loop_setup(self.dev_file)
-        if  not succ:
-            raise RuntimeError("Failed to setup loop device for testing")
-        self.loop_dev = "/dev/%s" % loop
+        try:
+            self.loop_dev = create_lio_device(self.dev_file)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
     def _clean_up(self):
         try:
@@ -22,18 +22,18 @@ class SwapTestCase(unittest.TestCase):
         except:
             pass
 
-        succ = BlockDev.loop_teardown(self.loop_dev)
-        if  not succ:
-            os.unlink(self.dev_file)
-            raise RuntimeError("Failed to tear down loop device used for testing")
-
+        try:
+            delete_lio_device(self.loop_dev)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
         os.unlink(self.dev_file)
 
     def test_all(self):
         """Verify that swap_* functions work as expected"""
 
         with self.assertRaises(GLib.GError):
-            BlockDev.swap_mkswap("/non/existing/device", None)
+            BlockDev.swap_mkswap("/non/existing/device", None, None)
 
         with self.assertRaises(GLib.GError):
             BlockDev.swap_swapon("/non/existing/device", -1)
@@ -54,7 +54,7 @@ class SwapTestCase(unittest.TestCase):
         self.assertFalse(on)
 
         # the common/expected sequence of calls
-        succ = BlockDev.swap_mkswap(self.loop_dev, None)
+        succ = BlockDev.swap_mkswap(self.loop_dev, None, None)
         self.assertTrue(succ)
 
         succ = BlockDev.swap_swapon(self.loop_dev, -1)
@@ -76,7 +76,7 @@ class SwapTestCase(unittest.TestCase):
     def test_mkswap_with_label(self):
         """Verify that mkswap with label works as expected"""
 
-        succ = BlockDev.swap_mkswap(self.loop_dev, "TestBlockDevSwap")
+        succ = BlockDev.swap_mkswap(self.loop_dev, "TestBlockDevSwap", None)
         self.assertTrue(succ)
 
         os.path.exists ("/dev/disk/by-label/TestBlockDevSwap")
@@ -111,40 +111,6 @@ class SwapUnloadTest(unittest.TestCase):
         self.assertTrue(BlockDev.reinit([], True, None))
 
         with fake_path():
-            # no mkswap available, the swap plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(None, True, None)
-
-            self.assertNotIn("swap", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(None, True, None))
-        self.assertIn("swap", BlockDev.get_available_plugin_names())
-
-    def test_check_no_swapon(self):
-        """Verify that checking swapon tool availability works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_path("tests/swap_no_swapon", keep_utils=["cat"]):
-            # no mkswap available, the swap plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(None, True, None)
-
-            self.assertNotIn("swap", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(None, True, None))
-        self.assertIn("swap", BlockDev.get_available_plugin_names())
-
-    def test_check_no_swapoff(self):
-        """Verify that checking swapoff tool availability works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_path("tests/swap_no_swapoff", keep_utils=["cat"]):
             # no mkswap available, the swap plugin should fail to load
             with self.assertRaises(GLib.GError):
                 BlockDev.reinit(None, True, None)
