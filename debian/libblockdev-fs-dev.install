@@ -1,0 +1,2 @@
+usr/lib/*/libbd_fs.so
+usr/include/blockdev/fs.h

@@ -147,6 +147,25 @@ Description: Development files for the libblockdev-dm plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-dm plugin/library.
 
+Package: libblockdev-fs0
+Section: libs
+Architecture: any
+Depends: ${misc:Depends}, ${shlibs:Depends}
+Description: file system plugin for the libblockdev library
+ The libblockdev library plugin (and in the same time a standalone library)
+ providing the functionality related to operations with file systems
+
+Package: libblockdev-fs-dev
+Section: libdevel
+Architecture: any
+Depends: libblockdev-fs0 (= ${binary:Version}),
+         libparted-dev,
+         libmount-dev,
+         libblkid-dev
+Description: Development files for the libblockdev-fs plugin/library
+ This package contains header files and pkg-config files needed for development
+ with the libblockdev-fs plugin/library.
+
 Package: libblockdev-kbd0
 Section: libs
 Architecture: any
@@ -250,6 +269,9 @@ Depends: libblockdev-mpath0 (= ${binary:Version}),
 Description: Development files for the libblockdev-mpath plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-mpath plugin/library.
+
+# Package: libblockdev-part
+# Package: libblockdev-part-dev
 
 Package: libblockdev-swap0
 Section: libs
