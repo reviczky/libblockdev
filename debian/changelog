@@ -1,10 +1,11 @@
-libblockdev (1.4-5) UNRELEASED; urgency=medium
+libblockdev (2.6-1) UNRELEASED; urgency=medium
 
   * Initial import into Debian from phatina ubuntu PPA.
   * Drop debian/*.dirs, not needed.
   * Drop generated and broken debian/*.{postinst,postrm}
   * Add debian/gbp.conf
   * Add debian/watch
+  * New upstream release.
 
  -- Andreas Henriksson <andreas@fatal.se>  Tue, 28 Mar 2017 20:23:44 +0200
 
