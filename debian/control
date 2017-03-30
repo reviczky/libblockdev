@@ -29,7 +29,7 @@ Homepage: https://github.com/rhinstaller/libblockdev
 #Vcs-Git: git://anonscm.debian.org/collab-maint/libblockdev.git
 #Vcs-Browser: https://anonscm.debian.org/gitweb/?p=collab-maint/libblockdev.git;a=summary
 
-Package: libblockdev0
+Package: libblockdev2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
@@ -46,7 +46,7 @@ Description: Library for manipulating block devices.
 Package: libblockdev-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev0 (= ${binary:Version}),
+Depends: libblockdev2 (= ${binary:Version}),
          ${misc:Depends}
 Description: Development files for libblockdev
  This package contains header files and pkg-config files needed for development
@@ -55,7 +55,7 @@ Description: Development files for libblockdev
 Package: python-blockdev
 Section: python
 Architecture: all
-Depends: libblockdev0 (= ${binary:Version}),
+Depends: libblockdev2 (= ${binary:Version}),
          ${python2:Depends},
          ${shlibs:Depends},
          ${misc:Depends}
@@ -66,7 +66,7 @@ Description: Python2 gobject-introspection bindings for libblockdev
 Package: python3-blockdev
 Section: python
 Architecture: all
-Depends: libblockdev0 (= ${binary:Version}),
+Depends: libblockdev2 (= ${binary:Version}),
          ${python3:Depends},
          ${shlibs:Depends},
          ${misc:Depends}
@@ -74,7 +74,7 @@ Description: Python3 gobject-introspection bindings for libblockdev
  This package contains enhancements to the gobject-introspection bindings for
  libblockdev in Python3.
 
-Package: libblockdev-utils0
+Package: libblockdev-utils2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
@@ -86,19 +86,19 @@ Description: Library with utility functions for the libblockdev library
 Package: libblockdev-utils-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-utils0 (= ${binary:Version}),
+Depends: libblockdev-utils2 (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Development files for libblockdev-utils
  This package contains header files and pkg-config files needed for development
  with the libblockdev-utils library.
 
-Package: libblockdev-btrfs0
+Package: libblockdev-btrfs2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          btrfs-tools
 Description: BTRFS plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -107,7 +107,7 @@ Description: BTRFS plugin for the libblockdev library
 Package: libblockdev-btrfs-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-btrfs0 (= ${binary:Version}),
+Depends: libblockdev-btrfs2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -115,7 +115,7 @@ Description: Development files for the libblockdev-btrfs plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-btrfs plugin/library.
 
-Package: libblockdev-crypto0
+Package: libblockdev-crypto2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
@@ -127,19 +127,19 @@ Description: Crypto plugin for the libblockdev library
 Package: libblockdev-crypto-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-crypto0 (= ${binary:Version}),
+Depends: libblockdev-crypto2 (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Development files for the libblockdev-crypto plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-crypto plugin/library.
 
-Package: libblockdev-dm0
+Package: libblockdev-dm2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          libdevmapper, dmraid
 Description: Device Mapper plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -148,7 +148,7 @@ Description: Device Mapper plugin for the libblockdev library
 Package: libblockdev-dm-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-dm0 (= ${binary:Version}),
+Depends: libblockdev-dm2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          libdevmapper-dev,
@@ -159,7 +159,7 @@ Description: Development files for the libblockdev-dm plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-dm plugin/library.
 
-Package: libblockdev-fs0
+Package: libblockdev-fs2
 Section: libs
 Architecture: any
 Depends: ${misc:Depends}, ${shlibs:Depends}
@@ -170,7 +170,7 @@ Description: file system plugin for the libblockdev library
 Package: libblockdev-fs-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-fs0 (= ${binary:Version}),
+Depends: libblockdev-fs2 (= ${binary:Version}),
          libparted-dev,
          libmount-dev,
          libblkid-dev,
@@ -179,12 +179,12 @@ Description: Development files for the libblockdev-fs plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-fs plugin/library.
 
-Package: libblockdev-kbd0
+Package: libblockdev-kbd2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          bcache-tools (>= 1.0.8)
 Description: KBD plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -194,7 +194,7 @@ Description: KBD plugin for the libblockdev library
 Package: libblockdev-kbd-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-kbd0 (= ${binary:Version}),
+Depends: libblockdev-kbd2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -202,12 +202,12 @@ Description: Development files for the libblockdev-kbd plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-kbd plugin/library.
 
-Package: libblockdev-loop0
+Package: libblockdev-loop2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          util-linux
 Description: Loop plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -216,7 +216,7 @@ Description: Loop plugin for the libblockdev library
 Package: libblockdev-loop-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-loop0 (= ${binary:Version}),
+Depends: libblockdev-loop2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -224,12 +224,12 @@ Description: Development files for the libblockdev-loop plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-loop plugin/library.
 
-Package: libblockdev-lvm0
+Package: libblockdev-lvm2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          lvm2
 Description: LVM plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -238,7 +238,7 @@ Description: LVM plugin for the libblockdev library
 Package: libblockdev-lvm-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-lvm0 (= ${binary:Version}),
+Depends: libblockdev-lvm2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -249,12 +249,12 @@ Description: Development files for the libblockdev-lvm plugin/library
 #Package: libblockdev-lvm-dbus0
 #Package: libblockdev-lvm-dbus-dev
 
-Package: libblockdev-mdraid0
+Package: libblockdev-mdraid2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          mdadm
 Description: MD RAID plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -263,7 +263,7 @@ Description: MD RAID plugin for the libblockdev library
 Package: libblockdev-mdraid-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-mdraid0 (= ${binary:Version}),
+Depends: libblockdev-mdraid2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -271,12 +271,12 @@ Description: Development files for the libblockdev-mdraid plugin/library
  This package contains header files and pkg-config files needed for development
  with the libblockdev-mdraid plugin/library.
 
-Package: libblockdev-mpath0
+Package: libblockdev-mpath2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          multipath-tools
 Description: multipath plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -285,7 +285,7 @@ Description: multipath plugin for the libblockdev library
 Package: libblockdev-mpath-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-mpath0 (= ${binary:Version}),
+Depends: libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -296,12 +296,12 @@ Description: Development files for the libblockdev-mpath plugin/library
 # Package: libblockdev-part
 # Package: libblockdev-part-dev
 
-Package: libblockdev-swap0
+Package: libblockdev-swap2
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils0 (>= 0.11),
+         libblockdev-utils2 (>= 0.11),
          util-linux
 Description: Swap plugin for the libblockdev library
  The libblockdev library plugin (and in the same time a standalone library)
@@ -310,7 +310,7 @@ Description: Swap plugin for the libblockdev library
 Package: libblockdev-swap-dev
 Section: libdevel
 Architecture: any
-Depends: libblockdev-swap0 (= ${binary:Version}),
+Depends: libblockdev-swap2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -324,16 +324,16 @@ Description: Development files for the libblockdev-swap plugin/library
 Package: libblockdev-plugins-all
 Section: libs
 Architecture: any
-Depends: libblockdev0 (= ${binary:Version}),
-         libblockdev-btrfs0 (= ${binary:Version}),
-         libblockdev-crypto0 (= ${binary:Version}),
-         libblockdev-dm0 (= ${binary:Version}),
-         libblockdev-kbd0 (= ${binary:Version}),
-         libblockdev-loop0 (= ${binary:Version}),
-         libblockdev-lvm0 (= ${binary:Version}),
-         libblockdev-mdraid0 (= ${binary:Version}),
-         libblockdev-mpath0 (= ${binary:Version}),
-         libblockdev-swap0 (= ${binary:Version}),
+Depends: libblockdev2 (= ${binary:Version}),
+         libblockdev-btrfs2 (= ${binary:Version}),
+         libblockdev-crypto2 (= ${binary:Version}),
+         libblockdev-dm2 (= ${binary:Version}),
+         libblockdev-kbd2 (= ${binary:Version}),
+         libblockdev-loop2 (= ${binary:Version}),
+         libblockdev-lvm2 (= ${binary:Version}),
+         libblockdev-mdraid2 (= ${binary:Version}),
+         libblockdev-mpath2 (= ${binary:Version}),
+         libblockdev-swap2 (= ${binary:Version}),
          ${misc:Depends}
 Description: Meta-package that pulls all the libblockdev plugins as dependencies
  A meta-package that pulls all the libblockdev plugins as dependencies.
