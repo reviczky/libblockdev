@@ -93,6 +93,25 @@ Description: Development files for libblockdev-utils
  This package contains header files and pkg-config files needed for development
  with the libblockdev-utils library.
 
+Package: libblockdev-part-err2
+Section: libs
+Architecture: any
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Description: Library with part error utility functions for the libblockdev library
+ The libblockdev-part-err is a library providing utility functions used by the
+ libblockdev library and its plugins.
+
+Package: libblockdev-part-err-dev
+Section: libdevel
+Architecture: any
+Depends: libblockdev-part-err2 (= ${binary:Version}),
+         libglib2.0-dev,
+         ${misc:Depends}
+Description: Development files for libblockdev-part-err
+ This package contains header files and pkg-config files needed for development
+ with the libblockdev-part-err library.
+
 Package: libblockdev-btrfs2
 Section: libs
 Architecture: any
