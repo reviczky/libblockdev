@@ -376,12 +376,17 @@ Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-btrfs2 (= ${binary:Version}),
          libblockdev-crypto2 (= ${binary:Version}),
          libblockdev-dm2 (= ${binary:Version}),
+         libblockdev-fs2 (= ${binary:Version}),
          libblockdev-kbd2 (= ${binary:Version}),
          libblockdev-loop2 (= ${binary:Version}),
          libblockdev-lvm2 (= ${binary:Version}),
+         libblockdev-lvm-dbus2 (= ${binary:Version}),
          libblockdev-mdraid2 (= ${binary:Version}),
          libblockdev-mpath2 (= ${binary:Version}),
+         libblockdev-part2 (= ${binary:Version}),
+         libblockdev-part-err2 (= ${binary:Version}),
          libblockdev-swap2 (= ${binary:Version}),
+         libblockdev-utils2 (= ${binary:Version}),
          ${misc:Depends}
 Description: Meta-package that pulls all the libblockdev plugins as dependencies
  A meta-package that pulls all the libblockdev plugins as dependencies.
