@@ -26,8 +26,8 @@ Build-Depends: debhelper (>= 9), autotools-dev, libtool,
                pylint
 Standards-Version: 3.9.8
 Homepage: https://github.com/rhinstaller/libblockdev
-#Vcs-Git: git://anonscm.debian.org/collab-maint/libblockdev.git
-#Vcs-Browser: https://anonscm.debian.org/gitweb/?p=collab-maint/libblockdev.git;a=summary
+Vcs-Git: https://anonscm.debian.org/git/pkg-utopia/libblockdev.git
+Vcs-Browser: https://anonscm.debian.org/git/pkg-utopia/libblockdev.git
 
 Package: libblockdev2
 Section: libs
