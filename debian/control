@@ -1,7 +1,8 @@
 Source: libblockdev
 Section: libs
 Priority: optional
-Maintainer: Peter Hatina <phatina@redhat.com>
+Maintainer: Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>
+Uploaders: Andreas Henriksson <andreas@fatal.se>
 Build-Depends: debhelper (>= 9), autotools-dev, libtool,
                dh-python,
                dh-autoreconf,
