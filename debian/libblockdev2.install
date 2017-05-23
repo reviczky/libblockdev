@@ -1,3 +1,2 @@
 usr/lib/*/libblockdev.so.*
-usr/lib/*/girepository*/BlockDev*.typelib
 etc/libblockdev/conf.d/00-default.cfg
