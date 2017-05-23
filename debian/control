@@ -6,6 +6,7 @@ Uploaders: Andreas Henriksson <andreas@fatal.se>, Martin Pitt <mpitt@debian.org>
 Build-Depends: debhelper (>= 9), autotools-dev, libtool,
                dh-python,
                dh-autoreconf,
+               python:any,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
                libgirepository1.0-dev,
