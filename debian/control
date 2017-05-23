@@ -77,7 +77,8 @@ Description: libblockdev introspection data
 Package: python-blockdev
 Section: python
 Architecture: all
-Depends: libblockdev2 (= ${binary:Version}),
+Depends: libblockdev2 (>= ${source:Version}),
+         libblockdev2 (<< ${source:Version}.1~),
          ${python2:Depends},
          ${shlibs:Depends},
          ${misc:Depends}
@@ -88,7 +89,8 @@ Description: Python 2 gobject-introspection bindings for libblockdev
 Package: python3-blockdev
 Section: python
 Architecture: all
-Depends: libblockdev2 (= ${binary:Version}),
+Depends: libblockdev2 (>= ${source:Version}),
+         libblockdev2 (<< ${source:Version}.1~),
          ${python3:Depends},
          ${shlibs:Depends},
          ${misc:Depends}
