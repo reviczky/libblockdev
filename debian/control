@@ -389,7 +389,6 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          libblockdev-utils2 (>= 0.11),
-         util-linux
 Description: Swap plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to swap devices.
