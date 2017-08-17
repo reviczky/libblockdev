@@ -53,7 +53,7 @@ Package: libblockdev-dev
 Section: libdevel
 Architecture: any
 Depends: libblockdev2 (= ${binary:Version}),
-         gir1.2-blockdev-1.0 (= ${binary:Version}),
+         gir1.2-blockdev-2.0 (= ${binary:Version}),
          ${misc:Depends}
 Description: Library for manipulating block devices - development
  libblockdev is a C library with GObject introspection support that can be used
@@ -63,7 +63,7 @@ Description: Library for manipulating block devices - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev library.
 
-Package: gir1.2-blockdev-1.0
+Package: gir1.2-blockdev-2.0
 Section: introspection
 Architecture: any
 Multi-Arch: same
