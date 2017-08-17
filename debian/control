@@ -3,9 +3,9 @@ Section: libs
 Priority: optional
 Maintainer: Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>
 Uploaders: Andreas Henriksson <andreas@fatal.se>, Martin Pitt <mpitt@debian.org>
-Build-Depends: debhelper (>= 9), autotools-dev, libtool,
+Build-Depends: debhelper (>= 10),
+               libtool,
                dh-python,
-               dh-autoreconf,
                python:any,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
