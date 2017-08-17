@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: libblockdev
-Source: https://github.com/rhinstaller/libblockdev
+Source: https://github.com/storaged-project/libblockdev
 
 Files: *
 Copyright: 2014 Vratislav Podzimek <vpodzime@redhat.com>
