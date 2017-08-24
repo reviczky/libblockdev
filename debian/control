@@ -144,7 +144,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         btrfs-tools
+         btrfs-progs
 Description: BTRFS plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the BTRFS-related functionality.
