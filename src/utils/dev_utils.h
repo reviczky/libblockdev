@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014  Red Hat, Inc.
+ * Copyright (C) 2017  Red Hat, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,25 +14,22 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
- * Author: Vojtech Trefny <vtrefny@redhat.com>
+ * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
 
 #include <glib.h>
-#include <parted/parted.h>
 
-#include "part_err.h"
+#ifndef BD_UTILS_DEV_UTILS
+#define BD_UTILS_DEV_UTILS
 
-static __thread gchar *error_msg = NULL;
+GQuark bd_utils_dev_utils_error_quark (void);
+#define BD_UTILS_DEV_UTILS_ERROR bd_utils_dev_utils_error_quark ()
 
-PedExceptionOption bd_exc_handler (PedException *ex) {
-    if (ex->type <= PED_EXCEPTION_WARNING && (ex->options & PED_EXCEPTION_IGNORE) != 0) {
-      g_warning ("[parted] %s", ex->message);
-      return PED_EXCEPTION_IGNORE;
-    }
-    error_msg = g_strdup (ex->message);
-    return PED_EXCEPTION_UNHANDLED;
-}
+typedef enum {
+    BD_UTILS_DEV_UTILS_ERROR_FAILED,
+} BDUtilsDevUtilsError;
 
-gchar * bd_get_error_msg () {
-  return g_strdup (error_msg);
-}
+gchar* bd_utils_resolve_device (const gchar *dev_spec, GError **error);
+gchar** bd_utils_get_device_symlinks (const gchar *dev_spec, GError **error);
+
+#endif  /* BD_UTILS_DEV_UTILS */

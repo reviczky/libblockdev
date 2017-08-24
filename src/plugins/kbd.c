@@ -24,6 +24,7 @@
 #include <unistd.h>
 #include <locale.h>
 #include <blockdev/utils.h>
+#include <stdio.h>
 
 #include "kbd.h"
 
@@ -521,6 +522,150 @@ gboolean bd_kbd_zram_remove_device (const gchar *device, GError **error) {
     return success;
 }
 
+/* Get the zRAM stats using the "old" sysfs files --  /sys/block/zram<id>/num_reads,
+   /sys/block/zram<id>/invalid_io etc. */
+static gboolean get_zram_stats_old (const gchar *device, BDKBDZramStats* stats, GError **error) {
+    gchar *path = NULL;
+
+    path = g_strdup_printf ("/sys/block/%s/num_reads", device);
+    stats->num_reads = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'num_reads' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/num_writes", device);
+    stats->num_writes = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'num_writes' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/invalid_io", device);
+    stats->invalid_io = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'invalid_io' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/zero_pages", device);
+    stats->zero_pages = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'zero_pages' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/orig_data_size", device);
+    stats->orig_data_size = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'orig_data_size' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/compr_data_size", device);
+    stats->compr_data_size = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'compr_data_size' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/mem_used_total", device);
+    stats->mem_used_total = get_number_from_file (path, error);
+    g_free (path);
+    if (*error) {
+        g_clear_error (error);
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'mem_used_total' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+/* Get the zRAM stats using the "new" sysfs files -- /sys/block/zram<id>/stat,
+  /sys/block/zram<id>/io_stat etc. */
+static gboolean get_zram_stats_new (const gchar *device, BDKBDZramStats* stats, GError **error) {
+    gchar *path = NULL;
+    gboolean success = FALSE;
+    gint scanned = 0;
+    gchar *content = NULL;
+
+    path = g_strdup_printf ("/sys/block/%s/stat", device);
+    success = g_file_get_contents (path, &content, NULL, error);
+    g_free (path);
+    if (!success) {
+        /* error is already populated */
+        return FALSE;
+    }
+
+    scanned = sscanf (content,
+                      "%*[ \t]%" G_GUINT64_FORMAT "%*[ \t]%*[0-9]%*[ \t]%*[0-9]%*[ \t]%*[0-9]%" G_GUINT64_FORMAT "",
+                      &stats->num_reads, &stats->num_writes);
+    g_free (content);
+    if (scanned != 2) {
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'stat' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/io_stat", device);
+    success = g_file_get_contents (path, &content, NULL, error);
+    g_free (path);
+    if (!success) {
+        /* error is already populated */
+        return FALSE;
+    }
+
+    scanned = sscanf (content,
+                      "%*[ \t]%*[0-9]%*[ \t]%*[0-9]%*[ \t]%" G_GUINT64_FORMAT "",
+                      &stats->invalid_io);
+    g_free (content);
+    if (scanned != 1) {
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'io_stat' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    path = g_strdup_printf ("/sys/block/%s/mm_stat", device);
+    success = g_file_get_contents (path, &content, NULL, error);
+    g_free (path);
+    if (!success) {
+        /* error is already populated */
+        return FALSE;
+    }
+
+    scanned = sscanf (content,
+                      "%*[ \t]%" G_GUINT64_FORMAT "%*[ \t]%" G_GUINT64_FORMAT "%*[ \t]%" G_GUINT64_FORMAT \
+                      "%*[ \t]%*[0-9]%*[ \t]%" G_GUINT64_FORMAT "",
+                      &stats->orig_data_size, &stats->compr_data_size, &stats->mem_used_total, &stats->zero_pages);
+    g_free (content);
+    if (scanned != 4) {
+        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
+                     "Failed to get 'mm_stat' for '%s' zRAM device", device);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
 
 /**
  * bd_kbd_zram_get_stats:
@@ -557,49 +702,6 @@ BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
         return NULL;
     }
 
-    path = g_strdup_printf ("/sys/block/%s/num_reads", device);
-    ret->num_reads = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'num_reads' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/num_writes", device);
-    ret->num_writes = get_number_from_file (path, error);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'num_writes' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/invalid_io", device);
-    ret->invalid_io = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'invalid_io' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/zero_pages", device);
-    ret->zero_pages = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'zero_pages' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
     path = g_strdup_printf ("/sys/block/%s/max_comp_streams", device);
     ret->max_comp_streams = get_number_from_file (path, error);
     g_free (path);
@@ -607,39 +709,6 @@ BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
         g_clear_error (error);
         g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
                      "Failed to get 'max_comp_streams' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/orig_data_size", device);
-    ret->orig_data_size = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'orig_data_size' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/compr_data_size", device);
-    ret->compr_data_size = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'compr_data_size' for '%s' zRAM device", device);
-        g_free (ret);
-        return NULL;
-    }
-
-    path = g_strdup_printf ("/sys/block/%s/mem_used_total", device);
-    ret->mem_used_total = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
-                     "Failed to get 'mem_used_total' for '%s' zRAM device", device);
         g_free (ret);
         return NULL;
     }
@@ -658,11 +727,41 @@ BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
     /* remove the trailing space and newline */
     g_strstrip (ret->comp_algorithm);
 
+    /* We need to read stats from different files on new and old kernels.
+       e.g. "num_reads" exits only on old kernels and "stat" (that replaces
+       "num_reads/writes/etc.") exists only on newer kernels.
+    */
+    path = g_strdup_printf ("/sys/block/%s/num_reads", device);
+    if (g_file_test (path, G_FILE_TEST_EXISTS))
+      success = get_zram_stats_old (device, ret, error);
+    else
+      success = get_zram_stats_new (device, ret, error);
+    g_free (path);
+
+    if (!success) {
+        /* error is already populated */
+        g_free (ret);
+        return NULL;
+    }
+
     return ret;
 }
 
 
 #ifdef WITH_BD_BCACHE
+
+gboolean wait_for_file (const char *filename) {
+    gint count = 500;
+    while (count > 0) {
+        g_usleep (100000); /* microseconds */
+        if (g_file_test (filename, G_FILE_TEST_EXISTS)) {
+            return TRUE;
+        }
+        --count;
+    }
+    return FALSE;
+}
+
 /**
  * bd_kbd_bcache_create:
  * @backing_device: backing (slow) device of the cache
@@ -681,17 +780,16 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
     gchar **lines = NULL;
     GRegex *regex = NULL;
     GMatchInfo *match_info = NULL;
-    gchar *set_uuid = NULL;
     guint i = 0;
-    gboolean found = FALSE;
     glob_t globbuf;
     gchar *pattern = NULL;
     gchar *path = NULL;
     gchar *dev_name = NULL;
     gchar *dev_name_end = NULL;
-    guint n_retry = 5;
     guint64 progress_id = 0;
     gchar *msg = NULL;
+    guint n = 0;
+    gchar device_uuid[2][64];
 
     msg = g_strdup_printf ("Started creation of bcache on '%s' and '%s'", backing_device, cache_device);
     progress_id = bd_utils_report_started (msg);
@@ -710,7 +808,7 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
 
     lines = g_strsplit (output, "\n", 0);
 
-    regex = g_regex_new ("Set UUID:\\s+([-a-z0-9]+)", 0, 0, error);
+    regex = g_regex_new ("^UUID:\\s+([-a-z0-9]+)", 0, 0, error);
     if (!regex) {
         /* error is already populated */
         g_free (output);
@@ -719,55 +817,42 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
         return FALSE;
     }
 
-    for (i=0; !found && lines[i]; i++) {
+    for (i=0; lines[i] && n < 2; i++) {
         success = g_regex_match (regex, lines[i], 0, &match_info);
         if (success) {
-            found = TRUE;
-            set_uuid = g_match_info_fetch (match_info, 1);
+            strcpy (device_uuid[n++], g_match_info_fetch (match_info, 1));
+            g_match_info_free (match_info);
         }
-        g_match_info_free (match_info);
     }
     g_regex_unref (regex);
     g_strfreev (lines);
 
-    if (!found) {
+    if (n != 2) {
         g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_BCACHE_PARSE,
-                     "Failed to determine Set UUID from: %s", output);
+                     "Failed to determine UUIDs from: %s", output);
         g_free (output);
         bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
     g_free (output);
 
+    /* Wait for the symlinks to show up, would it be better to do a udev settle? */
+    for (i=0; i < 2; i++) {
+        const char *uuid_file = g_strdup_printf ("/dev/disk/by-uuid/%s", device_uuid[i]);
+        gboolean present = wait_for_file (uuid_file);
+        g_free ((gpointer)uuid_file);
+        if (!present) {
+            g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_BCACHE_NOEXIST,
+                         "Failed to locate uuid symlink '%s'", device_uuid[i]);
+            return FALSE;
+        }
+     }
 
-    /* attach the cache device to the backing device */
     /* get the name of the bcache device based on the @backing_device being its slave */
     dev_name = strrchr (backing_device, '/');
-    if (!dev_name) {
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_BCACHE_PARSE,
-                     "Failed to get name of the backing device from '%s'", backing_device);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
+
     /* move right after the last '/' (that's where the device name starts) */
     dev_name++;
-
-    /* make sure the bcache device is registered */
-    success = FALSE;
-    while (!success && (n_retry > 0)) {
-        success = bd_utils_echo_str_to_file (backing_device, "/sys/fs/bcache/register", error);
-        if (!success) {
-            if (n_retry > 0) {
-                g_clear_error (error);
-                n_retry--;
-                g_usleep (100000); /* microseconds */
-            } else {
-                /* error is already populated */
-                bd_utils_report_finished (progress_id, (*error)->message);
-                return FALSE;
-            }
-        }
-    }
 
     pattern = g_strdup_printf ("/sys/block/*/slaves/%s", dev_name);
     if (glob (pattern, GLOB_NOSORT, NULL, &globbuf) != 0) {
@@ -798,14 +883,6 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
     dev_name = g_strndup (dev_name, (dev_name_end - dev_name));
 
     globfree (&globbuf);
-
-    success = bd_kbd_bcache_attach (set_uuid, dev_name, error);
-    if (!success) {
-        g_prefix_error (error, "Failed to attach the cache to the backing device: ");
-        g_free (dev_name);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
 
     if (bcache_device)
         *bcache_device = dev_name;

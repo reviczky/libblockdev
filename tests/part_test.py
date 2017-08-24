@@ -1,6 +1,6 @@
 import unittest
 import os
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, skip_on
 import overrides_hack
 
 from gi.repository import BlockDev, GLib
@@ -212,6 +212,31 @@ class PartCreatePartCase(PartTestCase):
         self.assertEqual(ps.flags, ps3.flags)
 
 class PartCreatePartFullCase(PartTestCase):
+    def test_full_device_partition(self):
+        # we first need a partition table
+        succ = BlockDev.part_create_table (self.loop_dev, BlockDev.PartTableType.GPT, True)
+        self.assertTrue(succ)
+
+        # create partition spanning whole device even disregarding the partition table (loop_dev size)
+        ps = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, 0, 100 * 1024**2, BlockDev.PartAlign.OPTIMAL)
+        succ = BlockDev.part_delete_part (self.loop_dev, ps.path)
+        self.assertTrue(succ)
+
+        # same, but create a maximal partition automatically
+        ps = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, 0, 0, BlockDev.PartAlign.OPTIMAL)
+        succ = BlockDev.part_delete_part (self.loop_dev, ps.path)
+        self.assertTrue(succ)
+
+        # start at byte 1 and create partition spanning whole device explicitly
+        ps = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, 1, 100 * 1024**2, BlockDev.PartAlign.OPTIMAL)
+        succ = BlockDev.part_delete_part (self.loop_dev, ps.path)
+        self.assertTrue(succ)
+
+        # start at byte 1 and create a maximal partition automatically
+        ps = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, 1, 0, BlockDev.PartAlign.OPTIMAL)
+        succ = BlockDev.part_delete_part (self.loop_dev, ps.path)
+        self.assertTrue(succ)
+
     def test_create_part_all_primary(self):
         """Verify that partition creation works as expected with all primary parts"""
 
@@ -508,7 +533,7 @@ class PartCreatePartFullCase(PartTestCase):
         self.assertEqual(ps3.flags, 0)  # no flags (combination of bit flags)
 
         # we should get a logical partition which has number 5
-        ps5 = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, ps3.start + 1,
+        ps5 = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NEXT, ps3.start + ps3.size + 1,
                                          10 * 1024**2, BlockDev.PartAlign.OPTIMAL)
         ps4 = BlockDev.part_get_part_spec (self.loop_dev, self.loop_dev + "4")
         self.assertTrue(ps4)
@@ -628,6 +653,7 @@ class PartGetDiskPartsCase(PartTestCase):
             BlockDev.part_get_disk_parts (self.loop_dev)
 
 class PartGetDiskFreeRegions(PartTestCase):
+    @skip_on(("centos", "enterprise_linux"), reason="libparted provides weird values here")
     def test_get_disk_free_regions(self):
         """Verify that it is possible to get info about free regions on a disk"""
 
@@ -716,6 +742,7 @@ class PartGetDiskFreeRegions(PartTestCase):
         self.assertGreater(fi.size, 89 * 1024**2)
 
 class PartGetBestFreeRegion(PartTestCase):
+    @skip_on(("centos", "enterprise_linux"), reason="libparted provides weird values here")
     def test_get_best_free_region(self):
         """Verify that it is possible to get info about the best free region on a disk"""
 
@@ -910,6 +937,113 @@ class PartGetPartByPos(PartTestCase):
         self.assertEqual(ret.start, ps4.start + ps4.size)
         self.assertLessEqual(ret.size, (100 * 1024**2) - (ps4.start + ps4.size))
 
+class PartCreateResizePartCase(PartTestCase):
+    def test_create_resize_part_two(self):
+        """Verify that it is possible to create and resize two paritions"""
+
+        # we first need a partition table
+        succ = BlockDev.part_create_table (self.loop_dev, BlockDev.PartTableType.MSDOS, True)
+        self.assertTrue(succ)
+
+        ps1_half = 20 * 1024**2
+        ps1_start = 2 * 1024**2
+
+        # create a maximal second partition
+        ps2 = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NORMAL, 2* ps1_half, 0, BlockDev.PartAlign.NONE)
+        self.assertGreaterEqual(ps2.start, 2* ps1_half)
+
+        # create one maximal partition in the beginning
+        ps1 = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NORMAL, ps1_start, 0, BlockDev.PartAlign.NONE)
+        self.assertGreaterEqual(ps1.size, ps1_half)
+        self.assertGreaterEqual(ps1.start, ps1_start)
+        self.assertLess(ps1.size, ps1_half * 2)  # can't have full size from beginning to ps2 because of start offset
+
+        # resizing should give the same result
+        ps1_size = ps1.size
+        succ = BlockDev.part_resize_part (self.loop_dev, ps1.path, 0, BlockDev.PartAlign.NONE)
+        self.assertTrue(succ)
+        ps1 = BlockDev.part_get_part_spec(self.loop_dev, ps1.path)
+        self.assertEqual(ps1.start, ps1_start)  # offset must not be moved
+        self.assertEqual(ps1.size, ps1_size)
+
+        succ = BlockDev.part_resize_part (self.loop_dev, ps1.path, ps1_half, BlockDev.PartAlign.OPTIMAL)
+        self.assertTrue(succ)
+        ps1 = BlockDev.part_get_part_spec(self.loop_dev, ps1.path)
+        self.assertEqual(ps1.start, ps1_start)  # offset must not be moved
+        self.assertGreaterEqual(ps1.size, ps1_half)  # at least requested size
+        self.assertLess(ps1.size, ps1_half + 2 * 1024**2)  # and only slightly bigger
+
+        ps2_size = ps2.size
+        ps2_start = ps2.start
+        succ = BlockDev.part_resize_part (self.loop_dev, ps2.path, 0, BlockDev.PartAlign.OPTIMAL)
+        self.assertTrue(succ)
+        ps2 = BlockDev.part_get_part_spec(self.loop_dev, ps2.path)
+        self.assertEqual(ps2.start, ps2_start)  # offset must not be moved
+        self.assertGreaterEqual(ps2.size, ps2_size - 2 * 1024**2)  # almost as big as before
+
+    def test_create_resize_part_single(self):
+        """Verify that it is possible to create and resize a parition"""
+
+        # we first need a partition table
+        succ = BlockDev.part_create_table (self.loop_dev, BlockDev.PartTableType.GPT, True)
+        self.assertTrue(succ)
+
+        # create a maximal partition
+        ps = BlockDev.part_create_part (self.loop_dev, BlockDev.PartTypeReq.NORMAL, 2 * 1024**2, 0, BlockDev.PartAlign.OPTIMAL)
+        initial_start = ps.start
+        initial_size = ps.size
+
+        new_size = 20 * 1000**2  # resize to MB (not MiB) for a non-multiple of the blocksize
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, new_size, BlockDev.PartAlign.OPTIMAL)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)  # offset must not be moved
+        self.assertGreaterEqual(ps.size, new_size)  # at least the requested size
+        self.assertLess(ps.size, new_size + 1 * 1024**2)  # but also not too big (assuming 1 MiB alignment)
+
+        # resize to maximum
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, 0, BlockDev.PartAlign.OPTIMAL)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)
+        self.assertEqual(initial_size, ps.size)  # should grow to the same size again
+
+        # resize to maximum explicitly
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, initial_size, BlockDev.PartAlign.OPTIMAL)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)
+        self.assertGreaterEqual(ps.size, initial_size) # at least the requested size
+
+        # resize back to 20 MB (not MiB) with no alignment
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, new_size, BlockDev.PartAlign.NONE)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)  # offset must not be moved
+        self.assertGreaterEqual(ps.size, new_size)  # at least the requested size
+        self.assertLess(ps.size, new_size + 4 * 1024)  # but also not too big (assuming max. 4 KiB blocks)
+
+        # resize to maximum with no alignment
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, 0, BlockDev.PartAlign.NONE)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)
+        self.assertGreaterEqual(ps.size, initial_size - 1 * 1024**2)  # libparted sometimes creates smaller partitions for no alignment
+        new_size = ps.size
+
+        # resize to maximum with no alignment explicitly
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, new_size, BlockDev.PartAlign.NONE)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)
+        self.assertGreaterEqual(ps.size, new_size) # at least the requested size
+
+        # resize to previous maximum with no alignment explicitly
+        succ = BlockDev.part_resize_part (self.loop_dev, ps.path, initial_size, BlockDev.PartAlign.NONE)
+        self.assertTrue(succ)
+        ps = BlockDev.part_get_part_spec(self.loop_dev, ps.path)
+        self.assertEqual(initial_start, ps.start)
+        self.assertGreaterEqual(ps.size, initial_size) # at least the requested size
 
 class PartCreateDeletePartCase(PartTestCase):
     def test_create_delete_part_simple(self):

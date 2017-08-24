@@ -6,7 +6,7 @@ import six
 import time
 
 import overrides_hack
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, skip_on
 from gi.repository import GLib, BlockDev
 if not BlockDev.is_initialized():
     BlockDev.init(None, None)
@@ -471,6 +471,7 @@ class BtrfsTooSmallTestCase (unittest.TestCase):
             pass
         os.unlink(self.dev_file2)
 
+    @skip_on("fedora", "25", reason="Min sizes for Btrfs are different on F25")
     def test_create_too_small(self):
         """Verify that an attempt to create BTRFS on a too small device fails"""
 
@@ -508,6 +509,7 @@ class BtrfsJustBigEnoughTestCase (unittest.TestCase):
             pass
         os.unlink(self.dev_file2)
 
+    @skip_on("fedora", "25", reason="Min sizes for Btrfs are different on F25")
     def test_create_just_enough(self):
         """Verify that creating BTRFS on a just big enough devices works"""
 
@@ -578,7 +580,7 @@ class BTRFSUnloadTest(unittest.TestCase):
         # unload all plugins first
         self.assertTrue(BlockDev.reinit([], True, None))
 
-        with fake_path():
+        with fake_path(all_but="btrfs"):
             # no btrfs tool available, the BTRFS plugin should fail to load
             with self.assertRaises(GLib.GError):
                 BlockDev.reinit(None, True, None)

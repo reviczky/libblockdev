@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [2.6], [vpodzime@redhat.com])
+AC_INIT([libblockdev], [2.11], [vpodzime@redhat.com])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -18,11 +18,9 @@ LT_INIT
 
 AC_CONFIG_FILES([Makefile src/Makefile \
                           src/plugins/Makefile \
-                          src/plugins/btrfs.h \
                           src/utils/Makefile \
                           src/lib/Makefile \
                           src/lib/plugin_apis/Makefile \
-                          src/lib/plugin_apis/btrfs.api \
                           src/lib/blockdev.c \
                           src/lib/blockdev.pc \
                           src/python/Makefile \
@@ -42,27 +40,16 @@ m4_ifdef([GOBJECT_INTROSPECTION_CHECK],
 [GOBJECT_INTROSPECTION_CHECK([1.3.0])],
 [found_introspection=no
 AM_CONDITIONAL(HAVE_INTROSPECTION, false)])
+AS_IF([test "x$found_introspection" = xyes],
+      [AC_SUBST(WITH_GI, 1)],
+      [AC_SUBST(WITH_GI, 0)])
 
 uname -p|grep s390
 on_s390=$?
 
 AM_CONDITIONAL(ON_S390, test "$on_s390" = "0")
 
-uname -p|grep aarch64
-on_aarch64=$?
-
 skip_patterns=""
-
-AS_IF([test "$on_aarch64" = "0"], AC_SUBST([BTRFS_MIN_SIZE], ["(256 MiB)"]), AC_SUBST([BTRFS_MIN_SIZE], ["(128 MiB)"]))
-
-# Complain if introspection was not enabled
-AS_IF([test "x$found_introspection" = xyes], [:],
-      [LIBBLOCKDEV_SOFT_FAILURE([GObject introspection (devel) must be installed and enabled])])
-
-AC_SUBST([PYTHON_EXEC_PREFIX], ['${exec_prefix}'])
-      PYTHON_EXECDIR=`python -c "import distutils.sysconfig; \
-                                print(distutils.sysconfig.get_python_lib(1,0,prefix='${exec_prefix}'))"`
-      AC_SUBST(pyexecdir, $PYTHON_EXECDIR)
 
 AC_ARG_WITH([python3],
     AS_HELP_STRING([--with-python3], [support python3 @<:@default=check@:>@]),
@@ -76,11 +63,7 @@ if test "x$with_python3" != "xno"; then
     [if test "x$with_python3" = "xyes"; then
       LIBBLOCKDEV_SOFT_FAILURE([Python3 support requested, but python3 is not available])
       fi],
-    [AC_SUBST([PYTHON3_EXEC_PREFIX], ['${exec_prefix}'])
-      PYTHON3_EXECDIR=`$python3 -c "import distutils.sysconfig; \
-                                print(distutils.sysconfig.get_python_lib(1,0,prefix='${exec_prefix}'))"`
-      AC_SUBST(py3execdir, $PYTHON3_EXECDIR)
-      AC_SUBST(WITH_PYTHON3, 1)])
+    [AC_SUBST(WITH_PYTHON3, 1)])
 fi
 AM_CONDITIONAL(WITH_PYTHON3, test "x$with_python3" != "xno" -a "x$python3" != "xno")
 
@@ -139,7 +122,9 @@ AM_CONDITIONAL(WITH_PART_O_WITH_FS, test "x$with_part" != "xno" -o "x$with_fs" !
 
 dnl these two modules are always needed
 LIBBLOCKDEV_PKG_CHECK_MODULES([GLIB], [glib-2.0 >= 2.42.2])
+LIBBLOCKDEV_PKG_CHECK_MODULES([GOBJECT], [gobject-2.0 >= 2.42.2])
 LIBBLOCKDEV_PKG_CHECK_MODULES([GIO], [gio-2.0 >= 2.42.2])
+LIBBLOCKDEV_PKG_CHECK_MODULES([UDEV], [libudev >= 216])
 
 AS_IF([test "x$with_crypto" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([CRYPTSETUP], [libcryptsetup >= 1.6.7])
@@ -153,9 +138,7 @@ AS_IF([test "x$with_dm" != "xno" -o "x$with_lvm" != "xno" -o "x$with_lvm_dbus" !
       [])
 
 AS_IF([test "x$with_dm" != "xno"],
-      [LIBBLOCKDEV_PKG_CHECK_MODULES([UDEV], [libudev >= 216])
-       LIBBLOCKDEV_CHECK_HEADER([dmraid/dmraid.h], [], [dmraid.h not available])
-      ],
+      [LIBBLOCKDEV_CHECK_HEADER([dmraid/dmraid.h], [], [dmraid.h not available])],
       [])
 
 AS_IF([test "x$with_kbd" != "xno"],
@@ -169,15 +152,19 @@ AS_IF([test "x$with_part" != "xno" -o "x$with_fs" != "xno"],
 
 AS_IF([test "x$with_fs" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([MOUNT], [mount >= 2.23.0])
+       # new versions of libmount has some new functions we can use
+       AS_IF([$PKG_CONFIG --atleast-version=2.30.0 mount],
+             [AC_DEFINE([LIBMOUNT_NEW_ERR_API])], [])
+
        LIBBLOCKDEV_PKG_CHECK_MODULES([BLKID], [blkid >= 2.23.0])
        # older versions of libblkid don't support BLKID_SUBLKS_BADCSUM so let's just
        # define it as 0 (neutral value for bit combinations of flags)
-       AS_IF([pkg-config --atleast-version=2.27.0 blkid], [],
+       AS_IF([$PKG_CONFIG --atleast-version=2.27.0 blkid], [],
              [AC_DEFINE([BLKID_SUBLKS_BADCSUM], [0],
               [Define as neutral value if libblkid doesn't provide the definition])])
 
        # older versions of parted don't provide the libparted-fs-resize.pc file
-       AS_IF([pkg-config --atleast-version=3.2 libparted],
+       AS_IF([$PKG_CONFIG libparted-fs-resize],
              [LIBBLOCKDEV_PKG_CHECK_MODULES([PARTED_FS], [libparted-fs-resize >= 3.2])],
              [AC_SUBST([PARTED_FS_LIBS], [-lparted-fs-resize])
               AC_SUBST([PARTED_FS_CFLAGS], [])])],
@@ -189,6 +176,8 @@ AS_IF([test "x$with_btrfs" != "xno" -o "x$with_mdraid" != "xno"],
 
 AC_SUBST([skip_patterns], [$skip_patterns])
 AC_SUBST([MAJOR_VER], [\"2\"])
+
+CFLAGS="$CFLAGS -std=gnu99"
 
 AC_OUTPUT
 LIBBLOCKDEV_FAILURES

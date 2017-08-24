@@ -1,3 +1,10 @@
+### CI status
+
+<img alt="CI status" src="https://fedorapeople.org/groups/storage_apis/statuses/libblockdev-master.svg" width="100%" height="200ex" />
+
+
+### Introduction
+
 libblockdev is a C library supporting GObject introspection for manipulation of
 block devices. It has a plugin-based architecture where each technology (like
 LVM, Btrfs, MD RAID, Swap,...) is implemented in a separate plugin, possibly
@@ -12,4 +19,4 @@ For information about development and contributing guidelines see the
 README.DEVEL.rst file.
 
 For more information about the API see the generated documentation at
-http://rhinstaller.github.io/libblockdev/.
+http://storaged.org/libblockdev/.

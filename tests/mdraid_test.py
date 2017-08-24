@@ -227,8 +227,10 @@ class MDTestActivateDeactivate(MDTestCase):
             succ = BlockDev.md_deactivate(BlockDev.md_node_from_name("bd_test_md"))
             self.assertTrue(succ)
 
+        # try to activate using full path, not just the name
+        # (it should work too and blivet does this)
         with wait_for_action("resync"):
-            succ = BlockDev.md_activate("bd_test_md",
+            succ = BlockDev.md_activate("/dev/md/bd_test_md",
                                         [self.loop_dev, self.loop_dev2, self.loop_dev3], None)
             self.assertTrue(succ)
 
@@ -366,20 +368,46 @@ class MDTestAddRemove(MDTestCase):
         with self.assertRaises(GLib.GError):
             BlockDev.md_add("bd_test_md", "/non/existing/device", 0, None)
 
+        # add the device as a spare
         succ = BlockDev.md_add("bd_test_md", self.loop_dev3, 0, None)
         self.assertTrue(succ)
+
+        md_info = BlockDev.md_detail("bd_test_md")
+        self.assertEqual(md_info.raid_devices, 2)
+        self.assertEqual(md_info.spare_devices, 1)
 
         with self.assertRaises(GLib.GError):
             BlockDev.md_add("bd_test_md", self.loop_dev3, 0, None)
 
+        # now remove the spare device (should be possible without --fail)
         with wait_for_action("resync"):
-            succ = BlockDev.md_remove("bd_test_md", self.loop_dev3, True, None)
+            succ = BlockDev.md_remove("bd_test_md", self.loop_dev3, False, None)
             self.assertTrue(succ)
 
-        # XXX: cannnot remove device added as a spare device nor a different
-        # device?
-        succ = BlockDev.md_add("bd_test_md", self.loop_dev3, 2, None)
-        self.assertTrue(succ)
+        md_info = BlockDev.md_detail("bd_test_md")
+        self.assertEqual(md_info.raid_devices, 2)
+        self.assertEqual(md_info.spare_devices, 0)
+
+        # remove one of the original devices (with --fail enabled)
+        with wait_for_action("resync"):
+            succ = BlockDev.md_remove("bd_test_md", self.loop_dev2, True, None)
+            self.assertTrue(succ)
+
+        md_info = BlockDev.md_detail("bd_test_md")
+        self.assertEqual(md_info.raid_devices, 2)
+        self.assertEqual(md_info.active_devices, 1)
+        self.assertEqual(md_info.spare_devices, 0)
+
+        # now try to add it back -- it should be re-added automatically as
+        # a RAID device, not a spare device
+        with wait_for_action("recovery"):
+            succ = BlockDev.md_add("bd_test_md", self.loop_dev2, 0, None)
+            self.assertTrue(succ)
+
+        md_info = BlockDev.md_detail("bd_test_md")
+        self.assertEqual(md_info.raid_devices, 2)
+        self.assertEqual(md_info.active_devices, 2)
+        self.assertEqual(md_info.spare_devices, 0)
 
 class MDTestExamineDetail(MDTestCase):
     # sleeps to let MD RAID sync things
@@ -607,8 +635,8 @@ class MDUnloadTest(unittest.TestCase):
         # unload all plugins first
         self.assertTrue(BlockDev.reinit([], True, None))
 
-        with fake_path():
-            # no mdsetup available, the MD plugin should fail to load
+        with fake_path(all_but="mdadm"):
+            # no mdadm available, the MD plugin should fail to load
             with self.assertRaises(GLib.GError):
                 BlockDev.reinit(None, True, None)
 

@@ -355,7 +355,7 @@ static BDPartSpec* get_part_spec (PedDevice *dev, PedDisk *disk, PedPartition *p
         else
             ret->path = g_strdup_printf ("%s%d", dev->path, part->num);
     }
-    if (disk->type->features & PED_DISK_TYPE_PARTITION_NAME)
+    if (ped_partition_is_active (part) && disk->type->features & PED_DISK_TYPE_PARTITION_NAME)
         ret->name = g_strdup (ped_partition_get_name (part));
     if (g_strcmp0 (disk->type->name, "gpt") == 0) {
         ret->type_guid = get_part_type_guid_and_gpt_flags (dev->path, part->num, &(ret->flags), error);
@@ -697,7 +697,132 @@ BDPartSpec* bd_part_get_best_free_region (const gchar *disk, BDPartType type, gu
     for (free_reg_p=free_regs; *free_reg_p; free_reg_p++)
         if (*free_reg_p != ret)
             bd_part_spec_free (*free_reg_p);
+    g_free (free_regs);
+
     return ret;
+}
+
+static PedConstraint* prepare_alignment_constraint (PedDevice *dev, PedDisk *disk, BDPartAlign align, gint *orig_flag_state) {
+    if (align == BD_PART_ALIGN_OPTIMAL) {
+        /* cylinder alignment does really weird things when turned on, let's not
+           deal with it in 21st century (the flag is reset back in the end) */
+        if (ped_disk_is_flag_available (disk, PED_DISK_CYLINDER_ALIGNMENT)) {
+            *orig_flag_state = ped_disk_get_flag (disk, PED_DISK_CYLINDER_ALIGNMENT);
+            ped_disk_set_flag (disk, PED_DISK_CYLINDER_ALIGNMENT, 0);
+        }
+        return ped_device_get_optimal_aligned_constraint (dev);
+    } else if (align == BD_PART_ALIGN_MINIMAL)
+        return ped_device_get_minimal_aligned_constraint (dev);
+    else
+        return NULL;
+}
+
+static void finish_alignment_constraint (PedDisk *disk, gint orig_flag_state) {
+    if (ped_disk_is_flag_available (disk, PED_DISK_CYLINDER_ALIGNMENT)) {
+        ped_disk_set_flag (disk, PED_DISK_CYLINDER_ALIGNMENT, orig_flag_state);
+    }
+}
+
+static gboolean resize_part (PedPartition *part, PedDevice *dev, PedDisk *disk, guint64 size, BDPartAlign align, GError **error) {
+    PedConstraint *constr = NULL;
+    PedGeometry *geom;
+    gint orig_flag_state = 0;
+    PedSector start;
+    PedSector end;
+    PedSector max_end;
+    PedSector new_size = 0;
+    gint status = 0;
+    PedSector tolerance = 0;
+
+    /* It should be possible to pass the whole drive size a partition size,
+     * so -1 MiB for the first partition alignment,
+     * -1 MiB for creating this here as a logial partition
+     * and -1 MiB for end alingment.
+     * But only if the caller doesn't request no alignment which also means
+     * they strictly care about precise numbers. */
+    if (align != BD_PART_ALIGN_NONE)
+        tolerance = (PedSector) (4 MiB /  dev->sector_size);
+
+    constr = prepare_alignment_constraint (dev, disk, align, &orig_flag_state);
+    start = part->geom.start;
+
+    if (!constr)
+        constr = ped_constraint_any (dev);
+
+    geom = ped_disk_get_max_partition_geometry (disk, part, constr);
+    if (!ped_geometry_set_start (geom, start)) {
+        set_parted_error (error, BD_PART_ERROR_FAIL);
+        g_prefix_error (error, "Failed to set partition start on device '%s'", dev->path);
+        ped_constraint_destroy (constr);
+        ped_geometry_destroy (geom);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return FALSE;
+    }
+    if (size == 0) {
+        new_size = geom->length;
+    } else {
+        new_size = (size + dev->sector_size - 1) / dev->sector_size;
+    }
+
+    /* If the maximum partition geometry is smaller than the requested size, but
+       the difference is acceptable, just adapt the size. */
+    if (new_size > geom->length && (new_size - geom->length) < tolerance)
+        new_size = geom->length;
+
+    max_end = geom->end;
+    ped_geometry_destroy (geom);
+    geom = ped_geometry_new (dev, start, new_size);
+    if (!geom) {
+        set_parted_error (error, BD_PART_ERROR_FAIL);
+        g_prefix_error (error, "Failed to create geometry for partition on device '%s'", dev->path);
+        ped_constraint_destroy (constr);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return FALSE;
+    }
+
+    if (size != 0) {
+        end = ped_alignment_align_up (constr->end_align, constr->end_range, geom->end);
+        if (end > max_end && end < max_end + tolerance) {
+            end = max_end;
+        }
+    } else {
+        end = geom->end;
+    }
+    ped_constraint_destroy (constr);
+    if (!ped_geometry_set_end (geom, end)) {
+       set_parted_error (error, BD_PART_ERROR_FAIL);
+       g_prefix_error (error, "Failed to change geometry for partition on device '%s'", dev->path);
+       ped_constraint_destroy (constr);
+       ped_geometry_destroy (geom);
+       finish_alignment_constraint (disk, orig_flag_state);
+       return FALSE;
+    }
+    constr = ped_constraint_exact (geom);
+    status = ped_disk_set_partition_geom (disk, part, constr, start, end);
+
+    if (status == 0) {
+        set_parted_error (error, BD_PART_ERROR_FAIL);
+        g_prefix_error (error, "Failed to set partition size on device '%s'", dev->path);
+        ped_geometry_destroy (geom);
+        ped_constraint_destroy (constr);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return FALSE;
+    } else if (part->geom.start != start) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL, "Failed to meet partition start on device '%s'", dev->path);
+        ped_geometry_destroy (geom);
+        ped_constraint_destroy (constr);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return FALSE;
+    } else if (part->geom.length < new_size - tolerance) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_FAIL, "Failed to meet partition size on device '%s'", dev->path);
+        ped_geometry_destroy (geom);
+        ped_constraint_destroy (constr);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return FALSE;
+    }
+
+    finish_alignment_constraint (disk, orig_flag_state);
+    return TRUE;
 }
 
 static PedPartition* add_part_to_disk (PedDevice *dev, PedDisk *disk, BDPartTypeReq type, guint64 start, guint64 size, BDPartAlign align, GError **error) {
@@ -709,39 +834,20 @@ static PedPartition* add_part_to_disk (PedDevice *dev, PedDisk *disk, BDPartType
 
     /* convert start to sectors */
     start = (start + (guint64)dev->sector_size - 1) / dev->sector_size;
-    if (size == 0) {
-        constr = ped_device_get_constraint (dev);
-        size = constr->max_size - 1;
-        ped_constraint_destroy (constr);
-        constr = NULL;
-    } else
-        size = size / dev->sector_size;
 
-    if (align == BD_PART_ALIGN_OPTIMAL) {
-        /* cylinder alignment does really weird things when turned on, let's not
-           deal with it in 21st century (the flag is reset back in the end) */
-        if (ped_disk_is_flag_available (disk, PED_DISK_CYLINDER_ALIGNMENT)) {
-            orig_flag_state = ped_disk_get_flag (disk, PED_DISK_CYLINDER_ALIGNMENT);
-            ped_disk_set_flag (disk, PED_DISK_CYLINDER_ALIGNMENT, 0);
-        }
-        constr = ped_device_get_optimal_aligned_constraint (dev);
-    } else if (align == BD_PART_ALIGN_MINIMAL)
-        constr = ped_device_get_minimal_aligned_constraint (dev);
+    constr = prepare_alignment_constraint (dev, disk, align, &orig_flag_state);
 
     if (constr)
         start = ped_alignment_align_up (constr->start_align, constr->start_range, (PedSector) start);
 
-    geom = ped_geometry_new (dev, (PedSector) start, (PedSector) size);
+    geom = ped_geometry_new (dev, (PedSector) start, (PedSector) 1 MiB / dev->sector_size);
     if (!geom) {
         set_parted_error (error, BD_PART_ERROR_FAIL);
         g_prefix_error (error, "Failed to create geometry for a new partition on device '%s'", dev->path);
-        if (constr)
-            ped_constraint_destroy (constr);
+        ped_constraint_destroy (constr);
+        finish_alignment_constraint (disk, orig_flag_state);
         return NULL;
     }
-
-    if (!constr)
-        constr = ped_constraint_exact (geom);
 
     part = ped_partition_new (disk, type, NULL, geom->start, geom->end);
     if (!part) {
@@ -749,24 +855,33 @@ static PedPartition* add_part_to_disk (PedDevice *dev, PedDisk *disk, BDPartType
         g_prefix_error (error, "Failed to create new partition on device '%s'", dev->path);
         ped_constraint_destroy (constr);
         ped_geometry_destroy (geom);
+        finish_alignment_constraint (disk, orig_flag_state);
         return NULL;
     }
+
+    if (!constr)
+        constr = ped_constraint_exact (geom);
 
     status = ped_disk_add_partition (disk, part, constr);
     if (status == 0) {
         set_parted_error (error, BD_PART_ERROR_FAIL);
         g_prefix_error (error, "Failed add partition to device '%s'", dev->path);
+        ped_geometry_destroy (geom);
         ped_constraint_destroy (constr);
         ped_partition_destroy (part);
-        ped_geometry_destroy (geom);
+        finish_alignment_constraint (disk, orig_flag_state);
         return NULL;
     }
 
-    if (ped_disk_is_flag_available (disk, PED_DISK_CYLINDER_ALIGNMENT)) {
-        orig_flag_state = ped_disk_get_flag (disk, PED_DISK_CYLINDER_ALIGNMENT);
-        ped_disk_set_flag (disk, PED_DISK_CYLINDER_ALIGNMENT, orig_flag_state);
+    if (!resize_part (part, dev, disk, size, align, error)) {
+        ped_geometry_destroy (geom);
+        ped_constraint_destroy (constr);
+        ped_disk_delete_partition (disk, part);
+        finish_alignment_constraint (disk, orig_flag_state);
+        return NULL;
     }
 
+    finish_alignment_constraint (disk, orig_flag_state);
     ped_geometry_destroy (geom);
     ped_constraint_destroy (constr);
 
@@ -980,6 +1095,99 @@ gboolean bd_part_delete_part (const gchar *disk, const gchar *part, GError **err
 
     return ret;
 }
+
+/**
+ * bd_part_resize_part:
+ * @disk: disk containing the paritition
+ * @part: partition to resize
+ * @size: new partition size, 0 for maximal size
+ * @align: alignment to use for the partition end
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the @part partition was successfully resized on @disk to @size
+ *
+ * NOTE: The resulting partition may be slightly bigger than requested due to alignment.
+ */
+gboolean bd_part_resize_part (const gchar *disk, const gchar *part, guint64 size, BDPartAlign align, GError **error) {
+    PedDevice *dev = NULL;
+    PedDisk *ped_disk = NULL;
+    PedPartition *ped_part = NULL;
+    const gchar *part_num_str = NULL;
+    gint part_num = 0;
+    gboolean ret = FALSE;
+    guint64 progress_id = 0;
+    gchar *msg = NULL;
+
+    msg = g_strdup_printf ("Started resizing partition '%s'", part);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
+
+    if (!part || (part && (*part == '\0'))) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_INVAL,
+                     "Invalid partition path given: '%s'", part);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    dev = ped_device_get (disk);
+    if (!dev) {
+        set_parted_error (error, BD_PART_ERROR_INVAL);
+        g_prefix_error (error, "Device '%s' invalid or not existing", disk);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ped_disk = ped_disk_new (dev);
+    if (!ped_disk) {
+        set_parted_error (error, BD_PART_ERROR_FAIL);
+        g_prefix_error (error, "Failed to read partition table on device '%s'", disk);
+        ped_device_destroy (dev);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    part_num_str = part + (strlen (part) - 1);
+    while (isdigit (*part_num_str) || (*part_num_str == '-')) {
+        part_num_str--;
+    }
+    part_num_str++;
+
+    part_num = atoi (part_num_str);
+    if (part_num == 0) {
+        g_set_error (error, BD_PART_ERROR, BD_PART_ERROR_INVAL,
+                     "Invalid partition path given: '%s'. Cannot extract partition number", part);
+        ped_disk_destroy (ped_disk);
+        ped_device_destroy (dev);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ped_part = ped_disk_get_partition (ped_disk, part_num);
+    if (!ped_part) {
+        set_parted_error (error, BD_PART_ERROR_FAIL);
+        g_prefix_error (error, "Failed to get partition '%d' on device '%s'", part_num, disk);
+        ped_disk_destroy (ped_disk);
+        ped_device_destroy (dev);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    if (!resize_part (ped_part, dev, ped_disk, size, align, error)) {
+        ped_disk_destroy (ped_disk);
+        ped_device_destroy (dev);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ret = disk_commit (ped_disk, disk, error);
+
+    ped_disk_destroy (ped_disk);
+    ped_device_destroy (dev);
+    bd_utils_report_finished (progress_id, "Completed");
+
+    return ret;
+}
+
 
 static gboolean set_gpt_flag (const gchar *device, int part_num, BDPartFlag flag, gboolean state, GError **error) {
     const gchar *args[5] = {"sgdisk", "--attributes", NULL, device, NULL};
@@ -1475,7 +1683,7 @@ gboolean bd_part_set_part_type (const gchar *disk, const gchar *part, const gcha
  * Returns: whether the @part_id type was successfully set for @part or not
  */
 gboolean bd_part_set_part_id (const gchar *disk, const gchar *part, const gchar *part_id, GError **error) {
-    const gchar *args[6] = {"sfdisk", "--part-type", disk, NULL, part_id, NULL};
+    const gchar *args[6] = {"sfdisk", "--id", disk, NULL, part_id, NULL};
     const gchar *part_num_str = NULL;
     gboolean success = FALSE;
     guint64 progress_id = 0;
@@ -1541,7 +1749,7 @@ gboolean bd_part_set_part_id (const gchar *disk, const gchar *part, const gchar 
  * Returns (transfer full): partition id type or %NULL in case of error
  */
 gchar* bd_part_get_part_id (const gchar *disk, const gchar *part, GError **error) {
-    const gchar *args[5] = {"sfdisk", "--part-type", disk, NULL, NULL};
+    const gchar *args[5] = {"sfdisk", "--id", disk, NULL, NULL};
     const gchar *part_num_str = NULL;
     gchar *output = NULL;
     gchar *ret = NULL;

@@ -7,7 +7,7 @@ import subprocess
 import six
 import locale
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, skip_on, get_avail_locales, requires_locales
 from gi.repository import BlockDev, GLib
 if not BlockDev.is_initialized():
     BlockDev.init(None, None)
@@ -26,6 +26,11 @@ class CryptoTestGenerateBackupPassphrase(unittest.TestCase):
             six.assertRegex(self, bp, exp)
 
 class CryptoTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        unittest.TestCase.setUpClass()
+        cls.avail_locales = get_avail_locales()
+
     def setUp(self):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("crypto_test", 1024**3)
@@ -196,6 +201,7 @@ class CryptoTestErrorLocale(CryptoTestCase):
             locale.setlocale(locale.LC_ALL, self._orig_loc)
 
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @requires_locales({"cs_CZ.UTF-8"})
     def test_error_locale_key(self):
         """Verify that the error msg is locale agnostic"""
 
@@ -342,6 +348,7 @@ class CryptoTestEscrow(CryptoTestCase):
         self.addCleanup(os.unlink, self.public_cert)
 
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on(("centos", "enterprise_linux"))
     def test_escrow_packet(self):
         """Verify that an escrow packet can be created for a device"""
 
@@ -370,8 +377,8 @@ class CryptoTestEscrow(CryptoTestCase):
             stdin=subprocess.PIPE)
         p.communicate(input=('%s\0%s\0' % (PASSWD2, PASSWD2)).encode('utf-8'))
         if p.returncode != 0:
-            raise subprocess.CalledProcessError(p.returncode, 'volume_key')
-
+            raise subprocess.CalledProcessError(p.returncode, 'volume_key'
+)
         # Restore access to the volume
         # PASSWD3 is the new passphrase for the LUKS device
         p = subprocess.Popen(['volume_key', '--restore', '-b', self.loop_dev,
@@ -403,7 +410,7 @@ class CryptoTestEscrow(CryptoTestCase):
         self.assertTrue(os.path.isfile(escrow_backup_passphrase))
 
         # Check that the encrypted file contains what we put in
-        env = os.environ
+        env = {k: v for k, v in os.environ.items()}
         env.update({"LC_ALL": "C"})
         passphrase = subprocess.check_output(
                 ['volume_key', '--secrets', '-d', self.nss_dir, escrow_backup_passphrase],
