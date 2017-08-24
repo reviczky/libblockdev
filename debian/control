@@ -36,8 +36,7 @@ Package: libblockdev2
 Section: libs
 Architecture: any
 Multi-Arch: same
-Depends: ${shlibs:Depends},
-         ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Library for manipulating block devices
  libblockdev is a C library with GObject introspection support that can be used
  for doing low-level operations with block devices like setting up LVM, BTRFS,
@@ -70,7 +69,7 @@ Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         ${gir:Depends},
+         ${gir:Depends}
 Description: libblockdev introspection data
  This package contains the GObject introspection data of libblockdev in
  binary typelib format.
@@ -145,7 +144,6 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
          btrfs-tools
 Description: BTRFS plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
@@ -188,8 +186,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
-         libdevmapper, dmraid
+         dmraid
 Description: Device Mapper plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to Device Mapper.
@@ -235,7 +232,6 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
          bcache-tools (>= 1.0.8)
 Description: kernel block device plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
@@ -257,9 +253,7 @@ Package: libblockdev-loop2
 Section: libs
 Architecture: any
 Multi-Arch: same
-Depends: ${shlibs:Depends},
-         ${misc:Depends},
-         libblockdev-utils2 (>= 0.11)
+Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Loop device plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to loop devices.
@@ -281,7 +275,6 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
          lvm2
 Description: LVM plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
@@ -323,7 +316,6 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
          mdadm
 Description: MD RAID plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
@@ -346,7 +338,6 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
          multipath-tools
 Description: Multipath plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
@@ -387,8 +378,7 @@ Section: libs
 Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
-         ${misc:Depends},
-         libblockdev-utils2 (>= 0.11),
+         ${misc:Depends}
 Description: Swap plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to swap devices.
