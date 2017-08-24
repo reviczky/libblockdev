@@ -1,3 +1,15 @@
+libblockdev (2.11-1) unstable; urgency=medium
+
+  * New upstream release.
+  * Drop all debian patches, fixed upstream:
+    - debian/patches/add-gobject.patch
+    - debian/patches/add-libm.patch
+    - debian/patches/parted-fs-resize-pc-version.patch
+  * debian/rules: drop workaround using --exec-prefix configure argument.
+  * debian/libblockdev-utils-dev.install: ship new dev_utils.h
+
+ -- Andreas Henriksson <andreas@fatal.se>  Thu, 24 Aug 2017 13:33:12 +0200
+
 libblockdev (2.6-1) unstable; urgency=medium
 
   * Initial release (Closes: #862776)
