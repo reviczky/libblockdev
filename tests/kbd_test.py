@@ -2,7 +2,7 @@ import unittest
 import os
 import time
 from contextlib import contextmanager
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, wipe_all, fake_path
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, wipe_all, fake_path, read_file, skip_on
 import overrides_hack
 
 from gi.repository import BlockDev, GLib
@@ -41,6 +41,7 @@ def _wait_for_bcache_setup(bcache_dev):
             break
 
 class KbdZRAMTestCase(unittest.TestCase):
+    @skip_on(("fedora", "27"), reason="zram module (un)loading is broken on ")
     def setUp(self):
         self.addCleanup(self._clean_up)
         self._loaded_zram_module = False
@@ -50,6 +51,7 @@ class KbdZRAMTestCase(unittest.TestCase):
         if self._loaded_zram_module:
             os.system("rmmod zram")
 
+class KbdZRAMDevicesTestCase(KbdZRAMTestCase):
     @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
     def test_create_destroy_devices(self):
@@ -107,7 +109,7 @@ class KbdZRAMTestCase(unittest.TestCase):
             succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
             self.assertTrue(succ)
             self.assertTrue(device.startswith("/dev/zram"))
-            time.sleep(1)
+            time.sleep(5)
             self.assertTrue(BlockDev.kbd_zram_remove_device(device))
 
         # no nstreams specified
@@ -115,7 +117,7 @@ class KbdZRAMTestCase(unittest.TestCase):
             succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 0)
             self.assertTrue(succ)
             self.assertTrue(device.startswith("/dev/zram"))
-            time.sleep(1)
+            time.sleep(5)
             self.assertTrue(BlockDev.kbd_zram_remove_device(device))
 
         # create two devices
@@ -128,27 +130,26 @@ class KbdZRAMTestCase(unittest.TestCase):
             self.assertTrue(succ)
             self.assertTrue(device2.startswith("/dev/zram"))
 
-            time.sleep(1)
+            time.sleep(5)
             self.assertTrue(BlockDev.kbd_zram_remove_device(device))
             self.assertTrue(BlockDev.kbd_zram_remove_device(device2))
 
         # mixture of multiple devices and a single device
         with _track_module_load(self, "zram", "_loaded_zram_module"):
             self.assertTrue(BlockDev.kbd_zram_create_devices(2, [10 * 1024**2, 10 * 1024**2], [1, 2]))
-            time.sleep(1)
+            time.sleep(5)
             succ, device = BlockDev.kbd_zram_add_device (10 * 1024**2, 4)
             self.assertTrue(succ)
             self.assertTrue(device.startswith("/dev/zram"))
-
-            time.sleep(1)
+            time.sleep(5)
             self.assertTrue(BlockDev.kbd_zram_destroy_devices())
-            time.sleep(1)
+            time.sleep(5)
 
 
 class KbdZRAMStatsTestCase(KbdZRAMTestCase):
-    @unittest.skip("unstable test failing on some arches")
     @unittest.skipUnless(_can_load_zram(), "cannot load the 'zram' module")
-    def test_zram_get_stats(self):
+    @skip_on(("centos", "enterprise_linux"), reason="needs newest kernel to run")
+    def test_zram_get_stats_fedora(self):
         """Verify that it is possible to get stats for a zram device"""
 
         with _track_module_load(self, "zram", "_loaded_zram_module"):
@@ -164,8 +165,74 @@ class KbdZRAMStatsTestCase(KbdZRAMTestCase):
         self.assertTrue(stats)
 
         self.assertEqual(stats.disksize, 10 * 1024**2)
+        # XXX: 'max_comp_streams' is currently broken on rawhide
+        # https://bugzilla.redhat.com/show_bug.cgi?id=1352567
+        # self.assertEqual(stats.max_comp_streams, 2)
+        self.assertTrue(stats.comp_algorithm)
+
+        # read 'num_reads' and 'num_writes' from '/sys/block/zram0/stat'
+        sys_stats = read_file("/sys/block/zram0/stat").strip().split()
+        self.assertEqual(len(sys_stats), 11)
+        num_reads = int(sys_stats[0])
+        num_writes = int(sys_stats[4])
+        self.assertEqual(stats.num_reads, num_reads)
+        self.assertEqual(stats.num_writes, num_writes)
+
+        # read 'orig_data_size', 'compr_data_size', 'mem_used_total' and
+        # 'zero_pages' from '/sys/block/zram0/mm_stat'
+        sys_stats = read_file("/sys/block/zram0/mm_stat").strip().split()
+        self.assertEqual(len(sys_stats), 7)
+        orig_data_size = int(sys_stats[0])
+        compr_data_size = int(sys_stats[1])
+        mem_used_total = int(sys_stats[2])
+        zero_pages = int(sys_stats[5])
+        self.assertEqual(stats.orig_data_size, orig_data_size)
+        self.assertEqual(stats.compr_data_size, compr_data_size)
+        self.assertEqual(stats.mem_used_total, mem_used_total)
+        self.assertEqual(stats.zero_pages, zero_pages)
+
+        # read 'invalid_io' and 'num_writes' from '/sys/block/zram0/io_stat'
+        sys_stats = read_file("/sys/block/zram0/io_stat").strip().split()
+        self.assertEqual(len(sys_stats), 4)
+        invalid_io = int(sys_stats[2])
+        self.assertEqual(stats.invalid_io, invalid_io)
+
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            self.assertTrue(BlockDev.kbd_zram_destroy_devices())
+
+    @skip_on(("fedora"), reason="needs old kernel to run")
+    def test_zram_get_stats_centos(self):
+        with _track_module_load(self, "zram", "_loaded_zram_module"):
+            self.assertTrue(BlockDev.kbd_zram_create_devices(1, [10 * 1024**2], [2]))
+            time.sleep(1)
+
+        stats = BlockDev.kbd_zram_get_stats("zram0")
+        self.assertTrue(stats)
+
+        # /dev/zram0 should work too
+        stats = BlockDev.kbd_zram_get_stats("/dev/zram0")
+        self.assertTrue(stats)
+
+        self.assertEqual(stats.disksize, 10 * 1024**2)
         self.assertEqual(stats.max_comp_streams, 2)
         self.assertTrue(stats.comp_algorithm)
+
+        num_reads = int(read_file("/sys/block/zram0/num_reads").strip())
+        self.assertEqual(stats.num_reads, num_reads)
+        num_writes = int(read_file("/sys/block/zram0/num_writes").strip())
+        self.assertEqual(stats.num_writes, num_writes)
+
+        orig_data_size = int(read_file("/sys/block/zram0/orig_data_size").strip())
+        self.assertEqual(stats.orig_data_size, orig_data_size)
+        compr_data_size = int(read_file("/sys/block/zram0/compr_data_size").strip())
+        self.assertEqual(stats.compr_data_size, compr_data_size)
+        mem_used_total = int(read_file("/sys/block/zram0/mem_used_total").strip())
+        self.assertEqual(stats.mem_used_total, mem_used_total)
+        zero_pages = int(read_file("/sys/block/zram0/zero_pages").strip())
+        self.assertEqual(stats.zero_pages, zero_pages)
+
+        invalid_io = int(read_file("/sys/block/zram0/invalid_io").strip())
+        self.assertEqual(stats.invalid_io, invalid_io)
 
         with _track_module_load(self, "zram", "_loaded_zram_module"):
             self.assertTrue(BlockDev.kbd_zram_destroy_devices())
@@ -173,6 +240,7 @@ class KbdZRAMStatsTestCase(KbdZRAMTestCase):
 class KbdBcacheNodevTestCase(unittest.TestCase):
     # no setUp/tearDown methods needed
 
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_mode_str_bijection(self):
         """Verify that it's possible to transform between cache modes and their string representations"""
 
@@ -227,7 +295,7 @@ class KbdBcacheTestCase(unittest.TestCase):
         os.unlink(self.dev_file2)
 
 class KbdTestBcacheCreate(KbdBcacheTestCase):
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_create_destroy(self):
         """Verify that it's possible to create and destroy a bcache device"""
 
@@ -245,7 +313,7 @@ class KbdTestBcacheCreate(KbdBcacheTestCase):
 
         wipe_all(self.loop_dev, self.loop_dev2)
 
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_create_destroy_full_path(self):
         """Verify that it's possible to create and destroy a bcache device with full device path"""
 
@@ -264,7 +332,7 @@ class KbdTestBcacheCreate(KbdBcacheTestCase):
         wipe_all(self.loop_dev, self.loop_dev2)
 
 class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_attach_detach(self):
         """Verify that it's possible to detach/attach a cache from/to a bcache device"""
 
@@ -289,7 +357,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
 
         wipe_all(self.loop_dev, self.loop_dev2)
 
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_attach_detach_full_path(self):
         """Verify that it's possible to detach/attach a cache from/to a bcache device with full device path"""
 
@@ -314,7 +382,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
 
         wipe_all(self.loop_dev, self.loop_dev2)
 
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_detach_destroy(self):
         """Verify that it's possible to destroy a bcache device with no cache attached"""
 
@@ -337,7 +405,7 @@ class KbdTestBcacheAttachDetach(KbdBcacheTestCase):
         wipe_all(self.loop_dev, self.loop_dev2)
 
 class KbdTestBcacheGetSetMode(KbdBcacheTestCase):
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_get_set_mode(self):
         """Verify that it is possible to get and set Bcache mode"""
 
@@ -385,7 +453,7 @@ class KbdTestBcacheGetSetMode(KbdBcacheTestCase):
         wipe_all(self.loop_dev, self.loop_dev2)
 
 class KbdTestBcacheStatusTest(KbdBcacheTestCase):
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_status(self):
         succ, dev = BlockDev.kbd_bcache_create(self.loop_dev, self.loop_dev2, None)
         self.assertTrue(succ)
@@ -414,7 +482,7 @@ class KbdTestBcacheStatusTest(KbdBcacheTestCase):
         wipe_all(self.loop_dev, self.loop_dev2)
 
 class KbdTestBcacheBackingCacheDevTest(KbdBcacheTestCase):
-    @unittest.skipUnless("FEELINGLUCKY" in os.environ, "skipping, not feeling lucky")
+    @skip_on(("centos", "enterprise_linux"))
     def test_bcache_backing_cache_dev(self):
         """Verify that is is possible to get the backing and cache devices for a Bcache"""
 
@@ -441,13 +509,14 @@ class KbdUnloadTest(unittest.TestCase):
         # tests
         self.addCleanup(BlockDev.reinit, None, True, None)
 
+    @skip_on(("centos", "enterprise_linux"))
     def test_check_no_bcache_progs(self):
         """Verify that checking the availability of make-bcache works as expected"""
 
         # unload all plugins first
         self.assertTrue(BlockDev.reinit([], True, None))
 
-        with fake_path():
+        with fake_path(all_but="make-bcache"):
             with self.assertRaises(GLib.GError):
                 BlockDev.reinit(None, True, None)
 

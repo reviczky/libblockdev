@@ -3,12 +3,17 @@ import re
 import glob
 import subprocess
 import tempfile
-import subprocess
-from subprocess import DEVNULL
+import dbus
+import unittest
 from contextlib import contextmanager
 from itertools import chain
 
 from gi.repository import GLib
+
+try:
+    from subprocess import DEVNULL
+except ImportError:
+    DEVNULL = open("/dev/null", "w")
 
 _lio_devs = dict()
 
@@ -60,11 +65,22 @@ def fake_utils(path="."):
     finally:
         os.environ["PATH"] = old_path
 
+ALL_UTILS = {"lvm", "thin_metadata_size", "btrfs", "mkswap", "multipath", "mpathconf", "dmsetup", "mdadm", "make-bcache", "sgdisk", "sfdisk"}
+
 @contextmanager
-def fake_path(path=None, keep_utils=None):
+def fake_path(path=None, keep_utils=None, all_but=None):
+    if all_but is not None:
+        if isinstance(all_but, (list, set, tuple)):
+            keep_utils = ALL_UTILS - set(all_but)
+        else:
+            keep_utils = ALL_UTILS - {all_but}
     keep_utils = keep_utils or []
     created_utils = set()
-    if path:
+    rm_path = False
+    if keep_utils:
+        if path is None:
+            path = tempfile.mkdtemp(prefix="libblockdev-fake-path", dir="/tmp")
+            rm_path = True
         for util in keep_utils:
             util_path = GLib.find_program_in_path(util)
             if util_path:
@@ -79,6 +95,8 @@ def fake_path(path=None, keep_utils=None):
         os.environ["PATH"] = old_path
         for util in created_utils:
             os.unlink(os.path.join(path, util))
+        if rm_path:
+            os.rmdir(path)
 
 def _delete_backstore(name):
     status = subprocess.call(["targetcli", "/backstores/fileio/ delete %s" % name], stdout=DEVNULL)
@@ -190,3 +208,68 @@ def run_command(command):
 
     out, err = res.communicate()
     return (res.returncode, out.decode().strip(), err.decode().strip())
+
+def skip_on(skip_on_distros, skip_on_version="", reason=""):
+    """A function returning a decorator to skip some test on a given distribution-version combination
+
+    :param skip_on_distros: distro(s) to skip the test on
+    :type skip_on_distros: str or tuple of str
+    :param str skip_on_version: version of distro(s) to skip the tests on (only
+                                checked on distribution match)
+
+    """
+    if isinstance(skip_on_distros, str):
+        skip_on_distros = (skip_on_distros,)
+
+    bus = dbus.SystemBus()
+
+    # get information about the distribution from systemd (hostname1)
+    sys_info = bus.get_object("org.freedesktop.hostname1", "/org/freedesktop/hostname1")
+    cpe = str(sys_info.Get("org.freedesktop.hostname1", "OperatingSystemCPEName", dbus_interface=dbus.PROPERTIES_IFACE))
+
+    # 2nd to 4th fields from e.g. "cpe:/o:fedoraproject:fedora:25" or "cpe:/o:redhat:enterprise_linux:7.3:GA:server"
+    project, distro, version = tuple(cpe.split(":")[2:5])
+
+    def decorator(func):
+        if distro in skip_on_distros and (not skip_on_version or skip_on_version == version):
+            msg = "not supported on this distribution in this version" + (": %s" % reason if reason else "")
+            return unittest.skip(msg)(func)
+        else:
+            return func
+
+    return decorator
+
+# taken from libbytesize's tests/locale_utils.py
+def get_avail_locales():
+    return {loc.strip() for loc in subprocess.check_output(["locale", "-a"]).split()}
+
+def requires_locales(locales):
+    """A decorator factory to skip tests that require unavailable locales
+
+    :param set locales: set of required locales
+
+    **Requires the test to have the set of available locales defined as its
+    ``avail_locales`` attribute.**
+
+    """
+
+    canon_locales = {loc.replace("UTF-8", "utf8") for loc in locales}
+    def decorator(test_method):
+        def decorated(test, *args):
+            missing = canon_locales - set(test.avail_locales)
+            if missing:
+                test.skipTest("requires missing locales: %s" % missing)
+            else:
+                return test_method(test, *args)
+
+        return decorated
+
+    return decorator
+
+
+def run(cmd_string):
+    """
+    Run the a command with file descriptors closed as lvm is trying to
+    make sure everyone else is following best practice and not leaking FDs.
+    """
+    return subprocess.call(cmd_string, close_fds=True, shell=True)

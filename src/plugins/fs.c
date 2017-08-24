@@ -34,6 +34,12 @@
 
 #include "fs.h"
 
+#define EXT2 "ext2"
+#define EXT3 "ext3"
+#define EXT4 "ext4"
+
+#define MOUNT_ERR_BUF_SIZE 1024
+
 /**
  * SECTION: fs
  * @short_description: plugin for operations with file systems
@@ -42,6 +48,53 @@
  *
  * A plugin for operations with file systems
  */
+
+typedef enum {
+    BD_FS_RESIZE,
+    BD_FS_REPAIR,
+    BD_FS_CHECK,
+    BD_FS_LABEL
+} BDFsOpType;
+
+/**
+ * BDFSInfo:
+ * @type: filesystem identifier, must be present
+ * @check_util: required utility for consistency checking, "" if not needed and NULL for no support
+ * @repair_util: required utility for repair, "" if not needed and NULL for no support
+ * @resize_util: required utility for resize, "" if not needed and NULL for no support
+ * @resize_mode: resize availability flags, 0 if no support
+ */
+typedef struct BDFSInfo
+{
+    const gchar *type;
+    const gchar *check_util;
+    const gchar *repair_util;
+    const gchar *resize_util;
+    BDFsResizeFlags resize_mode;
+    const gchar *label_util;
+} BDFSInfo;
+
+const BDFSInfo fs_info[] = {
+    {"xfs", "xfs_db", "xfs_repair", "xfs_growfs", BD_FS_ONLINE_GROW | BD_FS_OFFLINE_GROW, "xfs_admin"},
+    {"ext2", "e2fsck", "e2fsck", "resize2fs", BD_FS_ONLINE_GROW | BD_FS_OFFLINE_GROW | BD_FS_OFFLINE_SHRINK, "tune2fs"},
+    {"ext3", "e2fsck", "e2fsck", "resize2fs", BD_FS_ONLINE_GROW | BD_FS_OFFLINE_GROW | BD_FS_OFFLINE_SHRINK, "tune2fs"},
+    {"ext4", "e2fsck", "e2fsck", "resize2fs", BD_FS_ONLINE_GROW | BD_FS_OFFLINE_GROW | BD_FS_OFFLINE_SHRINK, "tune2fs"},
+    {"vfat", "fsck.vfat", "fsck.vfat", "", BD_FS_OFFLINE_GROW | BD_FS_OFFLINE_SHRINK, "fatlabel"},
+    {NULL, NULL, NULL, NULL, 0, NULL}
+};
+
+static const BDFSInfo *
+get_fs_info (const gchar *type)
+{
+    g_return_val_if_fail (type != NULL, NULL);
+
+    for (guint n = 0; fs_info[n].type != NULL; n++) {
+        if (strcmp (fs_info[n].type, type) == 0)
+            return &fs_info[n];
+    }
+
+    return NULL;
+}
 
 /**
  * bd_fs_error_quark: (skip)
@@ -52,12 +105,12 @@ GQuark bd_fs_error_quark (void)
 }
 
 /**
- * bd_fs_ext4_info_copy: (skip)
+ * bd_fs_ext2_info_copy: (skip)
  *
  * Creates a new copy of @data.
  */
-BDFSExt4Info* bd_fs_ext4_info_copy (BDFSExt4Info *data) {
-    BDFSExt4Info *ret = g_new0 (BDFSExt4Info, 1);
+BDFSExt2Info* bd_fs_ext2_info_copy (BDFSExt2Info *data) {
+    BDFSExt2Info *ret = g_new0 (BDFSExt2Info, 1);
 
     ret->label = g_strdup (data->label);
     ret->uuid = g_strdup (data->uuid);
@@ -70,15 +123,51 @@ BDFSExt4Info* bd_fs_ext4_info_copy (BDFSExt4Info *data) {
 }
 
 /**
+ * bd_fs_ext3_info_copy: (skip)
+ *
+ * Creates a new copy of @data.
+ */
+BDFSExt3Info* bd_fs_ext3_info_copy (BDFSExt3Info *data) {
+    return (BDFSExt3Info*) bd_fs_ext2_info_copy (data);
+}
+
+/**
+ * bd_fs_ext4_info_copy: (skip)
+ *
+ * Creates a new copy of @data.
+ */
+BDFSExt4Info* bd_fs_ext4_info_copy (BDFSExt4Info *data) {
+    return (BDFSExt4Info*) bd_fs_ext2_info_copy (data);
+}
+
+/**
+ * bd_fs_ext2_info_free: (skip)
+ *
+ * Frees @data.
+ */
+void bd_fs_ext2_info_free (BDFSExt2Info *data) {
+    g_free (data->label);
+    g_free (data->uuid);
+    g_free (data->state);
+    g_free (data);
+}
+
+/**
+ * bd_fs_ext3_info_free: (skip)
+ *
+ * Frees @data.
+ */
+void bd_fs_ext3_info_free (BDFSExt3Info *data) {
+    bd_fs_ext2_info_free ((BDFSExt2Info*) data);
+}
+
+/**
  * bd_fs_ext4_info_free: (skip)
  *
  * Frees @data.
  */
 void bd_fs_ext4_info_free (BDFSExt4Info *data) {
-    g_free (data->label);
-    g_free (data->uuid);
-    g_free (data->state);
-    g_free (data);
+    bd_fs_ext2_info_free ((BDFSExt2Info*) data);
 }
 
 /**
@@ -148,6 +237,8 @@ typedef struct MountArgs {
 
 typedef gboolean (*MountFunc) (MountArgs *args, GError **error);
 
+static gboolean do_mount (MountArgs *args, GError **error);
+
 /**
  * bd_fs_check_deps:
  *
@@ -157,101 +248,7 @@ typedef gboolean (*MountFunc) (MountArgs *args, GError **error);
  *
  */
 gboolean bd_fs_check_deps () {
-    GError *error = NULL;
-    gboolean check_ret = TRUE;
-    gboolean ret = bd_utils_check_util_version ("mkfs.ext4", NULL, "", NULL, &error);
-
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("e2fsck", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("tune2fs", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("dumpe2fs", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("resize2fs", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("mkfs.xfs", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("xfs_db", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("xfs_repair", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("xfs_admin", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("xfs_growfs", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("mkfs.vfat", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("fatlabel", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    ret = bd_utils_check_util_version ("fsck.vfat", NULL, "", NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the FS plugin: %s" , error->message);
-        g_clear_error (&error);
-        check_ret = FALSE;
-    }
-
-    return check_ret;
+    return TRUE;
 }
 
 /**
@@ -309,10 +306,80 @@ static gint synced_close (gint fd) {
     return ret;
 }
 
+#ifndef LIBMOUNT_NEW_ERR_API
+static void parse_unmount_error_old (struct libmnt_context *cxt, int rc, const gchar *spec, GError **error) {
+    int syscall_errno = 0;
+
+    if (mnt_context_syscall_called (cxt)) {
+        syscall_errno = mnt_context_get_syscall_errno (cxt);
+        switch (syscall_errno) {
+            case EBUSY:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Target busy.");
+                break;
+            case EINVAL:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Not a mount point.");
+                break;
+            case EPERM:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                             "Operation not permitted.");
+                break;
+            default:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Unmount syscall failed: %d.", syscall_errno);
+                break;
+        }
+    } else {
+        if (rc == -EPERM) {
+            if (mnt_context_tab_applied (cxt))
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                             "Operation not permitted.");
+            else
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Not mounted.");
+        } else {
+            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                         "Failed to unmount %s.", spec);
+        }
+    }
+    return;
+}
+#else
+static void parse_unmount_error_new (struct libmnt_context *cxt, int rc, const gchar *spec, GError **error) {
+    int ret = 0;
+    int syscall_errno = 0;
+    char buf[MOUNT_ERR_BUF_SIZE] = {0};
+    gboolean permission = FALSE;
+
+    ret = mnt_context_get_excode (cxt, rc, buf, MOUNT_ERR_BUF_SIZE - 1);
+    if (ret != 0) {
+        /* check whether the call failed because of lack of permission */
+        if (mnt_context_syscall_called (cxt)) {
+            syscall_errno = mnt_context_get_syscall_errno (cxt);
+            permission = syscall_errno == EPERM;
+        } else
+            permission = ret == MNT_EX_USAGE && mnt_context_tab_applied (cxt);
+
+        if (permission)
+            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                         "Operation not permitted.");
+        else {
+            if (*buf == '\0')
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Unknow error when unmounting %s", spec);
+            else
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "%s", buf);
+        }
+    }
+    return;
+}
+#endif
+
 static gboolean do_unmount (MountArgs *args, GError **error) {
     struct libmnt_context *cxt = NULL;
     int ret = 0;
-    int syscall_errno = 0;
 
     cxt = mnt_new_context ();
 
@@ -343,40 +410,11 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
 
     ret = mnt_context_umount (cxt);
     if (ret != 0) {
-        if (mnt_context_syscall_called (cxt)) {
-            syscall_errno = mnt_context_get_syscall_errno (cxt);
-            switch (syscall_errno) {
-                case EBUSY:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Target busy.");
-                    break;
-                case EINVAL:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Not a mount point.");
-                    break;
-                case EPERM:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
-                                 "Operation not permitted.");
-                    break;
-                default:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Unmount syscall failed: %d.", syscall_errno);
-                    break;
-            }
-        } else {
-            if (ret == -EPERM) {
-                if (mnt_context_tab_applied (cxt))
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
-                                 "Operation not permitted.");
-                else
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Not mounted.");
-            } else {
-                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                             "Failed to unmount %s.", args->spec);
-            }
-        }
-
+#ifdef LIBMOUNT_NEW_ERR_API
+        parse_unmount_error_new (cxt, ret, args->spec, error);
+#else
+        parse_unmount_error_old (cxt, ret, args->spec, error);
+#endif
         mnt_free_context(cxt);
         return FALSE;
     }
@@ -385,11 +423,176 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
     return TRUE;
 }
 
+#ifndef LIBMOUNT_NEW_ERR_API
+static gboolean parse_mount_error_old (struct libmnt_context *cxt, int rc, MountArgs *args, GError **error) {
+    int syscall_errno = 0;
+    unsigned long mflags = 0;
+
+    if (mnt_context_get_mflags (cxt, &mflags) != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to get options from string '%s'.", args->options);
+        return FALSE;
+    }
+
+    if (mnt_context_syscall_called (cxt) == 1) {
+        syscall_errno = mnt_context_get_syscall_errno (cxt);
+        switch (syscall_errno) {
+            case EBUSY:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Source is already mounted or target is busy.");
+                break;
+            case EINVAL:
+                if (mflags & MS_REMOUNT)
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Remount attempted, but %s is not mounted at %s.", args->device, args->mountpoint);
+                else if (mflags & MS_MOVE)
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Move attempted, but %s is not a mount point.", args->device);
+                else
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Wrong fs type, %s has an invalid superblock or missing helper program.", args->device);
+                break;
+            case EPERM:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                             "Operation not permitted.");
+                break;
+            case ENOTBLK:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "%s is not a block device.", args->device);
+                break;
+            case ENOTDIR:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "%s is not a directory.", args->mountpoint);
+                break;
+            case ENODEV:
+                if (strlen (args->fstype) == 0)
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Filesystem type not specified");
+                else
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Filesystem type %s not configured in kernel.", args->fstype);
+                break;
+            case EROFS:
+            case EACCES:
+                  if (mflags & MS_RDONLY) {
+                      g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                   "Cannot mount %s read-only.", args->device);
+                      break;
+                  } else if (args->options && (mnt_optstr_get_option (args->options, "rw", NULL, NULL) == 0)) {
+                      g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                   "%s is write-protected but `rw' option given.", args->device);
+                      break;
+                  } else if (mflags & MS_BIND) {
+                      g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                   "Mount %s on %s failed.", args->device, args->mountpoint);
+                      break;
+                  }
+                  /* new versions of libmount do this automatically */
+                  else {
+                      MountArgs ro_args;
+                      gboolean success = FALSE;
+
+                      ro_args.device = args->device;
+                      ro_args.mountpoint = args->mountpoint;
+                      ro_args.fstype = args->fstype;
+                      if (!args->options)
+                          ro_args.options = g_strdup ("ro");
+                      else
+                          ro_args.options = g_strdup_printf ("%s,ro", args->options);
+
+                      success = do_mount (&ro_args, error);
+
+                      g_free ((gchar*) ro_args.options);
+
+                      return success;
+                  }
+            default:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Mount syscall failed: %d.", syscall_errno);
+                break;
+        }
+    } else {
+        switch (rc) {
+            case -EPERM:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                             "Only root can mount %s.", args->device);
+                break;
+            case -EBUSY:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "%s is already mounted.", args->device);
+                break;
+            /* source or target explicitly defined and not found in fstab */
+            case -MNT_ERR_NOFSTAB:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Can't find %s in %s.", args->device ? args->device : args->mountpoint, mnt_get_fstab_path ());
+                break;
+            case -MNT_ERR_MOUNTOPT:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Failed to parse mount options");
+                break;
+            case -MNT_ERR_NOSOURCE:
+                if (args->device)
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Can't find %s.", args->device);
+                else
+                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                                 "Mount source not defined.");
+                break;
+            case -MNT_ERR_LOOPDEV:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Failed to setup loop device");
+                break;
+            case -MNT_ERR_NOFSTYPE:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Filesystem type not specified");
+                break;
+            default:
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Failed to mount %s.", args->device ? args->device : args->mountpoint);
+                break;
+        }
+    }
+
+    return FALSE;
+}
+
+#else
+static void parse_mount_error_new (struct libmnt_context *cxt, int rc, MountArgs *args, GError **error) {
+    int ret = 0;
+    int syscall_errno = 0;
+    char buf[MOUNT_ERR_BUF_SIZE] = {0};
+    gboolean permission = FALSE;
+
+    ret = mnt_context_get_excode (cxt, rc, buf, MOUNT_ERR_BUF_SIZE - 1);
+    if (ret != 0) {
+        /* check whether the call failed because of lack of permission */
+        if (mnt_context_syscall_called (cxt)) {
+            syscall_errno = mnt_context_get_syscall_errno (cxt);
+            permission = syscall_errno == EPERM;
+        } else
+            permission = ret == MNT_EX_USAGE && mnt_context_tab_applied (cxt);
+
+        if (permission)
+            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
+                         "Operation not permitted.");
+        else {
+            if (*buf == '\0')
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Unknow error when mounting %s", args->device ? args->device : args->mountpoint);
+            else
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "%s", buf);
+        }
+    }
+
+    return;
+}
+#endif
+
 static gboolean do_mount (MountArgs *args, GError **error) {
     struct libmnt_context *cxt = NULL;
     int ret = 0;
-    int syscall_errno = 0;
-    unsigned long mflags = 0;
+    gboolean success = FALSE;
 
     cxt = mnt_new_context ();
 
@@ -436,139 +639,26 @@ static gboolean do_mount (MountArgs *args, GError **error) {
         }
     }
 
+#ifdef LIBMOUNT_NEW_ERR_API
+    /* we don't want libmount to try RDONLY mounts if we were explicitly given the "rw" option */
+    if (args->options && (mnt_optstr_get_option (args->options, "rw", NULL, NULL) == 0))
+        mnt_context_enable_rwonly_mount (cxt, TRUE);
+#endif
+
     ret = mnt_context_mount (cxt);
+
     if (ret != 0) {
-        if (mnt_context_get_mflags (cxt, &mflags) != 0) {
-            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                         "Failed to get options from string '%s'.", args->options);
-            mnt_free_context(cxt);
-            return FALSE;
-        }
-
-        if (mnt_context_syscall_called (cxt) == 1) {
-            syscall_errno = mnt_context_get_syscall_errno (cxt);
-            switch (syscall_errno) {
-                case EBUSY:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Source is already mounted or target is busy.");
-                    break;
-                case EINVAL:
-                    if (mflags & MS_REMOUNT)
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Remount attempted, but %s is not mounted at %s.", args->device, args->mountpoint);
-                    else if (mflags & MS_MOVE)
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Move attempted, but %s is not a mount point.", args->device);
-                    else
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Wrong fs type, %s has an invalid superblock or missing helper program.", args->device);
-                    break;
-                case EPERM:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
-                                 "Operation not permitted.");
-                    break;
-                case ENOTBLK:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "%s is not a block device.", args->device);
-                    break;
-                case ENOTDIR:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "%s is not a directory.", args->mountpoint);
-                    break;
-                case ENODEV:
-                    if (strlen (args->fstype) == 0)
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Filesystem type not specified");
-                    else
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Filesystem type %s not configured in kernel.", args->fstype);
-                    break;
-                case EROFS:
-                      if (mflags & MS_RDONLY) {
-                          g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                       "Cannot mount %s read-only.", args->device);
-                          break;
-                      } else if (mnt_optstr_get_option (args->options, "rw", NULL, NULL) == 0) {
-                          g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                       "%s is write-protected but `rw' option given.", args->device);
-                          break;
-                      } else if (mflags & MS_BIND) {
-                          g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                       "Mount %s on %s failed.", args->device, args->mountpoint);
-                          break;
-                      } else {
-                          MountArgs ro_args;
-                          gboolean success = FALSE;
-
-                          ro_args.device = args->device;
-                          ro_args.mountpoint = args->mountpoint;
-                          ro_args.fstype = args->fstype;
-                          if (!args->options)
-                              ro_args.options = g_strdup ("ro");
-                          else
-                              ro_args.options = g_strdup_printf ("%s,ro", args->options);
-
-                          success = do_mount (&ro_args, error);
-
-                          mnt_free_context (cxt);
-                          g_free ((gchar*) ro_args.options);
-
-                          return success;
-                      }
-
-                default:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Mount syscall failed: %d.", syscall_errno);
-                    break;
-            }
-        } else {
-            switch (ret) {
-                case -EPERM:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_AUTH,
-                                 "Only root can mount %s.", args->device);
-                    break;
-                case -EBUSY:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "%s is already mounted.", args->device);
-                    break;
-                /* source or target explicitly defined and not found in fstab */
-                case -MNT_ERR_NOFSTAB:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Can't find %s in %s.", args->device ? args->device : args->mountpoint, mnt_get_fstab_path ());
-                    break;
-                case -MNT_ERR_MOUNTOPT:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Failed to parse mount options");
-                    break;
-                case -MNT_ERR_NOSOURCE:
-                    if (args->device)
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Can't find %s.", args->device);
-                    else
-                        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                     "Mount source not defined.");
-                    break;
-                case -MNT_ERR_LOOPDEV:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Failed to setup loop device");
-                    break;
-                case -MNT_ERR_NOFSTYPE:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Filesystem type not specified");
-                    break;
-                default:
-                    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                 "Failed to unmount %s.", args->spec);
-                    break;
-            }
-        }
-
-        mnt_free_context(cxt);
-        return FALSE;
-    }
+#ifdef LIBMOUNT_NEW_ERR_API
+      parse_mount_error_new (cxt, ret, args, error);
+      success = FALSE;
+#else
+      success = parse_mount_error_old (cxt, ret, args, error);
+#endif
+    } else
+        success = TRUE;
 
     mnt_free_context(cxt);
-    return TRUE;
+    return success;
 }
 
 static gboolean set_uid (uid_t uid, GError **error) {
@@ -850,6 +940,54 @@ gboolean bd_fs_mount (const gchar *device, const gchar *mountpoint, const gchar 
 }
 
 /**
+ * bd_fs_get_mountpoint:
+ * @device: device to find mountpoint for
+ * @error: (out): place to store error (if any)
+ *
+ * Get mountpoint for @device. If @device is mounted multiple times only
+ * one mountpoint will be returned.
+ *
+ * Returns: (transfer full): mountpoint for @device, %NULL in case device is
+ *                           not mounted or in case of an error (@error is set
+ *                           in this case)
+ */
+gchar* bd_fs_get_mountpoint (const gchar *device, GError **error) {
+    struct libmnt_table *table = NULL;
+    struct libmnt_fs *fs = NULL;
+    gint ret = 0;
+    gchar *mountpoint = NULL;
+    const gchar *target = NULL;
+
+    table = mnt_new_table ();
+
+    ret = mnt_table_parse_mtab (table, NULL);
+    if (ret != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to parse mount info.");
+        mnt_free_table (table);
+        return NULL;
+    }
+
+    fs = mnt_table_find_source (table, device, MNT_ITER_FORWARD);
+    if (!fs) {
+        mnt_free_table (table);
+        return NULL;
+    }
+
+    target = mnt_fs_get_target (fs);
+    if (!target) {
+        mnt_free_fs (fs);
+        mnt_free_table (table);
+        return NULL;
+    }
+
+    mountpoint = g_strdup (target);
+    mnt_free_fs (fs);
+    mnt_free_table (table);
+    return mountpoint;
+}
+
+/**
  * bd_fs_wipe:
  * @device: the device to wipe signatures from
  * @all: whether to wipe all (%TRUE) signatures or just the first (%FALSE) one
@@ -910,7 +1048,7 @@ gboolean bd_fs_wipe (const gchar *device, gboolean all, GError **error) {
     /* we may need to try mutliple times with some delays in case the device is
        busy at the very moment */
     for (n_try=5, status=-1; (status != 0) && (n_try > 0); n_try--) {
-        status = blkid_do_probe (probe);
+        status = blkid_do_safeprobe (probe);
         if (status == 1)
             break;
         if (status < 0)
@@ -924,6 +1062,9 @@ gboolean bd_fs_wipe (const gchar *device, gboolean all, GError **error) {
         bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
+
+    blkid_reset_probe (probe);
+    status = blkid_do_probe (probe);
 
     if (status < 0) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
@@ -961,6 +1102,142 @@ gboolean bd_fs_wipe (const gchar *device, gboolean all, GError **error) {
     bd_utils_report_finished (progress_id, "Completed");
 
     return TRUE;
+}
+
+/**
+ * bd_fs_clean:
+ * @device: the device to clean
+ * @error: (out): place to store error (if any)
+ *
+ * Clean all signatures from @device.
+ * Difference between this and bd_fs_wipe() is that this function doesn't
+ * return error if @device is already empty. This will also always remove
+ * all signatures from @device, not only the first one.
+ *
+ * Returns: whether @device was successfully cleaned or not
+ */
+gboolean bd_fs_clean (const gchar *device, GError **error) {
+  gboolean ret = FALSE;
+
+  ret = bd_fs_wipe (device, TRUE, error);
+
+  if (!ret) {
+    if (g_error_matches (*error, BD_FS_ERROR, BD_FS_ERROR_NOFS)) {
+        /* ignore 'empty device' error */
+        g_clear_error (error);
+        return TRUE;
+    } else {
+        g_prefix_error (error, "Failed to clean %s:", device);
+        return FALSE;
+    }
+  } else
+      return TRUE;
+}
+
+/**
+ * bd_fs_get_fstype:
+ * @device: the device to probe
+ * @error: (out): place to store error (if any)
+ *
+ * Get first signature on @device as a string.
+ *
+ * Returns: (transfer full): type of filesystem found on @device, %NULL in case
+ *                           no signature has been detected or in case of error
+ *                           (@error is set in this case)
+ */
+gchar* bd_fs_get_fstype (const gchar *device,  GError **error) {
+    blkid_probe probe = NULL;
+    gint fd = 0;
+    gint status = 0;
+    const gchar *value = NULL;
+    gchar *fstype = NULL;
+    size_t len = 0;
+    guint n_try = 0;
+
+    probe = blkid_new_probe ();
+    if (!probe) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to create a new probe");
+        return FALSE;
+    }
+
+    fd = open (device, O_RDWR|O_CLOEXEC);
+    if (fd == -1) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to open the device '%s'", device);
+        blkid_free_probe (probe);
+        return FALSE;
+    }
+
+    /* we may need to try mutliple times with some delays in case the device is
+       busy at the very moment */
+    for (n_try=5, status=-1; (status != 0) && (n_try > 0); n_try--) {
+        status = blkid_probe_set_device (probe, fd, 0, 0);
+        if (status != 0)
+            g_usleep (100 * 1000); /* microseconds */
+    }
+    if (status != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to create a probe for the device '%s'", device);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return FALSE;
+    }
+
+    blkid_probe_enable_partitions (probe, 1);
+    blkid_probe_set_partitions_flags (probe, BLKID_PARTS_MAGIC);
+    blkid_probe_enable_superblocks (probe, 1);
+    blkid_probe_set_superblocks_flags (probe, BLKID_SUBLKS_USAGE | BLKID_SUBLKS_TYPE |
+                                              BLKID_SUBLKS_MAGIC | BLKID_SUBLKS_BADCSUM);
+
+    /* we may need to try mutliple times with some delays in case the device is
+       busy at the very moment */
+    for (n_try=5, status=-1; (status != 0 || status != 1) && (n_try > 0); n_try--) {
+        status = blkid_do_safeprobe (probe);
+        if (status < 0)
+            g_usleep (100 * 1000); /* microseconds */
+    }
+    if (status < 0) {
+        /* -1 or -2 = error during probing*/
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to probe the device '%s'", device);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return NULL;
+    } else if (status == 1) {
+        /* 1 = nothing detected */
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return NULL;
+    }
+
+    status = blkid_probe_lookup_value (probe, "USAGE", &value, &len);
+    if (status != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to get usage for the device '%s'", device);
+        return NULL;
+    }
+
+    if (strncmp (value, "filesystem", 10) != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_INVAL,
+                     "The signature on the device '%s' is of type '%s', not 'filesystem'", device, value);
+        blkid_free_probe (probe);
+        synced_close (fd);
+        return NULL;
+    }
+
+    status = blkid_probe_lookup_value (probe, "TYPE", &value, &len);
+    if (status != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Failed to get filesystem type for the device '%s'", device);
+        return NULL;
+    }
+
+    fstype = g_strdup (value);
+    blkid_free_probe (probe);
+    synced_close (fd);
+
+    return fstype;
 }
 
 static gboolean has_fs (blkid_probe probe, const gchar *device, const gchar *fs_type, GError **error) {
@@ -1150,6 +1427,368 @@ static gboolean wipe_fs (const gchar *device, const gchar *fs_type, gboolean wip
     return TRUE;
 }
 
+static gboolean ext_mkfs (const gchar *device, const BDExtraArg **extra, const gchar *ext_version, GError **error) {
+    const gchar *args[6] = {"mke2fs", "-t", ext_version, "-F", device, NULL};
+
+    return bd_utils_exec_and_report_error (args, extra, error);
+}
+
+/**
+ * xfs_resize_device:
+ * @device: the device the file system of which to resize
+ * @new_size: new requested size for the file system *in bytes*
+ *            (if 0, the file system is adapted to the underlying block device)
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ *                                                 passed to the 'xfs_growfs' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * This is just a helper function for bd_fs_resize.
+ *
+ * Returns: whether the file system on @device was successfully resized or not
+ */
+
+static gboolean xfs_resize_device (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error) {
+    g_autofree gchar* mountpoint = NULL;
+    gboolean ret = FALSE;
+    gboolean success = FALSE;
+    gboolean unmount = FALSE;
+    GError *local_error = NULL;
+    BDFSXfsInfo* xfs_info = NULL;
+
+    mountpoint = bd_fs_get_mountpoint (device, error);
+    if (!mountpoint) {
+        if (*error == NULL) {
+            /* device is not mounted -- we need to mount it */
+            mountpoint = g_build_path (G_DIR_SEPARATOR_S, g_get_tmp_dir (), "blockdev.XXXXXX", NULL);
+            mountpoint = g_mkdtemp (mountpoint);
+            if (!mountpoint) {
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                             "Failed to create temporary directory for mounting '%s' "
+                             "before resizing it.", device);
+                return FALSE;
+            }
+            ret = bd_fs_mount (device, mountpoint, "xfs", NULL, NULL, error);
+            if (!ret) {
+                g_prefix_error (error, "Failed to mount '%s' before resizing it: ", device);
+                return FALSE;
+            } else
+                unmount = TRUE;
+        } else {
+            g_prefix_error (error, "Error when trying to get mountpoint for '%s': ", device);
+            return FALSE;
+        }
+    }
+
+    xfs_info = bd_fs_xfs_get_info (device, error);
+    if (!xfs_info) {
+        return FALSE;
+    }
+
+    new_size = (new_size + xfs_info->block_size - 1) / xfs_info->block_size;
+    bd_fs_xfs_info_free (xfs_info);
+
+    success = bd_fs_xfs_resize (mountpoint, new_size, extra, error);
+
+    if (unmount) {
+        ret = bd_fs_unmount (mountpoint, FALSE, FALSE, NULL, &local_error);
+        if (!ret) {
+            if (success) {
+                /* resize was successful but unmount failed */
+                g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_UNMOUNT_FAIL,
+                             "Failed to unmount '%s' after resizing it: %s",
+                             device, local_error->message);
+                g_clear_error (&local_error);
+                return FALSE;
+            } else
+                /* both resize and unmount were unsuccessful but the error
+                   from the resize is more important so just ignore the
+                   unmount error */
+                g_clear_error (&local_error);
+        }
+    }
+
+    return success;
+}
+
+static gboolean device_operation (const gchar *device, BDFsOpType op, guint64 new_size, const gchar *label, GError **error) {
+    const gchar* op_name = NULL;
+    g_autofree gchar* fstype = NULL;
+
+    fstype = bd_fs_get_fstype (device, error);
+    if (!fstype) {
+        if (*error == NULL) {
+            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOFS,
+                         "No filesystem detected on the device '%s'", device);
+            return FALSE;
+        } else {
+            g_prefix_error (error, "Error when trying to detect filesystem on '%s': ", device);
+            return FALSE;
+        }
+    }
+
+    if (g_strcmp0 (fstype, "ext2") == 0 || g_strcmp0 (fstype, "ext3") == 0
+                                        || g_strcmp0 (fstype, "ext4") == 0) {
+        switch (op) {
+            case BD_FS_RESIZE:
+                return bd_fs_ext4_resize (device, new_size, NULL, error);
+            case BD_FS_REPAIR:
+                return bd_fs_ext4_repair (device, TRUE, NULL, error);
+            case BD_FS_CHECK:
+                return bd_fs_ext4_check (device, NULL, error);
+            case BD_FS_LABEL:
+                return bd_fs_ext4_set_label (device, label, error);
+        }
+    } else if (g_strcmp0 (fstype, "xfs") == 0) {
+        switch (op) {
+            case BD_FS_RESIZE:
+                return xfs_resize_device (device, new_size, NULL, error);
+            case BD_FS_REPAIR:
+                return bd_fs_xfs_repair (device, NULL, error);
+            case BD_FS_CHECK:
+                return bd_fs_xfs_check (device, error);
+            case BD_FS_LABEL:
+                return bd_fs_xfs_set_label (device, label, error);
+        }
+    } else if (g_strcmp0 (fstype, "vfat") == 0) {
+        switch (op) {
+            case BD_FS_RESIZE:
+                return bd_fs_vfat_resize (device, new_size, error);
+            case BD_FS_REPAIR:
+                return bd_fs_vfat_repair (device, NULL, error);
+            case BD_FS_CHECK:
+                return bd_fs_vfat_check (device, NULL, error);
+            case BD_FS_LABEL:
+                return bd_fs_vfat_set_label (device, label, error);
+        }
+    }
+
+    switch (op) {
+        case BD_FS_RESIZE:
+            op_name = "Resizing";
+            break;
+        case BD_FS_REPAIR:
+            op_name = "Repairing";
+            break;
+        case BD_FS_CHECK:
+            op_name = "Checking";
+            break;
+        case BD_FS_LABEL:
+            op_name = "Setting the label of";
+            break;
+    }
+    g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
+                 "%s filesystem '%s' is not supported.", op_name, fstype);
+    return FALSE;
+}
+
+/**
+ * bd_fs_resize:
+ * @device: the device the file system of which to resize
+ * @new_size: new requested size for the file system (if 0, the file system is
+ *            adapted to the underlying block device)
+ * @error: (out): place to store error (if any)
+ *
+ * Resize filesystem on @device. This calls other fs resize functions from this
+ * plugin based on detected filesystem (e.g. bd_fs_xfs_resize for XFS). This
+ * function will return an error for unknown/unsupported filesystems.
+ *
+ * Returns: whether the file system on @device was successfully resized or not
+ */
+gboolean bd_fs_resize (const gchar *device, guint64 new_size, GError **error) {
+    return device_operation (device, BD_FS_RESIZE, new_size, NULL, error);
+}
+
+/**
+ * bd_fs_repair:
+ * @device: the device the file system of which to repair
+ * @error: (out): place to store error (if any)
+ *
+ * Repair filesystem on @device. This calls other fs repair functions from this
+ * plugin based on detected filesystem (e.g. bd_fs_xfs_repair for XFS). This
+ * function will return an error for unknown/unsupported filesystems.
+ *
+ * Returns: whether the file system on @device was successfully repaired or not
+ */
+gboolean bd_fs_repair (const gchar *device, GError **error) {
+    return device_operation (device, BD_FS_REPAIR, 0, NULL, error);
+ }
+
+/**
+ * bd_fs_check:
+ * @device: the device the file system of which to check
+ * @error: (out): place to store error (if any)
+ *
+ * Check filesystem on @device. This calls other fs check functions from this
+ * plugin based on detected filesystem (e.g. bd_fs_xfs_check for XFS). This
+ * function will return an error for unknown/unsupported filesystems.
+ *
+ * Returns: whether the file system on @device passed the consistency check or not
+ */
+gboolean bd_fs_check (const gchar *device, GError **error) {
+    return device_operation (device, BD_FS_CHECK, 0, NULL, error);
+}
+
+/**
+ * bd_fs_set_label:
+ * @device: the device with file system to set the label for
+ * @error: (out): place to store error (if any)
+ *
+ * Set label for filesystem on @device. This calls other fs label functions from this
+ * plugin based on detected filesystem (e.g. bd_fs_xfs_set_label for XFS). This
+ * function will return an error for unknown/unsupported filesystems.
+ *
+ * Returns: whether the file system on @device was successfully relabled or not
+ */
+gboolean bd_fs_set_label (const gchar *device, const gchar *label, GError **error) {
+    return device_operation (device, BD_FS_LABEL, 0, label, error);
+ }
+
+static gboolean query_fs_operation (const gchar *fs_type, BDFsOpType op, gchar **required_utility, BDFsResizeFlags *mode, GError **error) {
+    gboolean ret;
+    const BDFSInfo *fsinfo = NULL;
+    const gchar* op_name = NULL;
+    const gchar* exec_util = NULL;
+
+    if (required_utility != NULL)
+        *required_utility = NULL;
+
+    if (mode != NULL)
+        *mode = 0;
+
+    fsinfo = get_fs_info (fs_type);
+    if (fsinfo != NULL) {
+        switch (op) {
+            case BD_FS_RESIZE:
+                op_name = "Resizing";
+                exec_util = fsinfo->resize_util;
+                break;
+            case BD_FS_REPAIR:
+                op_name = "Repairing";
+                exec_util = fsinfo->repair_util;
+                break;
+            case BD_FS_CHECK:
+                op_name = "Checking";
+                exec_util = fsinfo->check_util;
+                break;
+            case BD_FS_LABEL:
+                op_name = "Setting the label of";
+                exec_util = fsinfo->label_util;
+                break;
+        }
+    }
+
+    if (fsinfo == NULL || exec_util == NULL) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_NOT_SUPPORTED,
+                     "%s filesystem '%s' is not supported.", op_name, fs_type);
+        return FALSE;
+    }
+
+    if (mode != NULL)
+        *mode = fsinfo->resize_mode;
+
+    if (strlen(exec_util) == 0) { /* empty string if no util needed */
+        return TRUE;
+    }
+
+    ret = bd_utils_check_util_version (exec_util, NULL, "", NULL, NULL);
+    if (!ret && required_utility != NULL)
+        *required_utility = g_strdup (exec_util);
+
+    return ret;
+}
+
+/**
+ * bd_fs_can_resize:
+ * @type: the filesystem type to be tested for installed resize support
+ * @mode: (out): flags for allowed resizing (i.e. growing/shrinking support for online/offline)
+ * @required_utility: (out) (transfer full): the utility binary which is required for resizing (if missing i.e. returns FALSE but no error)
+ * @error: (out): place to store error (if any)
+ *
+ * Searches for the required utility to resize the given filesystem and returns whether
+ * it is installed. The mode flags indicate if growing and/or shrinking resize is available if
+ * mounted/unmounted.
+ * Unknown filesystems or filesystems which do not support resizing result in errors.
+ *
+ * Returns: whether filesystem resize is available
+ */
+gboolean bd_fs_can_resize (const gchar *type, BDFsResizeFlags *mode, gchar **required_utility, GError **error) {
+    return query_fs_operation (type, BD_FS_RESIZE, required_utility, mode, error);
+}
+
+/**
+ * bd_fs_can_check:
+ * @type: the filesystem type to be tested for installed consistency check support
+ * @required_utility: (out) (transfer full): the utility binary which is required for checking (if missing i.e. returns FALSE but no error)
+ * @error: (out): place to store error (if any)
+ *
+ * Searches for the required utility to check the given filesystem and returns whether
+ * it is installed.
+ * Unknown filesystems or filesystems which do not support checking result in errors.
+ *
+ * Returns: whether filesystem check is available
+ */
+gboolean bd_fs_can_check (const gchar *type, gchar **required_utility, GError **error) {
+    return query_fs_operation (type, BD_FS_CHECK, required_utility, NULL, error);
+}
+
+/**
+ * bd_fs_can_repair:
+ * @type: the filesystem type to be tested for installed repair support
+ * @required_utility: (out) (transfer full): the utility binary which is required for repairing (if missing i.e. return FALSE but no error)
+ * @error: (out): place to store error (if any)
+ *
+ * Searches for the required utility to repair the given filesystem and returns whether
+ * it is installed.
+ * Unknown filesystems or filesystems which do not support reparing result in errors.
+ *
+ * Returns: whether filesystem repair is available
+ */
+gboolean bd_fs_can_repair (const gchar *type, gchar **required_utility, GError **error) {
+    return query_fs_operation (type, BD_FS_REPAIR, required_utility, NULL, error);
+}
+
+/**
+ * bd_fs_can_set_label:
+ * @type: the filesystem type to be tested for installed label support
+ * @required_utility: (out) (transfer full): the utility binary which is required for relabeling (if missing i.e. return FALSE but no error)
+ * @error: (out): place to store error (if any)
+ *
+ * Searches for the required utility to set the label of the given filesystem and returns whether
+ * it is installed.
+ * Unknown filesystems or filesystems which do not support setting the label result in errors.
+ *
+ * Returns: whether setting filesystem label is available
+ */
+gboolean bd_fs_can_set_label (const gchar *type, gchar **required_utility, GError **error) {
+    return query_fs_operation (type, BD_FS_LABEL, required_utility, NULL, error);
+}
+
+/**
+ * bd_fs_ext2_mkfs:
+ * @device: the device to create a new ext2 fs on
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ *                                                 passed to the 'mke2fs' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether a new ext2 fs was successfully created on @device or not
+ */
+gboolean bd_fs_ext2_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
+    return ext_mkfs (device, extra, EXT2, error);
+}
+
+/**
+ * bd_fs_ext3_mkfs:
+ * @device: the device to create a new ext3 fs on
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ *                                                 passed to the 'mke2fs' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether a new ext3 fs was successfully created on @device or not
+ */
+gboolean bd_fs_ext3_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
+    return ext_mkfs (device, extra, EXT3, error);
+}
+
 /**
  * bd_fs_ext4_mkfs:
  * @device: the device to create a new ext4 fs on
@@ -1160,9 +1799,31 @@ static gboolean wipe_fs (const gchar *device, const gchar *fs_type, gboolean wip
  * Returns: whether a new ext4 fs was successfully created on @device or not
  */
 gboolean bd_fs_ext4_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
-    const gchar *args[3] = {"mkfs.ext4", device, NULL};
+    return ext_mkfs (device, extra, EXT4, error);
+}
 
-    return bd_utils_exec_and_report_error (args, extra, error);
+/**
+ * bd_fs_ext2_wipe:
+ * @device: the device to wipe an ext2 signature from
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext2 signature was successfully wiped from the @device or
+ *          not
+ */
+gboolean bd_fs_ext2_wipe (const gchar *device, GError **error) {
+    return wipe_fs (device, EXT2, FALSE, error);
+}
+
+/**
+ * bd_fs_ext3_wipe:
+ * @device: the device to wipe an ext3 signature from
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext3 signature was successfully wiped from the @device or
+ *          not
+ */
+gboolean bd_fs_ext3_wipe (const gchar *device, GError **error) {
+    return wipe_fs (device, EXT3, FALSE, error);
 }
 
 /**
@@ -1174,19 +1835,10 @@ gboolean bd_fs_ext4_mkfs (const gchar *device, const BDExtraArg **extra, GError 
  *          not
  */
 gboolean bd_fs_ext4_wipe (const gchar *device, GError **error) {
-    return wipe_fs (device, "ext4", FALSE, error);
+    return wipe_fs (device, EXT4, FALSE, error);
 }
 
-/**
- * bd_fs_ext4_check:
- * @device: the device the file system on which to check
- * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
- *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
- *
- * Returns: whether an ext4 file system on the @device is clean or not
- */
-gboolean bd_fs_ext4_check (const gchar *device, const BDExtraArg **extra, GError **error) {
+static gboolean ext_check (const gchar *device, const BDExtraArg **extra, GError **error) {
     /* Force checking even if the file system seems clean. AND
      * Open the filesystem read-only, and assume an answer of no to all
      * questions. */
@@ -1203,6 +1855,84 @@ gboolean bd_fs_ext4_check (const gchar *device, const BDExtraArg **extra, GError
 }
 
 /**
+ * bd_fs_ext2_check:
+ * @device: the device the file system on which to check
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ *                                                 passed to the 'e2fsck' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext2 file system on the @device is clean or not
+ */
+gboolean bd_fs_ext2_check (const gchar *device, const BDExtraArg **extra, GError **error) {
+    return ext_check (device, extra, error);
+}
+
+/**
+ * bd_fs_ext3_check:
+ * @device: the device the file system on which to check
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ *                                                 passed to the 'e2fsck' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext3 file system on the @device is clean or not
+ */
+gboolean bd_fs_ext3_check (const gchar *device, const BDExtraArg **extra, GError **error) {
+    return ext_check (device, extra, error);
+}
+
+/**
+ * bd_fs_ext4_check:
+ * @device: the device the file system on which to check
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ *                                                 passed to the 'e2fsck' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext4 file system on the @device is clean or not
+ */
+gboolean bd_fs_ext4_check (const gchar *device, const BDExtraArg **extra, GError **error) {
+    return ext_check (device, extra, error);
+}
+
+static gboolean ext_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error) {
+    /* Force checking even if the file system seems clean. AND
+     *     Automatically repair what can be safely repaired. OR
+     *     Assume an answer of `yes' to all questions. */
+    const gchar *args[5] = {"e2fsck", "-f", unsafe ? "-y" : "-p", device, NULL};
+
+    return bd_utils_exec_and_report_error (args, extra, error);
+}
+
+/**
+ * bd_fs_ext2_repair:
+ * @device: the device the file system on which to repair
+ * @unsafe: whether to do unsafe operations too
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ *                                                 passed to the 'e2fsck' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext2 file system on the @device was successfully repaired
+ *          (if needed) or not (error is set in that case)
+ */
+gboolean bd_fs_ext2_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error) {
+    return ext_repair (device, unsafe, extra, error);
+}
+
+/**
+ * bd_fs_ext3_repair:
+ * @device: the device the file system on which to repair
+ * @unsafe: whether to do unsafe operations too
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ *                                                 passed to the 'e2fsck' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether an ext3 file system on the @device was successfully repaired
+ *          (if needed) or not (error is set in that case)
+ */
+gboolean bd_fs_ext3_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error) {
+    return ext_repair (device, unsafe, extra, error);
+}
+
+/**
  * bd_fs_ext4_repair:
  * @device: the device the file system on which to repair
  * @unsafe: whether to do unsafe operations too
@@ -1214,12 +1944,39 @@ gboolean bd_fs_ext4_check (const gchar *device, const BDExtraArg **extra, GError
  *          (if needed) or not (error is set in that case)
  */
 gboolean bd_fs_ext4_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error) {
-    /* Force checking even if the file system seems clean. AND
-     *     Automatically repair what can be safely repaired. OR
-     *     Assume an answer of `yes' to all questions. */
-    const gchar *args[5] = {"e2fsck", "-f", unsafe ? "-y" : "-p", device, NULL};
+    return ext_repair (device, unsafe, extra, error);
+}
 
-    return bd_utils_exec_and_report_error (args, extra, error);
+static gboolean ext_set_label (const gchar *device, const gchar *label, GError **error) {
+    const gchar *args[5] = {"tune2fs", "-L", label, device, NULL};
+
+    return bd_utils_exec_and_report_error (args, NULL, error);
+}
+
+/**
+ * bd_fs_ext2_set_label:
+ * @device: the device the file system on which to set label for
+ * @label: label to set
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the label of ext2 file system on the @device was
+ *          successfully set or not
+ */
+gboolean bd_fs_ext2_set_label (const gchar *device, const gchar *label, GError **error) {
+    return ext_set_label (device, label, error);
+}
+
+/**
+ * bd_fs_ext3_set_label:
+ * @device: the device the file system on which to set label for
+ * @label: label to set
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the label of ext3 file system on the @device was
+ *          successfully set or not
+ */
+gboolean bd_fs_ext3_set_label (const gchar *device, const gchar *label, GError **error) {
+    return ext_set_label (device, label, error);
 }
 
 /**
@@ -1232,9 +1989,7 @@ gboolean bd_fs_ext4_repair (const gchar *device, gboolean unsafe, const BDExtraA
  *          successfully set or not
  */
 gboolean bd_fs_ext4_set_label (const gchar *device, const gchar *label, GError **error) {
-    const gchar *args[5] = {"tune2fs", "-L", label, device, NULL};
-
-    return bd_utils_exec_and_report_error (args, NULL, error);
+    return ext_set_label (device, label, error);
 }
 
 /**
@@ -1272,8 +2027,8 @@ static GHashTable* parse_output_vars (const gchar *str, const gchar *item_sep, c
     return table;
 }
 
-static BDFSExt4Info* get_ext4_info_from_table (GHashTable *table, gboolean free_table) {
-    BDFSExt4Info *ret = g_new0 (BDFSExt4Info, 1);
+static BDFSExtInfo* get_ext_info_from_table (GHashTable *table, gboolean free_table) {
+    BDFSExtInfo *ret = g_new0 (BDFSExtInfo, 1);
     gchar *value = NULL;
 
     ret->label = g_strdup ((gchar*) g_hash_table_lookup (table, "Filesystem volume name"));
@@ -1304,21 +2059,13 @@ static BDFSExt4Info* get_ext4_info_from_table (GHashTable *table, gboolean free_
     return ret;
 }
 
-/**
- * bd_fs_ext4_get_info:
- * @device: the device the file system of which to get info for
- * @error: (out): place to store error (if any)
- *
- * Returns: (transfer full): information about the file system on @device or
- *                           %NULL in case of error
- */
-BDFSExt4Info* bd_fs_ext4_get_info (const gchar *device, GError **error) {
+static BDFSExtInfo* ext_get_info (const gchar *device, GError **error) {
     const gchar *args[4] = {"dumpe2fs", "-h", device, NULL};
     gboolean success = FALSE;
     gchar *output = NULL;
     GHashTable *table = NULL;
     guint num_items = 0;
-    BDFSExt4Info *ret = NULL;
+    BDFSExtInfo *ret = NULL;
 
     success = bd_utils_exec_and_capture_output (args, NULL, &output, error);
     if (!success) {
@@ -1336,13 +2083,92 @@ BDFSExt4Info* bd_fs_ext4_get_info (const gchar *device, GError **error) {
         return NULL;
     }
 
-    ret = get_ext4_info_from_table (table, TRUE);
+    ret = get_ext_info_from_table (table, TRUE);
     if (!ret) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_PARSE, "Failed to parse ext4 file system information");
         return NULL;
     }
 
     return ret;
+}
+
+/**
+ * bd_fs_ext2_get_info:
+ * @device: the device the file system of which to get info for
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the file system on @device or
+ *                           %NULL in case of error
+ */
+BDFSExt2Info* bd_fs_ext2_get_info (const gchar *device, GError **error) {
+    return (BDFSExt2Info*) ext_get_info (device, error);
+}
+
+/**
+ * bd_fs_ext3_get_info:
+ * @device: the device the file system of which to get info for
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the file system on @device or
+ *                           %NULL in case of error
+ */
+BDFSExt3Info* bd_fs_ext3_get_info (const gchar *device, GError **error) {
+    return (BDFSExt3Info*) ext_get_info (device, error);
+}
+
+/**
+ * bd_fs_ext4_get_info:
+ * @device: the device the file system of which to get info for
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the file system on @device or
+ *                           %NULL in case of error
+ */
+BDFSExt4Info* bd_fs_ext4_get_info (const gchar *device, GError **error) {
+    return (BDFSExt4Info*) ext_get_info (device, error);
+}
+
+static gboolean ext_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error) {
+    const gchar *args[4] = {"resize2fs", device, NULL, NULL};
+    gboolean ret = FALSE;
+
+    if (new_size != 0)
+        /* resize2fs doesn't understand bytes, just 512B sectors */
+        args[2] = g_strdup_printf ("%"G_GUINT64_FORMAT"s", new_size / 512);
+    ret = bd_utils_exec_and_report_error (args, extra, error);
+
+    g_free ((gchar *) args[2]);
+    return ret;
+}
+
+/**
+ * bd_fs_ext2_resize:
+ * @device: the device the file system of which to resize
+ * @new_size: new requested size for the file system (if 0, the file system is
+ *            adapted to the underlying block device)
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ *                                                 passed to the 'resize2fs' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the file system on @device was successfully resized or not
+ */
+gboolean bd_fs_ext2_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error) {
+    return ext_resize (device, new_size, extra, error);
+}
+
+/**
+ * bd_fs_ext3_resize:
+ * @device: the device the file system of which to resize
+ * @new_size: new requested size for the file system (if 0, the file system is
+ *            adapted to the underlying block device)
+ * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ *                                                 passed to the 'resize2fs' utility)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the file system on @device was successfully resized or not
+ */
+gboolean bd_fs_ext3_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error) {
+    return ext_resize (device, new_size, extra, error);
 }
 
 /**
@@ -1357,16 +2183,7 @@ BDFSExt4Info* bd_fs_ext4_get_info (const gchar *device, GError **error) {
  * Returns: whether the file system on @device was successfully resized or not
  */
 gboolean bd_fs_ext4_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error) {
-    const gchar *args[4] = {"resize2fs", device, NULL, NULL};
-    gboolean ret = FALSE;
-
-    if (new_size != 0)
-        /* resize2fs doesn't understand bytes, just 512B sectors */
-        args[2] = g_strdup_printf ("%"G_GUINT64_FORMAT"s", new_size / 512);
-    ret = bd_utils_exec_and_report_error (args, extra, error);
-
-    g_free ((gchar *) args[2]);
-    return ret;
+    return ext_resize (device, new_size, extra, error);
 }
 
 /**
@@ -1597,7 +2414,7 @@ gboolean bd_fs_xfs_resize (const gchar *mpoint, guint64 new_size, const BDExtraA
  * Returns: whether a new vfat fs was successfully created on @device or not
  */
 gboolean bd_fs_vfat_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
-    const gchar *args[3] = {"mkfs.vfat", device, NULL};
+    const gchar *args[4] = {"mkfs.vfat", "-I", device, NULL};
 
     return bd_utils_exec_and_report_error (args, extra, error);
 }

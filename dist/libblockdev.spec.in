@@ -13,6 +13,7 @@
 %define with_kbd @WITH_KBD@
 %define with_part @WITH_PART@
 %define with_fs @WITH_FS@
+%define with_gi @WITH_GI@
 
 %define is_rhel 0%{?rhel} != 0
 
@@ -20,7 +21,8 @@
 %if %{is_rhel}
 %define with_python3 0
 %define with_bcache 0
-%define distro_copts --without-python3 --without-bcache
+%define with_lvm_dbus 0
+%define distro_copts --without-python3 --without-bcache --without-lvm-dbus
 %endif
 
 %if %{with_btrfs} != 1
@@ -59,19 +61,24 @@
 %if %{with_fs} != 1
 %define fs_copts --without-fs
 %endif
+%if %{with_gi} != 1
+%define gi_copts --disable-introspection
+%endif
 
-%define configure_opts %{?distro_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?kbd_copts} %{?part_copts} %{?fs_copts}
+%define configure_opts %{?distro_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?kbd_copts} %{?part_copts} %{?fs_copts} %{?gi_copts}
 
 Name:        libblockdev
-Version:     2.6
+Version:     2.11
 Release:     1%{?dist}
 Summary:     A library for low-level manipulation with block devices
 License:     LGPLv2+
-URL:         https://github.com/rhinstaller/libblockdev
-Source0:     https://github.com/rhinstaller/libblockdev/archive/%{name}-%{version}.tar.gz
+URL:         https://github.com/storaged-project/libblockdev
+Source0:     https://github.com/storaged-project/libblockdev/archive/%{name}-%{version}.tar.gz
 
 BuildRequires: glib2-devel
+%if %{with_gi}
 BuildRequires: gobject-introspection-devel
+%endif
 BuildRequires: python-devel
 %if %{with_python3}
 BuildRequires: python3-devel
@@ -277,7 +284,6 @@ with the libblockdev-kbd plugin/library.
 %package loop
 Summary:     The loop plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} >= 0.11
-Requires: util-linux
 
 %description loop
 The libblockdev library plugin (and in the same time a standalone library)
@@ -602,7 +608,9 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %{!?_licensedir:%global license %%doc}
 %license LICENSE
 %{_libdir}/libblockdev.so.*
+%if %{with_gi}
 %{_libdir}/girepository*/BlockDev*.typelib
+%endif
 %config %{_sysconfdir}/libblockdev/conf.d/00-default.cfg
 
 %files devel
@@ -615,7 +623,9 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %if %{with_gtk_doc}
 %{_datadir}/gtk-doc/html/libblockdev
 %endif
+%if %{with_gi}
 %{_datadir}/gir*/BlockDev*.gir
+%endif
 
 %files -n python2-blockdev
 %{python2_sitearch}/gi/overrides/*
@@ -638,6 +648,7 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %{_includedir}/blockdev/sizes.h
 %{_includedir}/blockdev/exec.h
 %{_includedir}/blockdev/extra_arg.h
+%{_includedir}/blockdev/dev_utils.h
 
 
 %if %{with_btrfs}
@@ -786,6 +797,126 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %files plugins-all
 
 %changelog
+* Mon Jul 31 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.11-1
+- Make the KbdZRAMDevicesTestCase inherit from KbdZRAMTestCase (vpodzime)
+- Allow non-source directory builds (kailueke)
+- Add a way to disable runtime dependency checks (vpodzime)
+- Link to GObject even if no plugin is activated (kailueke)
+- Skip zram tests on Rawhide (vpodzime)
+- Keep most utilities available for tests (vpodzime)
+- Use new libmount function to get (un)mount error message (vtrefny)
+- Update the documentation URL (vpodzime)
+
+* Wed Jul 05 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.10-1
+- Only enable partition size tolerance with alignment (vpodzime)
+- Limit the requested partition size to maximum possible (vpodzime)
+- Do not verify vfat FS' size after generic resize (vpodzime)
+- Specify tolerance for partition size (kailueke)
+- Only use the exact constraint if not using any other (vpodzime)
+- Check resulting FS size in tests for generic FS resize (vpodzime)
+- Query setting FS label support and generic relabeling (kailueke)
+- Do not strictly require all FS utilities (vpodzime)
+- Compile everything with the C99 standard (vpodzime)
+- Add partition resize function (kailueke)
+- Generic Check and Repair Functions (kailueke)
+- Query functions for FS resize and repair support (kailueke)
+- Update the project/source URL in the spec file (vpodzime)
+- Add functions for opening/closing TrueCrypt/VeraCrypt volumes (vpodzime)
+- Adapt to a change in behaviour in new libmount (vpodzime)
+- Try RO mount also if we get EACCES (vpodzime)
+- Size in bytes for xfs_resize_device (kailueke)
+- src/plugins/Makefile.am: Remove hard coded include path in /usr prefix (tristan.vanberkom)
+- Fixed include for libvolume_key.h (tristan.vanberkom)
+- Ignore parted warnings if possible (squimrel)
+- bcache tests: Remove FEELINGLUCKY checks (tasleson)
+- kbd.c: Code review corrections (tasleson)
+- kbd.c: Make bd_kbd_bcache_create work without abort (tasleson)
+
+* Tue Jun 13 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.9-1
+- Fix hardcoded reference to gcc (timo.gurr)
+- Catch and ignore partial failures in LVM tests' cleanups (vpodzime)
+- Fix hardcoded reference to pkg-config (timo.gurr)
+- Make GObject introspection optional (vpodzime)
+- Do not link libraries required by plugins to the GI files (vpodzime)
+- Make sure the whole build status image is shown (vpodzime)
+- Show CI status in README (at the GH repo's front page) (vpodzime)
+- Always require the libudev pkg (tgurr)
+- Make sure we give kernel time to fully setup zram device(s) (vpodzime)
+- fs_test.py: Close FDs when calling utilities (tasleson)
+- crypto.c: Correct segmentation fault (tasleson)
+
+* Tue Jun 06 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.8-1
+- Temporarily skip vfat generic resize test on rawhide (vtrefny)
+- Use "safeprobe" in "bd_fs_wipe" (vtrefny)
+- Add a generic filesystem resize function (vtrefny)
+- Add a function to get mountpoint for a device (vtrefny)
+- Add a function to get filesystem type for a device (vtrefny)
+- Only include the LVM DBus config when shipping LVM DBus (vpodzime)
+- Skip the LVM DBus vgreduce tests on Rawhide (vpodzime)
+- Do not build the lvm-dbus plugin on RHEL/CentOS (vpodzime)
+- Give zRAM more time to settle before trying to remove a device (vpodzime)
+- Put zram tests adding/removing devices into a separate class (vpodzime)
+- Skip LVM cache and RAID tests on Rawhide (vpodzime)
+- Fix the skip_on decorator factory for tests (vpodzime)
+- Use 'blkid -p' instead of lsblk to get device's FS type (vpodzime)
+- Improve the lvm_set_global_config test (vpodzime)
+- Pass '-y' to pvresize (vpodzime)
+- Create a copy of os.environ for a child process (vpodzime)
+- Revert "Use the "C.UTF-8" locale instead of just "C"" (vpodzime)
+- Fix how we create vfat FS in tests (vpodzime)
+- Skip the test if requiring unavailable locales (vpodzime)
+- Use the "C.UTF-8" locale instead of just "C" (vpodzime)
+- Add functions for working with ext2 and ext3 filesystems (vtrefny)
+- Link to gobject when lvm or btrfs is enabled (andreas)
+- Link to libm where needed (andreas)
+- Add a function for cleaning a device (vtrefny)
+- Add few code exaples to documentation (vtrefny)
+- Use a special exception for no fs signature when doing wipe (vpodzime)
+- One more incompatible os.symlink() call (vpodzime)
+- Do not use pass-by-name in the os.symlink() call (vpodzime)
+- Ignore previous errors when falling back to using ioctl() (vpodzime)
+- Use ioctl() call to teardown loop devices (vpodzime)
+- Resolve the device to remove for mdadm (vpodzime)
+- Add a function for getting device symlinks (vpodzime)
+- Use the new resolve_device() function where appropriate (vpodzime)
+- Add the resolve_device() function to the utils library (vpodzime)
+- First try to read the 'autoclear' flag from /sys/ (vpodzime)
+
+* Wed Apr 26 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.7-1
+- Skip btrfs min size tests on Fedora 25 (vtrefny)
+- Make sure the loop device doesn't disappear during tests (vpodzime)
+- Close the loop device when autoclear is (un)set (vpodzime)
+- Do not enforce Python 3 for running tests in CI (vpodzime)
+- Revert "Use different BTRFS_MIN_MEMBER_SIZE on aarch64" (vtrefny)
+- Use both 'old' and 'new' sysfs files to read zRAM stats (vtrefny)
+- Check if libparted-fs-resize pkgconfig is available (vpodzime)
+- Do not try to get name for inactive partitions (vtrefny)
+- Skip tests for getting free regions on CentOS/RHEL (vpodzime)
+- Free the container holding the specs of free regions (vpodzime)
+- Open loop devices as O_RDONLY when getting flags (vpodzime)
+- Resolve maximum partition size when we know its start (vpodzime)
+- Use --id instead of --part-type when setting partition id (vpodzime)
+- Fix mdadm command for removing failed device from an array (vtrefny)
+- Skip bcache tests on CentOS/RHEL 7 (vpodzime)
+- Use six.assertRaisesRegex in the FS tests (vpodzime)
+- Use mkdtemp() instead of TemporaryDirectory() (vpodzime)
+- Fix installation without specifying --exec-prefix (vpodzime)
+- Add options to force mkfs.ext4/vfat to create a FS on the whole device (vpodzime)
+- Skip the test for device escrow on CentOS/RHEL (vpodzime)
+- Define DEVNULL on our own if not in subprocess (vpodzime)
+- Remove the patches from the spec file (vpodzime)
+- Sync the spec file with downstream (vpodzime)
+- Stop skipping zRAM stats tests (vtrefny)
+- Add more tests for zRAM stats (vtrefny)
+- Fix reading zRAM properties from sysfs (vtrefny)
+
+* Wed Apr 12 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.6-3
+- Do not try to parse 'raid_spec' for 'bd_md_activate' (vtrefny)
+  Resolves: rhbz#1439111
+
+* Tue Apr 11 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.6-2
+- Make sure the returned thpool MD size is valid (vpodzime)
+
 * Wed Mar 15 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.6-1
 - Move the  part_err library before part and fs (vtrefny)
 - Fix BuildRequires for crypto and dm packages (vtrefny)

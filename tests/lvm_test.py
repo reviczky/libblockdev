@@ -7,7 +7,7 @@ import six
 import re
 import subprocess
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, skip_on
 from gi.repository import BlockDev, GLib
 if not BlockDev.is_initialized():
     BlockDev.init(None, None)
@@ -113,6 +113,10 @@ class LvmNoDevTestCase(unittest.TestCase):
 
         # twice the chunk_size -> roughly half the metadata needed
         self.assertAlmostEqual(float(out1) / float(out2), 2, places=2)
+
+        # unless thin_metadata_size gives a value that is not valid (too small)
+        self.assertEqual(BlockDev.lvm_get_thpool_meta_size (100 * 1024**2, 128 * 1024, 100),
+                         BlockDev.LVM_MIN_THPOOL_MD_SIZE)
 
     def test_is_valid_thpool_md_size(self):
         """Verify that is_valid_thpool_md_size works as expected"""
@@ -624,6 +628,7 @@ class LvmTestLVcreateWithExtra(LvmPVVGLVTestCase):
         self.assertTrue(succ)
 
 class LvmTestLVcreateType(LvmPVVGLVTestCase):
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_lvcreate_type(self):
         """Verify it's possible to create LVs with various types"""
 
@@ -874,7 +879,10 @@ class LvmTestLVs(LvmPVVGLVTestCase):
 
 class LvmPVVGthpoolTestCase(LvmPVVGTestCase):
     def _clean_up(self):
-        BlockDev.lvm_lvremove("testVG", "testPool", True, None)
+        try:
+            BlockDev.lvm_lvremove("testVG", "testPool", True, None)
+        except:
+            pass
 
         LvmPVVGTestCase._clean_up(self)
 
@@ -987,7 +995,10 @@ class LvmTestDataMetadataLV(LvmPVVGthpoolTestCase):
 
 class LvmPVVGLVthLVTestCase(LvmPVVGthpoolTestCase):
     def _clean_up(self):
-        BlockDev.lvm_lvremove("testVG", "testThLV", True, None)
+        try:
+            BlockDev.lvm_lvremove("testVG", "testThLV", True, None)
+        except:
+            pass
 
         LvmPVVGthpoolTestCase._clean_up(self)
 
@@ -1023,7 +1034,10 @@ class LvmTestThLVcreate(LvmPVVGLVthLVTestCase):
 
 class LvmPVVGLVthLVsnapshotTestCase(LvmPVVGLVthLVTestCase):
     def _clean_up(self):
-        BlockDev.lvm_lvremove("testVG", "testThLV_bak", True, None)
+        try:
+            BlockDev.lvm_lvremove("testVG", "testThLV_bak", True, None)
+        except:
+            pass
 
         LvmPVVGLVthLVTestCase._clean_up(self)
 
@@ -1063,12 +1077,16 @@ class LvmTestThSnapshotCreate(LvmPVVGLVthLVsnapshotTestCase):
 
 class LvmPVVGLVcachePoolTestCase(LvmPVVGLVTestCase):
     def _clean_up(self):
-        BlockDev.lvm_lvremove("testVG", "testCache", True, None)
+        try:
+            BlockDev.lvm_lvremove("testVG", "testCache", True, None)
+        except:
+            pass
 
         LvmPVVGLVTestCase._clean_up(self)
 
 class LvmPVVGLVcachePoolCreateRemoveTestCase(LvmPVVGLVcachePoolTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_cache_pool_create_remove(self):
         """Verify that is it possible to create and remove a cache pool"""
 
@@ -1094,6 +1112,7 @@ class LvmPVVGLVcachePoolCreateRemoveTestCase(LvmPVVGLVcachePoolTestCase):
 
 class LvmTestCachePoolConvert(LvmPVVGLVcachePoolTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_cache_pool_convert(self):
         """Verify that it is possible to create a cache pool by conversion"""
 
@@ -1117,6 +1136,7 @@ class LvmTestCachePoolConvert(LvmPVVGLVcachePoolTestCase):
 
 class LvmPVVGLVcachePoolAttachDetachTestCase(LvmPVVGLVcachePoolTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_cache_pool_attach_detach(self):
         """Verify that is it possible to attach and detach a cache pool"""
 
@@ -1157,6 +1177,7 @@ class LvmPVVGLVcachePoolAttachDetachTestCase(LvmPVVGLVcachePoolTestCase):
 
 class LvmPVVGcachedLVTestCase(LvmPVVGLVTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_create_cached_lv(self):
         """Verify that it is possible to create a cached LV in a single step"""
 
@@ -1176,6 +1197,7 @@ class LvmPVVGcachedLVTestCase(LvmPVVGLVTestCase):
 
 class LvmPVVGcachedLVpoolTestCase(LvmPVVGLVTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_cache_get_pool_name(self):
         """Verify that it is possible to get the name of the cache pool"""
 
@@ -1201,6 +1223,7 @@ class LvmPVVGcachedLVpoolTestCase(LvmPVVGLVTestCase):
 
 class LvmPVVGcachedLVstatsTestCase(LvmPVVGLVTestCase):
     @unittest.skipIf("SKIP_SLOW" in os.environ, "skipping slow tests")
+    @skip_on("fedora", "27", reason="LVM is broken in many ways on rawhide")
     def test_cache_get_stats(self):
         """Verify that it is possible to get stats for a cached LV"""
 
@@ -1257,7 +1280,7 @@ class LVMUnloadTest(unittest.TestCase):
         # unload all plugins first
         self.assertTrue(BlockDev.reinit([], True, None))
 
-        with fake_path():
+        with fake_path(all_but="lvm"):
             # no lvm tool available, the LVM plugin should fail to load
             with self.assertRaises(GLib.GError):
                 BlockDev.reinit(None, True, None)
