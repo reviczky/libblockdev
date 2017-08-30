@@ -6,8 +6,7 @@ from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, 
 import overrides_hack
 
 from gi.repository import BlockDev, GLib
-if not BlockDev.is_initialized():
-    BlockDev.init(None, None)
+
 
 def _can_load_zram():
     """Test if we can load the zram module"""
@@ -41,7 +40,18 @@ def _wait_for_bcache_setup(bcache_dev):
             break
 
 class KbdZRAMTestCase(unittest.TestCase):
+
+    requested_plugins = BlockDev.plugin_specs_from_names(("kbd", "swap"))
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
+
     @skip_on(("fedora", "27"), reason="zram module (un)loading is broken on ")
+    @skip_on("debian", reason="loading zram module is broken on Debian")
     def setUp(self):
         self.addCleanup(self._clean_up)
         self._loaded_zram_module = False
@@ -239,6 +249,14 @@ class KbdZRAMStatsTestCase(KbdZRAMTestCase):
 
 class KbdBcacheNodevTestCase(unittest.TestCase):
     # no setUp/tearDown methods needed
+    requested_plugins = BlockDev.plugin_specs_from_names(("kbd", "swap"))
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
 
     @skip_on(("centos", "enterprise_linux"))
     def test_bcache_mode_str_bijection(self):
@@ -258,6 +276,15 @@ class KbdBcacheNodevTestCase(unittest.TestCase):
             self.assertEqual(mode, BlockDev.kbd_bcache_get_mode_from_str(BlockDev.kbd_bcache_get_mode_str(mode)))
 
 class KbdBcacheTestCase(unittest.TestCase):
+    requested_plugins = BlockDev.plugin_specs_from_names(("kbd", "swap"))
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
+
     def setUp(self):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("lvm_test", 10 * 1024**3)
@@ -503,11 +530,11 @@ class KbdTestBcacheBackingCacheDevTest(KbdBcacheTestCase):
 
         wipe_all(self.loop_dev, self.loop_dev2)
 
-class KbdUnloadTest(unittest.TestCase):
+class KbdUnloadTest(KbdBcacheTestCase):
     def setUp(self):
         # make sure the library is initialized with all plugins loaded for other
         # tests
-        self.addCleanup(BlockDev.reinit, None, True, None)
+        self.addCleanup(BlockDev.reinit, self.requested_plugins, True, None)
 
     @skip_on(("centos", "enterprise_linux"))
     def test_check_no_bcache_progs(self):
@@ -518,10 +545,10 @@ class KbdUnloadTest(unittest.TestCase):
 
         with fake_path(all_but="make-bcache"):
             with self.assertRaises(GLib.GError):
-                BlockDev.reinit(None, True, None)
+                BlockDev.reinit(self.requested_plugins, True, None)
 
             self.assertNotIn("kbd", BlockDev.get_available_plugin_names())
 
         # load the plugins back
-        self.assertTrue(BlockDev.reinit(None, True, None))
+        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
         self.assertIn("kbd", BlockDev.get_available_plugin_names())

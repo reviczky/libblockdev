@@ -25,6 +25,8 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <sys/file.h>
+#include <sys/ioctl.h>
+#include <linux/fs.h>
 #include <blockdev/utils.h>
 #include <part_err.h>
 
@@ -195,6 +197,14 @@ static gboolean disk_commit (PedDisk *disk, const gchar *path, GError **error) {
     /* Just continue even in case we don't get the lock, there's still a
        chance things will just work. If not, an error will be reported
        anyway with no harm. */
+
+    /* XXX: Sometimes it happens that when we try to commit the partition table
+       to disk below, libparted kills the process due to the
+       assert(disk->dev->open_count > 0). This looks like a bug to me, but we
+       have no reproducer for it. Let's just try to (re)open the device in such
+       cases. It is later closed by the ped_device_destroy() call. */
+    if (disk->dev->open_count <= 0)
+        ped_device_open (disk->dev);
 
     ret = ped_disk_commit_to_dev (disk);
     if (ret == 0) {
@@ -1117,6 +1127,8 @@ gboolean bd_part_resize_part (const gchar *disk, const gchar *part, guint64 size
     gboolean ret = FALSE;
     guint64 progress_id = 0;
     gchar *msg = NULL;
+    guint64 old_size = 0;
+    guint64 new_size = 0;
 
     msg = g_strdup_printf ("Started resizing partition '%s'", part);
     progress_id = bd_utils_report_started (msg);
@@ -1172,6 +1184,7 @@ gboolean bd_part_resize_part (const gchar *disk, const gchar *part, guint64 size
         return FALSE;
     }
 
+    old_size = ped_part->geom.length * dev->sector_size;
     if (!resize_part (ped_part, dev, ped_disk, size, align, error)) {
         ped_disk_destroy (ped_disk);
         ped_device_destroy (dev);
@@ -1179,7 +1192,32 @@ gboolean bd_part_resize_part (const gchar *disk, const gchar *part, guint64 size
         return FALSE;
     }
 
-    ret = disk_commit (ped_disk, disk, error);
+    new_size = ped_part->geom.length * dev->sector_size;
+    if (old_size != new_size) {
+        gint fd = 0;
+        gint wait_us = 10 * 1000 * 1000; /* 10 seconds */
+        gint step_us = 100 * 1000; /* 100 microseconds */
+        guint64 block_size = 0;
+
+        ret = disk_commit (ped_disk, disk, error);
+        /* wait for partition to appear with new size */
+        while (wait_us > 0) {
+            fd = open (part, O_RDONLY);
+            if (fd != -1) {
+                if (ioctl (fd, BLKGETSIZE64, &block_size) != -1 && block_size == new_size) {
+                    close (fd);
+                    break;
+                }
+
+                close (fd);
+            }
+
+            g_usleep (step_us);
+            wait_us -= step_us;
+        }
+    } else {
+        ret = TRUE; /* not committing to disk */
+    }
 
     ped_disk_destroy (ped_disk);
     ped_device_destroy (dev);

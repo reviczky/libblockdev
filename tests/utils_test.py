@@ -5,10 +5,20 @@ import overrides_hack
 from utils import fake_utils, create_sparse_tempfile, create_lio_device, delete_lio_device, run_command
 
 from gi.repository import BlockDev, GLib
-if not BlockDev.is_initialized():
-    BlockDev.init(None, None)
 
-class UtilsExecLoggingTest(unittest.TestCase):
+
+class UtilsTestCase(unittest.TestCase):
+
+    requested_plugins = []
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
+
+class UtilsExecLoggingTest(UtilsTestCase):
     log = ""
 
     def my_log_func(self, level, msg):
@@ -130,7 +140,7 @@ class UtilsExecLoggingTest(unittest.TestCase):
             # exit code != 0
             self.assertTrue(BlockDev.utils_check_util_version("libblockdev-fake-util-fail", "1.1", "version", "Version:\\s(.*)"))
 
-class UtilsDevUtilsTestCase(unittest.TestCase):
+class UtilsDevUtilsTestCase(UtilsTestCase):
     def test_resolve_device(self):
         """Verify that resolving device spec works as expected"""
 
@@ -162,7 +172,7 @@ class UtilsDevUtilsTestCase(unittest.TestCase):
         # should resolve the symlink even without the "/dev" prefix
         self.assertEqual(BlockDev.utils_resolve_device(dev_link[5:]), dev)
 
-class UtilsDevUtilsTestCase(unittest.TestCase):
+class UtilsDevUtilsTestCase(UtilsTestCase):
     def test_resolve_device(self):
         """Verify that resolving device spec works as expected"""
 
@@ -195,7 +205,7 @@ class UtilsDevUtilsTestCase(unittest.TestCase):
         self.assertEqual(BlockDev.utils_resolve_device(dev_link[5:]), dev)
 
 
-class UtilsDevUtilsSymlinksTestCase(unittest.TestCase):
+class UtilsDevUtilsSymlinksTestCase(UtilsTestCase):
     def setUp(self):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("lvm_test", 1024**3)

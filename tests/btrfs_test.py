@@ -6,34 +6,29 @@ import six
 import time
 
 import overrides_hack
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, skip_on
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, skip_on, mount, umount
 from gi.repository import GLib, BlockDev
-if not BlockDev.is_initialized():
-    BlockDev.init(None, None)
 
 TEST_MNT = "/tmp/libblockdev_test_mnt"
 
 def wipefs(device):
     os.system("wipefs -a %s > /dev/null" % device)
 
-def mount(device, where):
-    if not os.path.isdir(where):
-        os.makedirs(where)
-    os.system("mount %s %s" % (device, where))
-
-def umount(what):
-    try:
-        os.system("umount %s &>/dev/null" % what)
-        os.rmdir(what)
-    except OSError:
-        # no such file or directory
-        pass
-
 class BtrfsTestCase(unittest.TestCase):
+
+    requested_plugins = BlockDev.plugin_specs_from_names(("btrfs",))
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
+
     def setUp(self):
         self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("lvm_test", 1024**3)
-        self.dev_file2 = create_sparse_tempfile("lvm_test", 1024**3)
+        self.dev_file = create_sparse_tempfile("btrfs_test", 1024**3)
+        self.dev_file2 = create_sparse_tempfile("btrfs_test", 1024**3)
         try:
             self.loop_dev = create_lio_device(self.dev_file)
         except RuntimeError as e:
@@ -442,11 +437,11 @@ class BtrfsTestChangeLabel(BtrfsTestCase):
         info = BlockDev.btrfs_filesystem_info(TEST_MNT)
         self.assertEqual(info.label, "newLabel")
 
-class BtrfsTooSmallTestCase (unittest.TestCase):
+class BtrfsTooSmallTestCase (BtrfsTestCase):
     def setUp(self):
         self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("lvm_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
-        self.dev_file2 = create_sparse_tempfile("lvm_test", BlockDev.BTRFS_MIN_MEMBER_SIZE//2)
+        self.dev_file = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
+        self.dev_file2 = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE//2)
         try:
             self.loop_dev = create_lio_device(self.dev_file)
         except RuntimeError as e:
@@ -480,11 +475,11 @@ class BtrfsTooSmallTestCase (unittest.TestCase):
             BlockDev.btrfs_create_volume([self.loop_dev, self.loop_dev2],
                                          None, None, None)
 
-class BtrfsJustBigEnoughTestCase (unittest.TestCase):
+class BtrfsJustBigEnoughTestCase (BtrfsTestCase):
     def setUp(self):
         self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("lvm_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
-        self.dev_file2 = create_sparse_tempfile("lvm_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
+        self.dev_file = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
+        self.dev_file2 = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
         try:
             self.loop_dev = create_lio_device(self.dev_file)
         except RuntimeError as e:
@@ -518,8 +513,10 @@ class BtrfsJustBigEnoughTestCase (unittest.TestCase):
         self.assertTrue(succ)
 
 
-class FakeBtrfsUtilsTestCase(unittest.TestCase):
+class FakeBtrfsUtilsTestCase(BtrfsTestCase):
     # no setUp nor tearDown needed, we are gonna use fake utils
+    def setUp(self):
+        pass
 
     def test_list_subvols_weird_docker_data(self):
         """Verify that list_subvolumes works as expected on weird data from one Docker use case"""
@@ -536,11 +533,11 @@ class FakeBtrfsUtilsTestCase(unittest.TestCase):
         # check that one of the weird subvols is in the list of subvolumes
         self.assertTrue(any(subvol for subvol in subvols if subvol.path == "docker/btrfs/subvolumes/f2062b736fbabbe4da752632ac4deae87fcb916add6d7d8f5cecee4cbdc41fd9"))
 
-class BTRFSUnloadTest(unittest.TestCase):
+class BTRFSUnloadTest(BtrfsTestCase):
     def setUp(self):
         # make sure the library is initialized with all plugins loaded for other
         # tests
-        self.addCleanup(BlockDev.reinit, None, True, None)
+        self.addCleanup(BlockDev.reinit, self.requested_plugins, True, None)
 
     def test_check_low_version(self):
         """Verify that checking the minimum BTRFS version works as expected"""
@@ -551,12 +548,12 @@ class BTRFSUnloadTest(unittest.TestCase):
         with fake_utils("tests/btrfs_low_version/"):
             # too low version of BTRFS available, the BTRFS plugin should fail to load
             with self.assertRaises(GLib.GError):
-                BlockDev.reinit(None, True, None)
+                BlockDev.reinit(self.requested_plugins, True, None)
 
             self.assertNotIn("btrfs", BlockDev.get_available_plugin_names())
 
         # load the plugins back
-        self.assertTrue(BlockDev.reinit(None, True, None))
+        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
         self.assertIn("btrfs", BlockDev.get_available_plugin_names())
 
     def test_check_new_version_format(self):
@@ -567,11 +564,11 @@ class BTRFSUnloadTest(unittest.TestCase):
 
         # check that new version format is correctly parsed
         with fake_utils("tests/btrfs_new_version_format/"):
-            BlockDev.reinit(None, True, None)
+            BlockDev.reinit(self.requested_plugins, True, None)
 
         self.assertIn("btrfs", BlockDev.get_available_plugin_names())
 
-        BlockDev.reinit(None, True, None)
+        BlockDev.reinit(self.requested_plugins, True, None)
         self.assertIn("btrfs", BlockDev.get_available_plugin_names())
 
     def test_check_no_btrfs(self):
@@ -583,10 +580,10 @@ class BTRFSUnloadTest(unittest.TestCase):
         with fake_path(all_but="btrfs"):
             # no btrfs tool available, the BTRFS plugin should fail to load
             with self.assertRaises(GLib.GError):
-                BlockDev.reinit(None, True, None)
+                BlockDev.reinit(self.requested_plugins, True, None)
 
             self.assertNotIn("btrfs", BlockDev.get_available_plugin_names())
 
         # load the plugins back
-        self.assertTrue(BlockDev.reinit(None, True, None))
+        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
         self.assertIn("btrfs", BlockDev.get_available_plugin_names())
