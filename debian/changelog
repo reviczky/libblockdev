@@ -1,12 +1,13 @@
-libblockdev (2.11-3) UNRELEASED; urgency=medium
+libblockdev (2.12-1) unstable; urgency=medium
 
   * Replace btrfs-tools dependency with btrfs-progs (Closes: #873014)
   * libblockdev-part2: Add sgdisk and fdisk dependencies
   * libblockdev-dm2: Add dmsetup dependency
   * libblockdev-lvm2: depend on thin-provisioning-tools
   * Version some dependencies to match the code check
+  * New upstream release.
 
- -- Andreas Henriksson <andreas@fatal.se>  Wed, 30 Aug 2017 13:26:56 +0200
+ -- Andreas Henriksson <andreas@fatal.se>  Wed, 30 Aug 2017 13:27:40 +0200
 
 libblockdev (2.11-2) unstable; urgency=medium
 
