@@ -318,7 +318,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         mdadm
+         mdadm (>= 3.3.2)
 Description: MD RAID plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to MD RAID.
@@ -340,7 +340,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         multipath-tools
+         multipath-tools (>= 0.4.9)
 Description: Multipath plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to multipath devices.
@@ -399,6 +399,7 @@ Description: Swap plugin for libblockdev - development
  with the libblockdev-swap plugin/library.
 
 # Package: libblockdev-s390
+# Depends: ...., s390-tools
 # Package: libblockdev-s390-dev
 
 Package: libblockdev-plugins-all
