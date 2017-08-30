@@ -276,7 +276,8 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         lvm2
+         lvm2 (>= 2.02.116),
+         thin-provisioning-tools
 Description: LVM plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the LVM-related functionality.
