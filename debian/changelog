@@ -1,3 +1,13 @@
+libblockdev (2.12-3) unstable; urgency=medium
+
+  * Team upload.
+  * Drop <s390utils/vtoc.h> include from s390.api.
+    This header is not available in Debian and as a result causes a FTBFS on
+    s390x. As it's not actually needed, simply remove the include.
+    (Closes: #872977)
+
+ -- Michael Biebl <biebl@debian.org>  Tue, 12 Sep 2017 19:38:49 +0200
+
 libblockdev (2.12-2) unstable; urgency=medium
 
   * Fix gdisk dependency (Closes: #873748)
