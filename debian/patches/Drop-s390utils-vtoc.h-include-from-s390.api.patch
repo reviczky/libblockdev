@@ -1,0 +1,24 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Tue, 12 Sep 2017 19:28:44 +0200
+Subject: Drop <s390utils/vtoc.h> include from s390.api
+
+This header is not available in Debian and as a result causes a FTBFS on
+s390x. As it's not actually needed, simply remove the include.
+
+Closes: #872977
+---
+ src/lib/plugin_apis/s390.api | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/lib/plugin_apis/s390.api b/src/lib/plugin_apis/s390.api
+index 3db1e02..851260d 100644
+--- a/src/lib/plugin_apis/s390.api
++++ b/src/lib/plugin_apis/s390.api
+@@ -4,7 +4,6 @@
+ #include <string.h>
+ #include <blockdev/utils.h>
+ #include <asm/dasd.h>
+-#include <s390utils/vtoc.h>
+ 
+ GQuark bd_s390_error_quark (void) {
+     return g_quark_from_static_string ("g-bd-s390-error-quark");
