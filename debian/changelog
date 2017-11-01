@@ -1,8 +1,13 @@
-libblockdev (2.12-4) UNRELEASED; urgency=medium
+libblockdev (2.14-1) UNRELEASED; urgency=medium
 
+  [ Andreas Henriksson ]
   * Remove myself from uploaders
 
- -- Andreas Henriksson <andreas@fatal.se>  Thu, 14 Sep 2017 11:31:24 +0200
+  [ Michael Biebl ]
+  * New upstream version 2.14
+  * Fix watch file and upstream-vcs-tag
+
+ -- Michael Biebl <biebl@debian.org>  Wed, 01 Nov 2017 12:06:25 +0100
 
 libblockdev (2.12-3) unstable; urgency=medium
 
