@@ -25,8 +25,10 @@
 #include <locale.h>
 #include <blockdev/utils.h>
 #include <stdio.h>
+#include <bs_size.h>
 
 #include "kbd.h"
+#include "check_deps.h"
 
 #define SECTOR_SIZE 512
 
@@ -39,14 +41,25 @@
  * A plugin for operations with kernel block devices.
  */
 
-#ifdef WITH_BD_BCACHE
 static const gchar * const mode_str[BD_KBD_MODE_UNKNOWN+1] = {"writethrough", "writeback", "writearound", "none", "unknown"};
-#endif
 
 /* "C" locale to get the locale-agnostic error messages */
 static locale_t c_locale = (locale_t) 0;
 
 static gboolean have_kernel_module (const gchar *module_name, GError **error);
+
+
+static volatile guint avail_deps = 0;
+static GMutex deps_check_lock;
+
+#define DEPS_MAKEBCACHE 0
+#define DEPS_MAKEBCACHE_MASK (1 << DEPS_MAKEBCACHE)
+#define DEPS_LAST 1
+
+static UtilDep deps[DEPS_LAST] = {
+    {"make-bcache", NULL, NULL, NULL},
+};
+
 
 /**
  * bd_kbd_check_deps:
@@ -59,6 +72,8 @@ static gboolean have_kernel_module (const gchar *module_name, GError **error);
 gboolean bd_kbd_check_deps () {
     GError *error = NULL;
     gboolean ret = FALSE;
+    guint i = 0;
+    gboolean status = FALSE;
 
     ret = have_kernel_module ("zram", &error);
     if (!ret) {
@@ -72,13 +87,33 @@ gboolean bd_kbd_check_deps () {
     if (!ret)
         return FALSE;
 
+    ret = TRUE;
 #ifdef WITH_BD_BCACHE
-    ret = bd_utils_check_util_version ("make-bcache", NULL, NULL, NULL, &error);
-    if (!ret && error) {
-        g_warning("Cannot load the kbd plugin: %s" , error->message);
-        g_clear_error (&error);
-    }
+    for (i=0; i < DEPS_LAST; i++) {
+#else
+    /* we need to disable the type-limits check because GCC is too clever and
+       complains that 0 is never < 0, but DEPS_LAST may be something larger in
+       the future */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wtype-limits"
+    /* skip checking for 'make-bcache' (MUST BE LAST IN THE LIST OF DEPS!) */
+    /* coverity[unsigned_compare] */
+    for (i=0; i < DEPS_LAST-1; i++) {
+#pragma GCC diagnostic pop
 #endif
+        /* coverity[dead_error_begin] */
+        status = bd_utils_check_util_version (deps[i].name, deps[i].version,
+                                              deps[i].ver_arg, deps[i].ver_regexp, &error);
+        if (!status)
+            g_warning ("%s", error->message);
+        else
+            g_atomic_int_or (&avail_deps, 1 << i);
+        g_clear_error (&error);
+        ret = ret && status;
+    }
+
+    if (!ret)
+        g_warning("Cannot load the kbd plugin");
 
     return ret;
 }
@@ -104,6 +139,24 @@ gboolean bd_kbd_init () {
  */
 void bd_kbd_close () {
     c_locale = (locale_t) 0;
+}
+
+/**
+ * bd_kbd_is_tech_avail:
+ * @tech: the queried tech
+ * @mode: a bit mask of queried modes of operation (#BDKBDTechMode) for @tech
+ * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ *
+ * Returns: whether the @tech-@mode combination is available -- supported by the
+ *          plugin implementation and having all the runtime dependencies available
+ */
+gboolean bd_kbd_is_tech_avail (BDKBDTech tech, guint64 mode, GError **error) {
+    /* all combinations are supported by this implementation of the plugin, but
+       bcache creation requires the 'make-bcache' utility */
+    if (tech == BD_KBD_TECH_BCACHE && (mode & BD_KBD_TECH_MODE_CREATE))
+        return check_deps (&avail_deps, DEPS_MAKEBCACHE_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+    else
+        return TRUE;
 }
 
 /**
@@ -135,7 +188,6 @@ void bd_kbd_zram_stats_free (BDKBDZramStats *data) {
     g_free (data);
 }
 
-#ifdef WITH_BD_BCACHE
 BDKBDBcacheStats* bd_kbd_bcache_stats_copy (BDKBDBcacheStats *data) {
     BDKBDBcacheStats *new = g_new0 (BDKBDBcacheStats, 1);
 
@@ -155,7 +207,6 @@ void bd_kbd_bcache_stats_free (BDKBDBcacheStats *data) {
     g_free (data->state);
     g_free (data);
 }
-#endif
 
 static gboolean have_kernel_module (const gchar *module_name, GError **error) {
     gint ret = 0;
@@ -306,6 +357,8 @@ static gboolean unload_kernel_module (const gchar *module_name, GError **error) 
  * Returns: whether @num_devices zRAM devices were successfully created or not
  *
  * **Lengths of @size and @nstreams (if given) have to be >= @num_devices!**
+ *
+ * Tech category: %BD_KBD_TECH_ZRAM-%BD_KBD_TECH_MODE_CREATE
  */
 gboolean bd_kbd_zram_create_devices (guint64 num_devices, const guint64 *sizes, const guint64 *nstreams, GError **error) {
     gchar *opts = NULL;
@@ -389,6 +442,8 @@ gboolean bd_kbd_zram_create_devices (guint64 num_devices, const guint64 *sizes, 
  * The only way how to destroy zRAM device right now is to unload the 'zram'
  * module and thus destroy all of them. That's why this function doesn't allow
  * specification of which devices should be destroyed.
+ *
+ * Tech category: %BD_KBD_TECH_ZRAM-%BD_KBD_TECH_MODE_DESTROY
  */
 gboolean bd_kbd_zram_destroy_devices (GError **error) {
     gboolean ret = FALSE;
@@ -428,6 +483,8 @@ static guint64 get_number_from_file (const gchar *path, GError **error) {
  * @error: (out): place to store error (if any)
  *
  * Returns: whether a new zRAM device was added or not
+ *
+ * Tech category: %BD_KBD_TECH_ZRAM-%BD_KBD_TECH_MODE_MODIFY
  */
 gboolean bd_kbd_zram_add_device (guint64 size, guint64 nstreams, gchar **device, GError **error) {
     gchar *path = NULL;
@@ -490,6 +547,8 @@ gboolean bd_kbd_zram_add_device (guint64 size, guint64 nstreams, gchar **device,
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the @device was successfully removed or not
+ *
+ * Tech category: %BD_KBD_TECH_ZRAM-%BD_KBD_TECH_MODE_MODIFY
  */
 gboolean bd_kbd_zram_remove_device (const gchar *device, GError **error) {
     gchar *dev_num_str = NULL;
@@ -673,6 +732,8 @@ static gboolean get_zram_stats_new (const gchar *device, BDKBDZramStats* stats, 
  * @error: (out): place to store error (if any)
  *
  * Returns: (transfer full): statistics for the zRAM device
+ *
+ * Tech category: %BD_KBD_TECH_ZRAM-%BD_KBD_TECH_MODE_QUERY
  */
 BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
     gchar *path = NULL;
@@ -720,7 +781,6 @@ BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
         g_clear_error (error);
         g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_ZRAM_INVAL,
                      "Failed to get 'comp_algorithm' for '%s' zRAM device", device);
-        g_free (path);
         g_free (ret);
         return NULL;
     }
@@ -748,8 +808,6 @@ BDKBDZramStats* bd_kbd_zram_get_stats (const gchar *device, GError **error) {
 }
 
 
-#ifdef WITH_BD_BCACHE
-
 gboolean wait_for_file (const char *filename) {
     gint count = 500;
     while (count > 0) {
@@ -772,6 +830,8 @@ gboolean wait_for_file (const char *filename) {
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the bcache device was successfully created or not
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_CREATE
  */
 gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_device, const BDExtraArg **extra, const gchar **bcache_device, GError **error) {
     const gchar *argv[6] = {"make-bcache", "-B", backing_device, "-C", cache_device, NULL};
@@ -790,6 +850,9 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
     gchar *msg = NULL;
     guint n = 0;
     gchar device_uuid[2][64];
+
+    if (!check_deps (&avail_deps, DEPS_MAKEBCACHE_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
 
     msg = g_strdup_printf ("Started creation of bcache on '%s' and '%s'", backing_device, cache_device);
     progress_id = bd_utils_report_started (msg);
@@ -820,7 +883,9 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
     for (i=0; lines[i] && n < 2; i++) {
         success = g_regex_match (regex, lines[i], 0, &match_info);
         if (success) {
-            strcpy (device_uuid[n++], g_match_info_fetch (match_info, 1));
+            strncpy (device_uuid[n], g_match_info_fetch (match_info, 1), 63);
+            device_uuid[n][63] = '\0';
+            n++;
             g_match_info_free (match_info);
         }
     }
@@ -901,6 +966,8 @@ gboolean bd_kbd_bcache_create (const gchar *backing_device, const gchar *cache_d
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the @c_set_uuid cache was successfully attached to @bcache_device or not
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_MODIFY
  */
 gboolean bd_kbd_bcache_attach (const gchar *c_set_uuid, const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -936,6 +1003,8 @@ gboolean bd_kbd_bcache_attach (const gchar *c_set_uuid, const gchar *bcache_devi
  * Returns: whether the bcache device @bcache_device was successfully destroyed or not
  *
  * Note: Flushes the cache first.
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_MODIFY
  */
 gboolean bd_kbd_bcache_detach (const gchar *bcache_device, gchar **c_set_uuid, GError **error) {
     gchar *path = NULL;
@@ -1025,6 +1094,8 @@ gboolean bd_kbd_bcache_detach (const gchar *bcache_device, gchar **c_set_uuid, G
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the bcache device @bcache_device was successfully destroyed or not
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_DESTROY
  */
 gboolean bd_kbd_bcache_destroy (const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -1089,6 +1160,8 @@ gboolean bd_kbd_bcache_destroy (const gchar *bcache_device, GError **error) {
  * @error: (out): place to store error (if any)
  *
  * Returns: current mode of the @bcache_device
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_QUERY
  */
 BDKBDBcacheMode bd_kbd_bcache_get_mode (const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -1143,6 +1216,8 @@ BDKBDBcacheMode bd_kbd_bcache_get_mode (const gchar *bcache_device, GError **err
  * @error: (out): place to store error (if any)
  *
  * Returns: (transfer none): string representation of @mode or %NULL in case of error
+ *
+ * Tech category: always available
  */
 const gchar* bd_kbd_bcache_get_mode_str (BDKBDBcacheMode mode, GError **error) {
     if (mode <= BD_KBD_MODE_UNKNOWN)
@@ -1160,6 +1235,8 @@ const gchar* bd_kbd_bcache_get_mode_str (BDKBDBcacheMode mode, GError **error) {
  * @error: (out): place to store error (if any)
  *
  * Returns: mode matching the @mode_str given or %BD_KBD_MODE_UNKNOWN in case of no match
+ *
+ * Tech category: always available
  */
 BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (const gchar *mode_str, GError **error) {
     if (g_strcmp0 (mode_str, "writethrough") == 0)
@@ -1187,6 +1264,8 @@ BDKBDBcacheMode bd_kbd_bcache_get_mode_from_str (const gchar *mode_str, GError *
  * @error: (out): place to store error (if any)
  *
  * Returns: whether the mode was successfully set or not
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_MODIFY
  */
 gboolean bd_kbd_bcache_set_mode (const gchar *bcache_device, BDKBDBcacheMode mode, GError **error) {
     gchar *path = NULL;
@@ -1292,6 +1371,39 @@ static gboolean get_cache_size_used (const gchar *cache_dev_sys, guint64 *size, 
     return TRUE;
 }
 
+static guint64 get_bcache_block_size (const gchar *bcache_device, GError **error) {
+    gchar *content = NULL;
+    gboolean success = FALSE;
+    guint64 ret = 0;
+    gchar *path = NULL;
+    BSError *bs_error = NULL;
+    BSSize size = NULL;
+
+    path = g_strdup_printf ("/sys/block/%s/bcache/cache/block_size", bcache_device);
+    success = g_file_get_contents (path, &content, NULL, error);
+    if (!success) {
+        /* error is already populated */
+        g_free (path);
+        return 0;
+    }
+
+    size = bs_size_new_from_str (content, &bs_error);
+    if (size)
+        ret = bs_size_get_bytes (size, NULL, &bs_error);
+
+    if (bs_error) {
+        g_set_error_literal (error, BD_KBD_ERROR, BD_KBD_ERROR_BCACHE_INVAL,
+                             bs_error->msg);
+        bs_clear_error (&bs_error);
+    }
+
+    if (size)
+        bs_size_free (size);
+    g_free (content);
+    g_free (path);
+    return ret;
+}
+
 /**
  * bd_kbd_bcache_status:
  * @bcache_device: bcache device to get status for
@@ -1299,6 +1411,8 @@ static gboolean get_cache_size_used (const gchar *cache_dev_sys, guint64 *size, 
  *
  * Returns: (transfer full): status of the @bcache_device or %NULL in case of
  *                           error (@error is set)
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_QUERY
  */
 BDKBDBcacheStats* bd_kbd_bcache_status (const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -1308,6 +1422,7 @@ BDKBDBcacheStats* bd_kbd_bcache_status (const gchar *bcache_device, GError **err
     gchar **path_list;
     guint64 size = 0;
     guint64 used = 0;
+    GError *loc_error = NULL;
 
     if (g_str_has_prefix (bcache_device, "/dev/"))
         bcache_device += 5;
@@ -1338,13 +1453,11 @@ BDKBDBcacheStats* bd_kbd_bcache_status (const gchar *bcache_device, GError **err
         /* no cache, nothing more to get */
         return ret;
 
-    path = g_strdup_printf ("/sys/block/%s/bcache/cache/block_size", bcache_device);
-    ret->block_size = get_number_from_file (path, error);
-    g_free (path);
-    if (*error) {
-        g_clear_error (error);
-        g_set_error (error, BD_KBD_ERROR, BD_KBD_ERROR_BCACHE_INVAL,
-                     "Failed to get 'block_size' for '%s' Bcache device", bcache_device);
+    ret->block_size = get_bcache_block_size (bcache_device, &loc_error);
+    if (loc_error) {
+        g_propagate_prefixed_error (error, loc_error,
+                                    "Failed to get 'block_size' for '%s' Bcache device: ",
+                                    bcache_device);
         g_free (ret);
         return NULL;
     }
@@ -1468,6 +1581,8 @@ static gchar* get_device_name (const gchar *major_minor, GError **error) {
  *
  * Note: returns the name of the first backing device of @bcache_device (in case
  *       there are more)
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_QUERY
  */
 gchar* bd_kbd_bcache_get_backing_device (const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -1520,6 +1635,8 @@ gchar* bd_kbd_bcache_get_backing_device (const gchar *bcache_device, GError **er
  *
  * Note: returns the name of the first cache device of @bcache_device (in case
  *       there are more)
+ *
+ * Tech category: %BD_KBD_TECH_BCACHE-%BD_KBD_TECH_MODE_QUERY
  */
 gchar* bd_kbd_bcache_get_cache_device (const gchar *bcache_device, GError **error) {
     gchar *path = NULL;
@@ -1561,4 +1678,3 @@ gchar* bd_kbd_bcache_get_cache_device (const gchar *bcache_device, GError **erro
 
     return ret;
 }
-#endif  /* WITH_BCACHE */

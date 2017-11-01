@@ -100,9 +100,6 @@ coverage-all: all
 		$(COVERAGE) report --include="src/*" > coverage-report.log
 
 tag:
-	@TAG="$(PACKAGE_NAME)-$(PACKAGE_VERSION)-1" ; \
-	git tag -a -s -m "Tag as $$TAG" -f "$$TAG" ; \
-	echo "Tagged as $$TAG" ; \
 	TAG="$(PACKAGE_VERSION)-1" ; \
 	git tag -a -s -m "Tag as $$TAG" -f "$$TAG" ; \
 	echo "Tagged as $$TAG"
@@ -110,8 +107,11 @@ tag:
 rpmlog:
 	@cl=`grep -n %changelog dist/libblockdev.spec.in |cut -d : -f 1 |head -1` ; \
 	version_release=`tail --lines=+$$(($$cl + 1)) dist/libblockdev.spec.in|head -1|cut -d- -f2-3|sed 's/ //g'` ; \
-	git log --no-merges --pretty="format:- %s (%ae)" "$(PACKAGE_NAME)-$$version_release.." |sed -e 's/@.*)/)/' ; \
+	git log --no-merges --pretty="format:- %s (%ae)" "$$version_release.." |sed -e 's/@.*)/)/' ; \
 	echo
+
+shortlog:
+	git shortlog -r --no-merges --format="- %s" -w76,0,2 $$(git tag -l --sort=taggerdate | tail -n 1)..HEAD | sed 's/"):$"/"):\n"/g'
 
 bumpver:
 	@VERSION=`echo $(PACKAGE_VERSION)|sed -r 's/(.*)\.([0-9]+)/\1/'` ; \
