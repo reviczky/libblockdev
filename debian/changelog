@@ -1,4 +1,6 @@
-libblockdev (2.14-1) UNRELEASED; urgency=medium
+libblockdev (2.14-1) unstable; urgency=medium
+
+  * Team upload
 
   [ Andreas Henriksson ]
   * Remove myself from uploaders
@@ -6,8 +8,12 @@ libblockdev (2.14-1) UNRELEASED; urgency=medium
   [ Michael Biebl ]
   * New upstream version 2.14
   * Fix watch file and upstream-vcs-tag
+  * Drop debian/patches/Drop-s390utils-vtoc.h-include-from-s390.api.patch,
+    merged upstream.
+  * Install new blockdev-utils.pc in libblockdev-utils-dev
+  * Bump Standards-Version to 4.1.1
 
- -- Michael Biebl <biebl@debian.org>  Wed, 01 Nov 2017 12:06:25 +0100
+ -- Michael Biebl <biebl@debian.org>  Wed, 01 Nov 2017 12:57:24 +0100
 
 libblockdev (2.12-3) unstable; urgency=medium
 
