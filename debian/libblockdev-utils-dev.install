@@ -1,4 +1,5 @@
 usr/lib/*/libbd_utils.so
+usr/lib/*/pkgconfig/blockdev-utils.pc
 usr/include/blockdev/utils.h
 usr/include/blockdev/sizes.h
 usr/include/blockdev/exec.h
