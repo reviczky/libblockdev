@@ -1,3 +1,12 @@
+libblockdev (2.14-2) unstable; urgency=medium
+
+  * Team upload
+  * Disable s390 plugin.
+    It's not used in Debian and causes a FTBFS on s390x due to uninstalled
+    files.
+
+ -- Michael Biebl <biebl@debian.org>  Wed, 01 Nov 2017 14:32:01 +0100
+
 libblockdev (2.14-1) unstable; urgency=medium
 
   * Team upload
