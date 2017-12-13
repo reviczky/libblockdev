@@ -1,3 +1,9 @@
+libblockdev (2.14-4) UNRELEASED; urgency=medium
+
+  * Add Multi-Arch: same to -dev packages, thanks multiarch hinter
+
+ -- Jeremy Bicha <jbicha@debian.org>  Wed, 13 Dec 2017 16:07:01 -0500
+
 libblockdev (2.14-3) unstable; urgency=medium
 
   * Team upload
