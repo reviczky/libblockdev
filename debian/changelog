@@ -1,3 +1,9 @@
+libblockdev (2.14-3) UNRELEASED; urgency=medium
+
+  * Drop python-blockdev. It was a relatively new, unused Python 2 package.
+
+ -- Jeremy Bicha <jbicha@debian.org>  Tue, 12 Dec 2017 19:32:23 -0500
+
 libblockdev (2.14-2) unstable; urgency=medium
 
   * Team upload

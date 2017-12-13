@@ -6,7 +6,6 @@ Uploaders: Martin Pitt <mpitt@debian.org>
 Build-Depends: debhelper (>= 10.3),
                libtool,
                dh-python,
-               python:any,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
                libgirepository1.0-dev,
@@ -21,7 +20,6 @@ Build-Depends: debhelper (>= 10.3),
                libparted-dev (>= 3.1),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
-               libpython-dev,
                libpython3-dev,
                libkmod-dev (>= 19),
                gtk-doc-tools,
@@ -73,18 +71,6 @@ Depends: ${shlibs:Depends},
 Description: libblockdev introspection data
  This package contains the GObject introspection data of libblockdev in
  binary typelib format.
-
-Package: python-blockdev
-Section: python
-Architecture: all
-Depends: libblockdev2 (>= ${source:Version}),
-         libblockdev2 (<< ${source:Version}.1~),
-         ${python:Depends},
-         ${shlibs:Depends},
-         ${misc:Depends}
-Description: Python 2 gobject-introspection bindings for libblockdev
- This package contains enhancements to the gobject-introspection bindings for
- libblockdev in Python 2.
 
 Package: python3-blockdev
 Section: python
