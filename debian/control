@@ -202,7 +202,7 @@ Package: libblockdev-fs2
 Section: libs
 Architecture: any
 Multi-Arch: same
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}, ${shlibs:Depends}, e2fsprogs
 Description: file system plugin for libblockdev
  The libblockdev library plugin (and in the same time a standalone library)
  providing the functionality related to operations with file systems.

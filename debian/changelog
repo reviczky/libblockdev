@@ -1,6 +1,10 @@
 libblockdev (2.14-4) UNRELEASED; urgency=medium
 
+  [ Jeremy Bicha ]
   * Add Multi-Arch: same to -dev packages, thanks multiarch hinter
+
+  [ Andreas Henriksson ]
+  * Make libblockdev-fs2 depend on e2fsprogs (Closes: #887270)
 
  -- Jeremy Bicha <jbicha@debian.org>  Wed, 13 Dec 2017 16:07:01 -0500
 
