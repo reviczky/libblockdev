@@ -1,5 +1,4 @@
 #include <glib.h>
-#include <blockdev/utils.h>
 
 #ifndef BD_FS
 #define BD_FS
@@ -19,60 +18,9 @@ typedef enum {
     BD_FS_ERROR_TECH_UNAVAIL,
 } BDFsError;
 
-typedef struct BDFSExtInfo {
-    gchar *label;
-    gchar *uuid;
-    gchar *state;
-    guint64 block_size;
-    guint64 block_count;
-    guint64 free_blocks;
-} BDFSExtInfo;
-
-typedef struct BDFSExtInfo BDFSExt4Info;
-typedef struct BDFSExtInfo BDFSExt3Info;
-typedef struct BDFSExtInfo BDFSExt2Info;
-
-BDFSExt2Info* bd_fs_ext2_info_copy (BDFSExt2Info *data);
-void bd_fs_ext2_info_free (BDFSExt2Info *data);
-
-BDFSExt3Info* bd_fs_ext3_info_copy (BDFSExt3Info *data);
-void bd_fs_ext3_info_free (BDFSExt3Info *data);
-
-BDFSExt4Info* bd_fs_ext4_info_copy (BDFSExt4Info *data);
-void bd_fs_ext4_info_free (BDFSExt4Info *data);
-
-typedef struct BDFSXfsInfo {
-    gchar *label;
-    gchar *uuid;
-    guint64 block_size;
-    guint64 block_count;
-} BDFSXfsInfo;
-
-BDFSXfsInfo* bd_fs_xfs_info_copy (BDFSXfsInfo *data);
-void bd_fs_xfs_info_free (BDFSXfsInfo *data);
-
-typedef struct BDFSVfatInfo {
-    gchar *label;
-    gchar *uuid;
-    guint64 cluster_size;
-    guint64 cluster_count;
-    guint64 free_cluster_count;
-} BDFSVfatInfo;
-
-BDFSVfatInfo* bd_fs_vfat_info_copy (BDFSVfatInfo *data);
-void bd_fs_vfat_info_free (BDFSVfatInfo *data);
-
-typedef struct BDFSNtfsInfo {
-    guint64 size;
-    guint64 free_space;
-} BDFSNtfsInfo;
-
-BDFSNtfsInfo* bd_fs_ntfs_info_copy (BDFSNtfsInfo *data);
-void bd_fs_ntfs_info_free (BDFSNtfsInfo *data);
-
 /* XXX: where the file systems start at the enum of technologies */
-#define FS_OFFSET 2
-#define LAST_FS 7
+#define BD_FS_OFFSET 2
+#define BD_FS_LAST_FS 7
 typedef enum {
     BD_FS_TECH_GENERIC = 0,
     BD_FS_TECH_MOUNT   = 1,
@@ -85,7 +33,7 @@ typedef enum {
 } BDFSTech;
 
 /* XXX: number of the highest bit of all modes */
-#define FS_MODE_LAST 6
+#define BD_FS_MODE_LAST 6
 typedef enum {
     BD_FS_TECH_MODE_MKFS      = 1 << 0,
     BD_FS_TECH_MODE_WIPE      = 1 << 1,
@@ -112,77 +60,11 @@ void bd_fs_close ();
 
 gboolean bd_fs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 
-gboolean bd_fs_wipe (const gchar *device, gboolean all, GError **error);
-gboolean bd_fs_clean (const gchar *device, GError **error);
-gchar* bd_fs_get_fstype (const gchar *device,  GError **error);
+#endif  /* BD_FS */
 
-gboolean bd_fs_unmount (const gchar *spec, gboolean lazy, gboolean force, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_mount (const gchar *device, const gchar *mountpoint, const gchar *fstype, const gchar *options, const BDExtraArg **extra, GError **error);
-gchar* bd_fs_get_mountpoint (const gchar *device, GError **error);
-
-gboolean bd_fs_resize (const gchar *device, guint64 new_size, GError **error);
-gboolean bd_fs_repair (const gchar *device, GError **error);
-gboolean bd_fs_check (const gchar *device, GError **error);
-gboolean bd_fs_set_label (const gchar *device, const gchar *label, GError **error);
-
-typedef enum {
-    BD_FS_OFFLINE_SHRINK = 1 << 1,
-    BD_FS_OFFLINE_GROW = 1 << 2,
-    BD_FS_ONLINE_SHRINK = 1 << 3,
-    BD_FS_ONLINE_GROW = 1 << 4
-} BDFsResizeFlags;
-
-gboolean bd_fs_can_resize (const gchar *type, BDFsResizeFlags *mode, gchar **required_utility, GError **error);
-gboolean bd_fs_can_check (const gchar *type, gchar **required_utility, GError **error);
-gboolean bd_fs_can_repair (const gchar *type, gchar **required_utility, GError **error);
-gboolean bd_fs_can_set_label (const gchar *type, gchar **required_utility, GError **error);
-
-gboolean bd_fs_ext2_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext2_wipe (const gchar *device, GError **error);
-gboolean bd_fs_ext2_check (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext2_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext2_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSExt2Info* bd_fs_ext2_get_info (const gchar *device, GError **error);
-gboolean bd_fs_ext2_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error);
-
-gboolean bd_fs_ext3_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext3_wipe (const gchar *device, GError **error);
-gboolean bd_fs_ext3_check (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext3_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext3_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSExt3Info* bd_fs_ext3_get_info (const gchar *device, GError **error);
-gboolean bd_fs_ext3_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error);
-
-gboolean bd_fs_ext4_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext4_wipe (const gchar *device, GError **error);
-gboolean bd_fs_ext4_check (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext4_repair (const gchar *device, gboolean unsafe, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ext4_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSExt4Info* bd_fs_ext4_get_info (const gchar *device, GError **error);
-gboolean bd_fs_ext4_resize (const gchar *device, guint64 new_size, const BDExtraArg **extra, GError **error);
-
-gboolean bd_fs_xfs_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_xfs_wipe (const gchar *device, GError **error);
-gboolean bd_fs_xfs_check (const gchar *device, GError **error);
-gboolean bd_fs_xfs_repair (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_xfs_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSXfsInfo* bd_fs_xfs_get_info (const gchar *device, GError **error);
-gboolean bd_fs_xfs_resize (const gchar *mpoint, guint64 new_size, const BDExtraArg **extra, GError **error);
-
-gboolean bd_fs_vfat_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_vfat_wipe (const gchar *device, GError **error);
-gboolean bd_fs_vfat_check (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_vfat_repair (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_vfat_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSVfatInfo* bd_fs_vfat_get_info (const gchar *device, GError **error);
-gboolean bd_fs_vfat_resize (const gchar *device, guint64 new_size, GError **error);
-
-gboolean bd_fs_ntfs_mkfs (const gchar *device, const BDExtraArg **extra, GError **error);
-gboolean bd_fs_ntfs_wipe (const gchar *device, GError **error);
-gboolean bd_fs_ntfs_check (const gchar *device, GError **error);
-gboolean bd_fs_ntfs_repair (const gchar *device, GError **error);
-gboolean bd_fs_ntfs_set_label (const gchar *device, const gchar *label, GError **error);
-BDFSNtfsInfo* bd_fs_ntfs_get_info (const gchar *device, GError **error);
-gboolean bd_fs_ntfs_resize (const gchar *device, guint64 new_size, GError **error);
-
-#endif  /* BD_PART */
+#include "fs/ext.h"
+#include "fs/generic.h"
+#include "fs/mount.h"
+#include "fs/ntfs.h"
+#include "fs/vfat.h"
+#include "fs/xfs.h"

@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 import utils
-from utils import run, create_sparse_tempfile, mount, umount
+from utils import run, create_sparse_tempfile, mount, umount, unstable_test
 import six
 import overrides_hack
 
@@ -35,11 +35,12 @@ class FSTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        BlockDev.switch_init_checks(False)
         if not BlockDev.is_initialized():
             BlockDev.init(cls.requested_plugins, None)
         else:
             BlockDev.reinit(cls.requested_plugins, True, None)
-
+        BlockDev.switch_init_checks(True)
         try:
             cls.ntfs_avail = BlockDev.fs_is_tech_avail(BlockDev.FSTech.NTFS,
                                                        BlockDev.FSTechMode.MKFS |
@@ -1125,6 +1126,8 @@ class MountTest(FSTestCase):
         self.assertTrue(os.path.ismount(tmp))
 
 class GenericCheck(FSTestCase):
+    log = []
+
     def _test_generic_check(self, mkfs_function):
         # clean the device
         succ = BlockDev.fs_clean(self.loop_dev)
@@ -1132,13 +1135,35 @@ class GenericCheck(FSTestCase):
         succ = mkfs_function(self.loop_dev, None)
         self.assertTrue(succ)
 
+        self.log = []
         # check for consistency (expected to be ok)
         succ = BlockDev.fs_check(self.loop_dev)
         self.assertTrue(succ)
 
+    def _my_progress_func(self, task, status, completion, msg):
+        self.assertTrue(isinstance(completion, int))
+        self.log.append(completion)
+
+    def _verify_progress(self, log):
+        # at least 2 members
+        self.assertLessEqual(2, len(log))
+        # non-decreasing members
+        self.assertTrue(all(x<=y for x, y in zip(log, log[1:])))
+
     def test_ext4_generic_check(self):
         """Test generic check function with an ext4 file system"""
         self._test_generic_check(mkfs_function=BlockDev.fs_ext4_mkfs)
+
+    def test_ext4_progress_check(self):
+        """Test check function with an ext4 file system and progress reporting"""
+
+        succ = BlockDev.utils_init_prog_reporting(self._my_progress_func)
+        self.assertTrue(succ)
+
+        self._test_generic_check(mkfs_function=BlockDev.fs_ext4_mkfs)
+        self._verify_progress(self.log)
+
+        succ = BlockDev.utils_init_prog_reporting(None)
 
     def test_xfs_generic_check(self):
         """Test generic check function with an ext4 file system"""
@@ -1264,6 +1289,7 @@ class GenericResize(FSTestCase):
                                   fs_info_func=info_prepare,
                                   info_size_func=expected_size)
 
+    @unstable_test
     def test_vfat_generic_resize(self):
         """Test generic resize function with a vfat file system"""
         self._test_generic_resize(mkfs_function=BlockDev.fs_vfat_mkfs)
