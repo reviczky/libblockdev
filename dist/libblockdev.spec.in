@@ -66,7 +66,7 @@
 %define configure_opts %{?distro_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?kbd_copts} %{?part_copts} %{?fs_copts} %{?gi_copts}
 
 Name:        libblockdev
-Version:     2.14
+Version:     2.16
 Release:     1%{?dist}
 Summary:     A library for low-level manipulation with block devices
 License:     LGPLv2+
@@ -135,6 +135,7 @@ libblockdev in Python3.
 %endif
 
 %package utils
+BuildRequires: kmod-devel
 Summary:     A library with utility functions for the libblockdev library
 
 %description utils
@@ -254,7 +255,6 @@ with the libblockdev-fs plugin/library.
 
 %if %{with_kbd}
 %package kbd
-BuildRequires: kmod-devel
 BuildRequires: libbytesize-devel
 Summary:     The KBD plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} >= 0.11
@@ -649,6 +649,7 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %{_includedir}/blockdev/exec.h
 %{_includedir}/blockdev/extra_arg.h
 %{_includedir}/blockdev/dev_utils.h
+%{_includedir}/blockdev/module.h
 
 
 %if %{with_btrfs}
@@ -691,7 +692,9 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %files fs-devel
 %{_libdir}/libbd_fs.so
 %dir %{_includedir}/blockdev
+%dir %{_includedir}/blockdev/fs
 %{_includedir}/blockdev/fs.h
+%{_includedir}/blockdev/fs/*.h
 %endif
 
 
@@ -797,6 +800,42 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %files plugins-all
 
 %changelog
+* Thu Feb 08 2018 Vojtech Trefny <vtrefny@redhat.com> - 2.16-1
+- Add tests for progress report (jtulak)
+- Add e2fsck progress (jtulak)
+- Add progress reporting infrastructure for Ext fsck (jtulak)
+- Add a function to test if prog. reporting was initialized (jtulak)
+- Add support for LUKS 2 opening and key management (vtrefny)
+- Fix few more links for project and documentation website (vtrefny)
+- Sync the spec file with downstream (vpodzime)
+- Check if 'journalctl' is available before trying to use it in tests (vtrefny)
+- Update 'Testing libblockdev' section in documentation (vtrefny)
+- Fix link to online documentation (vtrefny)
+- Fix how the new kernel module functions are added to docs (vpodzime)
+
+* Fri Dec 01 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.15-1
+- Do not use the 'btrfs' plugin in overrides tests (vpodzime)
+- Do not use the btrfs plugin in library tests (vpodzime)
+- Check for btrfs module availability in btrfs module (vtrefny)
+- Move kernel modules (un)loading and checking into utils (vtrefny)
+- Free locale struct in kbd plugin (vtrefny)
+- Add test for setting partition flags on GPT (vtrefny)
+- Use only sgdisk to set flags on GPT (vtrefny)
+- Move the fs.h file to its original place (vpodzime)
+- Add a HACKING.rst file (vpodzime)
+- Mark bcache tests as unstable (vpodzime)
+- Fix memory leaks in bd_fs_vfat_get_info() (vpodzime)
+- Revert the behaviour of bd_fs_check_deps() (vpodzime)
+- Split the bd_fs_is_tech_avail() implementation (vpodzime)
+- Split the FS plugin source into multiple files (vpodzime)
+- Fix bd_s390_dasd_format (vponcova)
+- Mark unstable tests as such (vpodzime)
+- bd_s390_dasd_is_ldl should be true only for LDL DADSs (vponcova)
+- Do not lie about tag creation (vpodzime)
+
+* Wed Nov 08 2017 Zbigniew Jędrzejewski-Szmek <zbyszek@in.waw.pl> - 2.14-2
+- Rebuild for cryptsetup-2.0.0
+
 * Tue Oct 31 2017 Vratislav Podzimek <vpodzime@redhat.com> - 2.14-1
 - Support the legacy boot GPT flag (intrigeri)
 - Respect the version in the blockdev.pc file (vpodzime)
