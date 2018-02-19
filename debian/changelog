@@ -1,6 +1,9 @@
-libblockdev (2.14-4) UNRELEASED; urgency=medium
+libblockdev (2.16-1) UNRELEASED; urgency=medium
+
+  * Team upload
 
   [ Jeremy Bicha ]
+  * New upstream release
   * Add Multi-Arch: same to -dev packages, thanks multiarch hinter
   * Add symbols files
   * Add s390 plugin package
