@@ -4,6 +4,7 @@ libblockdev (2.14-4) UNRELEASED; urgency=medium
   * Add Multi-Arch: same to -dev packages, thanks multiarch hinter
   * Add symbols files
   * Add s390 plugin package
+  * Update Vcs fields for migration to https://salsa.debian.org/
 
   [ Andreas Henriksson ]
   * Make libblockdev-fs2 depend on e2fsprogs (Closes: #887270)
