@@ -1,3 +1,9 @@
+libblockdev (2.16-2) UNRELEASED; urgency=high
+
+  * debian/libblockdev2.symbols: Add s390x-specific symbols
+
+ -- Jeremy Bicha <jbicha@debian.org>  Tue, 20 Feb 2018 07:39:33 -0500
+
 libblockdev (2.16-1) unstable; urgency=medium
 
   * Team upload
