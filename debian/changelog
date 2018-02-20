@@ -1,4 +1,4 @@
-libblockdev (2.16-1) UNRELEASED; urgency=medium
+libblockdev (2.16-1) unstable; urgency=medium
 
   * Team upload
 
@@ -11,7 +11,7 @@ libblockdev (2.16-1) UNRELEASED; urgency=medium
   [ Andreas Henriksson ]
   * Make libblockdev-fs2 depend on e2fsprogs (Closes: #887270)
 
- -- Jeremy Bicha <jbicha@debian.org>  Wed, 13 Dec 2017 16:07:01 -0500
+ -- Jeremy Bicha <jbicha@debian.org>  Mon, 19 Feb 2018 19:15:55 -0500
 
 libblockdev (2.14-3) unstable; urgency=medium
 
