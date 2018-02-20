@@ -6,7 +6,6 @@ libblockdev (2.16-1) UNRELEASED; urgency=medium
   * New upstream release
   * Add Multi-Arch: same to -dev packages, thanks multiarch hinter
   * Add symbols files
-  * Add s390 plugin package
   * Update Vcs fields for migration to https://salsa.debian.org/
 
   [ Andreas Henriksson ]

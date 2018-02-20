@@ -381,26 +381,9 @@ Description: Swap plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-swap plugin/library.
 
-Package: libblockdev-s3902
-Architecture: s390x
-Multi-Arch: same
-Depends: ${shlibs:Depends},
-         ${misc:Depends}
-Description: s390 plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
- providing the functionality related to swap devices.
-
-Package: libblockdev-s390-dev
-Section: libdevel
-Architecture: s390x
-Depends: libblockdev-s3902 (= ${binary:Version}),
-         libblockdev-utils-dev (= ${binary:Version}),
-         libglib2.0-dev,
-         s390-tools
-         ${misc:Depends}
-Description: s390x plugin for libblockdev - development
- This package contains header files and pkg-config files needed for development
- with the libblockdev-s390 plugin/library.
+# Package: libblockdev-s390
+# Depends: ...., s390-tools
+# Package: libblockdev-s390-dev
 
 Package: libblockdev-plugins-all
 Architecture: any
@@ -418,7 +401,6 @@ Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-part2 (= ${binary:Version}),
          libblockdev-part-err2 (= ${binary:Version}),
-         libblockdev-s3902 (= ${binary:Version}) [s390x],
          libblockdev-swap2 (= ${binary:Version}),
          libblockdev-utils2 (= ${binary:Version}),
          ${misc:Depends}
