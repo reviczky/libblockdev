@@ -7,7 +7,13 @@ export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs -Wl,--as-needed
 	dh $@  --with python3,gir
 
 override_dh_auto_configure:
-	dh_auto_configure -- --disable-tests --without-s390 --without-python2
+	dh_auto_configure -- \
+		--disable-tests \
+		--without-s390 \
+		--without-python2 \
+		--without-nvdimm \
+		--without-vdo \
+		$(NULL)
 
 override_dh_install:
 	find debian/tmp -name '*.la' | xargs rm -f
