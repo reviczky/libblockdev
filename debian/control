@@ -25,7 +25,7 @@ Build-Depends: debhelper (>= 10.3),
                gtk-doc-tools,
                gobject-introspection,
                pylint,
-Standards-Version: 4.1.1
+Standards-Version: 4.2.1
 Vcs-Browser: https://salsa.debian.org/utopia-team/libblockdev
 Vcs-Git: https://salsa.debian.org/utopia-team/libblockdev.git
 Homepage: https://github.com/storaged-project/libblockdev
