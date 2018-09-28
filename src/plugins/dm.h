@@ -1,5 +1,4 @@
 #include <glib.h>
-#include <dmraid/dmraid.h>
 
 #ifndef BD_DM
 #define BD_DM
@@ -38,9 +37,11 @@ typedef enum {
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_dm_check_deps ();
-gboolean bd_dm_init ();
-void bd_dm_close ();
+gboolean bd_dm_check_deps (void);
+gboolean bd_dm_init (void);
+void bd_dm_close (void);
+
+gboolean bd_dm_is_tech_avail (BDDMTech tech, guint64 mode, GError **error);
 
 gboolean bd_dm_create_linear (const gchar *map_name, const gchar *device, guint64 length, const gchar *uuid, GError **error);
 gboolean bd_dm_remove (const gchar *map_name, GError **error);

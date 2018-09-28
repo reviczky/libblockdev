@@ -4,12 +4,65 @@ SHELL = /bin/bash
 ACLOCAL_AMFLAGS = -I m4
 DISTCHECK_CONFIGURE_FLAGS = --enable-introspection
 
+if !WITH_BTRFS
+DISTCHECK_CONFIGURE_FLAGS += --without-btrfs
+endif
+
+if !WITH_CRYPTO
+DISTCHECK_CONFIGURE_FLAGS += --without-crypto
+endif
+
+if !WITH_DM
+DISTCHECK_CONFIGURE_FLAGS += --without-dm
+endif
+
+if !WITH_LOOP
+DISTCHECK_CONFIGURE_FLAGS += --without-loop
+endif
+
+if !WITH_LVM
+DISTCHECK_CONFIGURE_FLAGS += --without-lvm
+endif
+
+if !WITH_LVM_DBUS
+DISTCHECK_CONFIGURE_FLAGS += --without-lvm-dbus
+endif
+
+if !WITH_MDRAID
+DISTCHECK_CONFIGURE_FLAGS += --without-mdraid
+endif
+
+if !WITH_MPATH
+DISTCHECK_CONFIGURE_FLAGS += --without-mpath
+endif
+
+if !WITH_NVDIMM
+DISTCHECK_CONFIGURE_FLAGS += --without-nvdimm
+endif
+
+if !WITH_SWAP
+DISTCHECK_CONFIGURE_FLAGS += --without-swap
+endif
+
+if !WITH_KBD
+DISTCHECK_CONFIGURE_FLAGS += --without-kbd
+endif
+
+if !WITH_PART
+DISTCHECK_CONFIGURE_FLAGS += --without-part
+endif
+
+if !WITH_S390
+DISTCHECK_CONFIGURE_FLAGS += --without-s390
+endif
+
+
 SUBDIRS = include src dist scripts data
 if WITH_GTK_DOC
 SUBDIRS += docs
 endif
 
-dist_noinst_DATA = features.rst roadmap.rst specs.rst LICENSE tests
+dist_noinst_DATA = features.rst specs.rst LICENSE tests
 
 MAINTAINERCLEANFILES = Makefile.in aclocal.m4 config.guess config.sub \
     configure depcomp install-sh ltmain.sh missing py-compile compile ar-lib \
@@ -20,7 +73,7 @@ GIDIR = src/lib
 
 if WITH_PYTHON3
 PYTHON = python3
-PYLINT = python3-pylint
+PYLINT = pylint-3
 else
 PYTHON = python
 PYLINT = pylint
@@ -41,9 +94,11 @@ PLUGINS = btrfs \
 	lvm \
 	mdraid \
 	mpath \
+	nvdimm \
 	part \
 	s390 \
-	swap
+	swap \
+	vdo
 
 ALT_PLUGINS = lvm-dbus
 
@@ -57,7 +112,12 @@ run-root-ipython: all
 	sudo env GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=src/python G_MESSAGES_DEBUG=all LIBBLOCKDEV_CONFIG_DIR=data/conf.d/ i${PYTHON}
 
 pylint:
-	which $(PYLINT) && $(PYLINT) -E src/python/gi/overrides/BlockDev.py || echo "pylint not available, skipping"
+	@which $(PYLINT); \
+	if test $$? != 0 ; then \
+		echo "pylint not available, skipping" ; \
+	else \
+		$(PYLINT) -E src/python/gi/overrides/BlockDev.py ; \
+	fi
 
 if TESTS_ENABLED
 test: all pylint

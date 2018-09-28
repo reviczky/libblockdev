@@ -69,7 +69,7 @@ def fake_utils(path="."):
     finally:
         os.environ["PATH"] = old_path
 
-ALL_UTILS = {"lvm", "thin_metadata_size", "btrfs", "mkswap", "multipath", "mpathconf", "dmsetup", "mdadm", "make-bcache", "sgdisk", "sfdisk"}
+ALL_UTILS = {"lvm", "thin_metadata_size", "btrfs", "mkswap", "swaplabel", "multipath", "mpathconf", "dmsetup", "mdadm", "make-bcache", "sgdisk", "sfdisk"}
 
 @contextmanager
 def fake_path(path=None, keep_utils=None, all_but=None):
@@ -224,6 +224,13 @@ def run_command(command, cmd_input=None):
     out, err = res.communicate(input=cmd_input)
     return (res.returncode, out.decode().strip(), err.decode().strip())
 
+def get_version_from_lsb():
+    ret, out, err = run_command("lsb_release -rs")
+    if ret != 0:
+        raise RuntimeError("Cannot get distro version from lsb_release output: '%s %s'" % (out, err))
+
+    return out.split(".")[0]
+
 def get_version_from_pretty_name(pretty_name):
     """ Try to get distro and version from 'OperatingSystemPrettyName'
         hostname property.
@@ -240,7 +247,7 @@ def get_version_from_pretty_name(pretty_name):
     if match is not None:
         version = match.group(0)
     else:
-        raise RuntimeError("Cannot get distro name and version from '%s'" % pretty_name)
+        version = get_version_from_lsb()
 
     return (distro, version)
 
@@ -350,11 +357,13 @@ def run(cmd_string):
     return subprocess.call(cmd_string, close_fds=True, shell=True)
 
 
-def mount(device, where):
+def mount(device, where, ro=False):
     if not os.path.isdir(where):
         os.makedirs(where)
-    os.system("mount %s %s" % (device, where))
-
+    if ro:
+        os.system("mount -oro %s %s" % (device, where))
+    else:
+        os.system("mount %s %s" % (device, where))
 
 def umount(what, retry=True):
     try:

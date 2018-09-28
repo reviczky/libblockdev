@@ -8,7 +8,7 @@ import re
 import subprocess
 from itertools import chain
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, skip_on
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, skip_on, run_command
 from gi.repository import BlockDev, GLib
 
 import dbus
@@ -638,7 +638,7 @@ class LvmTestLVcreateWithExtra(LvmPVVGLVTestCase):
         """Verify that it's possible to create an LV with extra arguments"""
 
         self.ignore_log = True
-        self.assertTrue(BlockDev.reinit(None, False, self.my_log_func))
+        self.assertTrue(BlockDev.reinit([self.ps, self.ps2], False, self.my_log_func))
 
         succ = BlockDev.lvm_pvcreate(self.loop_dev, 0, 0, None)
         self.assertTrue(succ)
@@ -662,7 +662,7 @@ class LvmTestLVcreateWithExtra(LvmPVVGLVTestCase):
         match = re.search(r"'-Z': <'y'>", self.log)
         self.assertIsNot(match, None)
 
-        self.assertTrue(BlockDev.reinit(None, False, None))
+        self.assertTrue(BlockDev.reinit([self.ps, self.ps2], False, None))
 
         succ = BlockDev.lvm_lvremove("testVG", "testLV", True, None)
         self.assertTrue(succ)
@@ -1311,3 +1311,63 @@ class LvmPVVGcachedLVstatsTestCase(LvmPVVGLVTestCase):
         self.assertEqual(stats.cache_size, 512 * 1024**2)
         self.assertEqual(stats.md_size, 8 * 1024**2)
         self.assertEqual(stats.mode, BlockDev.LVMCacheMode.WRITETHROUGH)
+
+@unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
+class LVMTechTest(LVMTestCase):
+
+    def setUp(self):
+        # set init checks to false -- we want runtime checks for this
+        BlockDev.switch_init_checks(False)
+
+        # set everything back and reinit just to be sure
+        self.addCleanup(BlockDev.switch_init_checks, True)
+        self.addCleanup(BlockDev.reinit, [self.ps, self.ps2], True, None)
+
+    def test_tech_available(self):
+        """Verify that checking lvm dbus availability by technology works as expected"""
+
+        # stop the lvmdbusd service
+        _ret, _out, _err = run_command("systemctl stop lvm2-lvmdbusd")
+
+        # reinit libblockdev -- init checks are switched off so nothing should start the service
+        self.assertTrue(BlockDev.reinit([self.ps, self.ps2], True, None))
+        ret, _out, _err = run_command("systemctl status lvm2-lvmdbusd")
+        self.assertNotEqual(ret, 0)
+
+        # check tech availability -- service should be started
+        succ = BlockDev.lvm_is_tech_avail(BlockDev.LVMTech.BASIC, BlockDev.LVMTechMode.CREATE)
+        self.assertTrue(succ)
+
+        ret, _out, _err = run_command("systemctl status lvm2-lvmdbusd")
+        self.assertEqual(ret, 0)
+
+        # only query is supported with calcs
+        with six.assertRaisesRegex(self, GLib.GError, "Only 'query' supported for thin calculations"):
+            BlockDev.lvm_is_tech_avail(BlockDev.LVMTech.THIN_CALCS, BlockDev.LVMTechMode.CREATE)
+
+@unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
+class LvmTestPVremoveConfig(LvmPVonlyTestCase):
+    def test_pvremove_with_config(self):
+        """Verify that we correctly pass extra arguments when calling PvRemove"""
+
+        # we add some extra arguments to PvRemove (like '-ff') and we want
+        # to be sure that adding these works together with '--config'
+
+        BlockDev.lvm_set_global_config("backup {backup=0 archive=0}")
+        self.addCleanup(BlockDev.lvm_set_global_config, None)
+
+        succ = BlockDev.lvm_pvcreate(self.loop_dev, 0, 0, None)
+        self.assertTrue(succ)
+
+        succ = BlockDev.lvm_pvcreate(self.loop_dev2, 0, 0, None)
+        self.assertTrue(succ)
+
+        succ = BlockDev.lvm_vgcreate("testVG", [self.loop_dev, self.loop_dev2], 0, None)
+        self.assertTrue(succ)
+
+        # we are removing pv that is part of vg -- '-ff' option must be included
+        succ = BlockDev.lvm_pvremove(self.loop_dev, None)
+        self.assertTrue(succ)
+
+        succ = BlockDev.lvm_pvremove(self.loop_dev2, None)
+        self.assertTrue(succ)

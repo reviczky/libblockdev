@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2015  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Samantha N. Bueno <sbueno@redhat.com>
  */
@@ -55,7 +55,7 @@ static GMutex deps_check_lock;
 #define DEPS_DASDFMT_MASK (1 << DEPS_DASDFMT)
 #define DEPS_LAST 1
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     /* dasdfmt doesn't return version info */
     {"dasdfmt", NULL, NULL, NULL},
 };
@@ -69,7 +69,7 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_s390_check_deps () {
+gboolean bd_s390_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -99,7 +99,7 @@ gboolean bd_s390_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_s390_init () {
+gboolean bd_s390_init (void) {
     /* nothing to do here */
     return TRUE;
 };
@@ -111,7 +111,7 @@ gboolean bd_s390_init () {
  * library's functions that unload it.**
  *
  */
-void bd_s390_close () {
+void bd_s390_close (void) {
     /* nothing to do here */
 }
 
@@ -154,7 +154,7 @@ gboolean bd_s390_is_tech_avail (BDS390Tech tech, guint64 mode, GError **error) {
  */
 gboolean bd_s390_dasd_format (const gchar *dasd, const BDExtraArg **extra, GError **error) {
     gboolean rc = FALSE;
-    const gchar *argv[8] = {"/sbin/dasdfmt", "-y", "-d", "cdl", "-b", "4096", NULL, NULL};
+    const gchar *argv[8] = {"dasdfmt", "-y", "-d", "cdl", "-b", "4096", NULL, NULL};
 
     if (!check_deps (&avail_deps, DEPS_DASDFMT_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -226,7 +226,7 @@ gboolean bd_s390_dasd_online (const gchar *dasd, GError **error) {
     gint online = 0;
     gchar *path = NULL;
     FILE *fd = NULL;
-    const gchar *argv[4] = {"/usr/sbin/dasd_cio_free", "-d", dasd, NULL};
+    const gchar *argv[4] = {"dasd_cio_free", "-d", dasd, NULL};
     guint64 progress_id = 0;
     gchar *msg = NULL;
 
@@ -581,8 +581,8 @@ gboolean bd_s390_zfcp_online (const gchar *devno, const gchar *wwpn, const gchar
     gint rc = 0;
     FILE *fd = NULL;
     DIR *pdfd = NULL;
-    const gchar *zfcp_cio_free[4] = {"/usr/sbin/zfcp_cio_free", "-d", devno, NULL};
-    const gchar *chccwdev[4] = {"/usr/sbin/chccwdev", "-e", devno, NULL};
+    const gchar *zfcp_cio_free[4] = {"zfcp_cio_free", "-d", devno, NULL};
+    const gchar *chccwdev[4] = {"chccwdev", "-e", devno, NULL};
 
     gchar *zfcpsysfs = "/sys/bus/ccw/drivers/zfcp";
     gchar *online = g_strdup_printf ("%s/%s/online", zfcpsysfs, devno);
@@ -933,7 +933,7 @@ gboolean bd_s390_zfcp_offline (const gchar *devno, const gchar *wwpn, const gcha
     gchar *offline = NULL;
     gchar *unitrm = NULL;
     gchar *pattern = NULL;
-    const gchar *chccwdev[4] = {"/usr/sbin/chccwdev", "-d", devno, NULL};
+    const gchar *chccwdev[4] = {"chccwdev", "-d", devno, NULL};
     guint64 progress_id = 0;
     gchar *msg = NULL;
 

@@ -53,7 +53,7 @@ class KbdZRAMTestCase(unittest.TestCase):
         else:
             BlockDev.reinit(cls.requested_plugins, True, None)
 
-    @skip_on(("fedora", "27"), reason="zram module (un)loading is broken on ")
+    @skip_on("fedora", "27", reason="zram module (un)loading is broken on Fedora 27")
     @skip_on("debian", reason="loading zram module is broken on Debian")
     def setUp(self):
         self.addCleanup(self._clean_up)
@@ -192,7 +192,7 @@ class KbdZRAMStatsTestCase(KbdZRAMTestCase):
 
         # read 'num_reads' and 'num_writes' from '/sys/block/zram0/stat'
         sys_stats = read_file("/sys/block/zram0/stat").strip().split()
-        self.assertEqual(len(sys_stats), 11)
+        self.assertGreaterEqual(len(sys_stats), 11)  # 15 stats since 4.19
         num_reads = int(sys_stats[0])
         num_writes = int(sys_stats[4])
         self.assertEqual(stats.num_reads, num_reads)
@@ -201,7 +201,7 @@ class KbdZRAMStatsTestCase(KbdZRAMTestCase):
         # read 'orig_data_size', 'compr_data_size', 'mem_used_total' and
         # 'zero_pages' from '/sys/block/zram0/mm_stat'
         sys_stats = read_file("/sys/block/zram0/mm_stat").strip().split()
-        self.assertEqual(len(sys_stats), 7)
+        self.assertGreaterEqual(len(sys_stats), 7)  # since 4.18 we have 8 stats
         orig_data_size = int(sys_stats[0])
         compr_data_size = int(sys_stats[1])
         mem_used_total = int(sys_stats[2])
@@ -294,6 +294,8 @@ class KbdBcacheTestCase(unittest.TestCase):
         else:
             BlockDev.reinit(cls.requested_plugins, True, None)
 
+    @skip_on("fedora", "29", reason="running bcache tests causes system to run out of kernel memory on rawhide")
+    @skip_on("debian", "testing", reason="running bcache tests causes system to run out of kernel memory on testing")
     def setUp(self):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("lvm_test", 10 * 1024**3)

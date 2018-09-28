@@ -71,7 +71,7 @@ ${CC} -c [$2] $temp_file
 status=$?
 rm -f $temp_file
 rm -f $(basename ${temp_file%%.c}.o)
-if test $status == 0; then
+if test $status = 0; then
   echo yes
 else
   echo no
@@ -110,5 +110,5 @@ echo "*** Libblockdev encountered the following issues during configuration:"
 echo "$libblockdev_failure_messages"
 echo ""
 echo "*** Libblockdev will not successfully build without these missing dependencies"
-false
+AS_EXIT(1)
 ])])dnl

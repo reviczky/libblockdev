@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2017  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -40,7 +40,7 @@ static GMutex deps_check_lock;
 
 #define DEPS_LAST 3
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"mkfs.vfat", NULL, NULL, NULL},
     {"fatlabel", NULL, NULL, NULL},
     {"fsck.vfat", NULL, NULL, NULL},
@@ -52,6 +52,12 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
 };
 
 #define UNUSED __attribute__((unused))
+
+#ifdef __clang__
+#define ZERO_INIT {}
+#else
+#define ZERO_INIT {0}
+#endif
 
 /**
  * bd_fs_vfat_is_tech_avail:
@@ -78,6 +84,9 @@ gboolean bd_fs_vfat_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **
  * Creates a new copy of @data.
  */
 BDFSVfatInfo* bd_fs_vfat_info_copy (BDFSVfatInfo *data) {
+    if (data == NULL)
+        return NULL;
+
     BDFSVfatInfo *ret = g_new0 (BDFSVfatInfo, 1);
 
     ret->label = g_strdup (data->label);
@@ -95,6 +104,9 @@ BDFSVfatInfo* bd_fs_vfat_info_copy (BDFSVfatInfo *data) {
  * Frees @data.
  */
 void bd_fs_vfat_info_free (BDFSVfatInfo *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->label);
     g_free (data->uuid);
     g_free (data);
@@ -376,8 +388,8 @@ BDFSVfatInfo* bd_fs_vfat_get_info (const gchar *device, GError **error) {
  */
 gboolean bd_fs_vfat_resize (const gchar *device, guint64 new_size, GError **error) {
     PedDevice *ped_dev = NULL;
-    PedGeometry geom = {0};
-    PedGeometry new_geom = {0};
+    PedGeometry geom = ZERO_INIT;
+    PedGeometry new_geom = ZERO_INIT;
     PedFileSystem *fs = NULL;
     PedSector start = 0;
     PedSector length = 0;

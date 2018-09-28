@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2017  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -42,7 +42,7 @@ static GMutex deps_check_lock;
 
 #define DEPS_LAST 5
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"mkfs.xfs", NULL, NULL, NULL},
     {"xfs_db", NULL, NULL, NULL},
     {"xfs_repair", NULL, NULL, NULL},
@@ -82,6 +82,9 @@ gboolean bd_fs_xfs_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **e
  * Creates a new copy of @data.
  */
 BDFSXfsInfo* bd_fs_xfs_info_copy (BDFSXfsInfo *data) {
+    if (data == NULL)
+        return NULL;
+
     BDFSXfsInfo *ret = g_new0 (BDFSXfsInfo, 1);
 
     ret->label = g_strdup (data->label);
@@ -98,6 +101,9 @@ BDFSXfsInfo* bd_fs_xfs_info_copy (BDFSXfsInfo *data) {
  * Frees @data.
  */
 void bd_fs_xfs_info_free (BDFSXfsInfo *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->label);
     g_free (data->uuid);
     g_free (data);
@@ -145,16 +151,16 @@ gboolean bd_fs_xfs_wipe (const gchar *device, GError **error) {
  *
  * Returns: whether an xfs file system on the @device is clean or not
  *
- * Note: if the file system is mounted it may be reported as unclean even if
- *       everything is okay and there are just some pending/in-progress writes
+ * Note: If the file system is mounted RW, it will always be reported as not
+ *       clean!
  *
  * Tech category: %BD_FS_TECH_XFS-%BD_FS_TECH_MODE_CHECK
  */
 gboolean bd_fs_xfs_check (const gchar *device, GError **error) {
-    const gchar *args[6] = {"xfs_db", "-r", "-c", "check", device, NULL};
+    const gchar *args[4] = {"xfs_repair", "-n", device, NULL};
     gboolean ret = FALSE;
 
-    if (!check_deps (&avail_deps, DEPS_XFS_DB_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+    if (!check_deps (&avail_deps, DEPS_XFS_REPAIR_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
     ret = bd_utils_exec_and_report_error (args, NULL, error);

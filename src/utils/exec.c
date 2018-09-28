@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -26,6 +26,12 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#ifdef __clang__
+#define ZERO_INIT {}
+#else
+#define ZERO_INIT {0}
+#endif
+
 extern char **environ;
 
 static GMutex id_counter_lock;
@@ -35,6 +41,7 @@ static BDUtilsLogFunc log_func = NULL;
 static GMutex task_id_counter_lock;
 static guint64 task_id_counter = 0;
 static BDUtilsProgFunc prog_func = NULL;
+static __thread BDUtilsProgFunc thread_prog_func = NULL;
 
 /**
  * bd_utils_exec_error_quark: (skip)
@@ -47,7 +54,7 @@ GQuark bd_utils_exec_error_quark (void)
 /**
  * get_next_task_id: (skip)
  */
-guint64 get_next_task_id () {
+guint64 get_next_task_id (void) {
     guint64 task_id = 0;
 
     g_mutex_lock (&id_counter_lock);
@@ -354,7 +361,7 @@ gboolean bd_utils_exec_and_report_progress (const gchar **argv, const BDExtraArg
     GIOStatus io_status = G_IO_STATUS_NORMAL;
     guint i = 0;
     guint8 completion = 0;
-    GPollFD fds[2] = {{0}, {0}};
+    GPollFD fds[2] = {ZERO_INIT, ZERO_INIT};
     gboolean out_done = FALSE;
     gboolean err_done = FALSE;
     GString *stdout_data = g_string_new (NULL);
@@ -728,12 +735,57 @@ gboolean bd_utils_init_prog_reporting (BDUtilsProgFunc new_prog_func, GError **e
 }
 
 /**
+ * bd_utils_init_prog_reporting_thread:
+ * @new_prog_func: (allow-none) (scope notified): progress reporting function to
+ *                                                use on current thread or %NULL
+ *                                                to reset to default or global
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether progress reporting was successfully initialized or not
+ */
+gboolean bd_utils_init_prog_reporting_thread (BDUtilsProgFunc new_prog_func, GError **error __attribute__((unused))) {
+    /* XXX: the error attribute will likely be used in the future when this
+       function gets more complicated */
+
+    thread_prog_func = new_prog_func;
+
+    return TRUE;
+}
+
+static void thread_progress_muted (guint64 task_id __attribute__((unused)), BDUtilsProgStatus status __attribute__((unused)), guint8 completion __attribute__((unused)), gchar *msg __attribute__((unused))) {
+    /* This function serves as a special value for the progress reporting
+     * function to detect that nothing is done here. If clients use their own
+     * empty function then bd_utils_prog_reporting_initialized will return TRUE
+     * but with this function here it returns FALSE.
+     */
+}
+
+/**
+ * bd_utils_mute_prog_reporting_thread:
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether progress reporting for the current thread was successfully
+ * muted (deinitialized even in presence of a global reporting function) or not
+ */
+gboolean bd_utils_mute_prog_reporting_thread (GError **error __attribute__((unused))) {
+    /* XXX: the error attribute will likely be used in the future when this
+       function gets more complicated */
+
+    thread_prog_func = thread_progress_muted;
+
+    return TRUE;
+}
+
+/**
  * bd_utils_prog_reporting_initialized:
  *
- * Returns: TRUE if progress reporting has been initialized.
+ * Returns: TRUE if progress reporting has been initialized, i.e. a reporting
+ * function was set up with either bd_utils_init_prog_reporting or
+ * bd_utils_init_prog_reporting_thread (takes precedence). FALSE if
+ * bd_utils_mute_prog_reporting_thread was used to mute the thread.
  */
-gboolean bd_utils_prog_reporting_initialized () {
-    return prog_func != NULL;
+gboolean bd_utils_prog_reporting_initialized (void) {
+    return (thread_prog_func != NULL || prog_func != NULL) && thread_prog_func != thread_progress_muted;
 }
 
 /**
@@ -742,16 +794,19 @@ gboolean bd_utils_prog_reporting_initialized () {
  *
  * Returns: ID of the started task/action
  */
-guint64 bd_utils_report_started (gchar *msg) {
+guint64 bd_utils_report_started (const gchar *msg) {
     guint64 task_id = 0;
+    BDUtilsProgFunc current_prog_func;
+
+    current_prog_func = thread_prog_func != NULL ? thread_prog_func : prog_func;
 
     g_mutex_lock (&task_id_counter_lock);
     task_id_counter++;
     task_id = task_id_counter;
     g_mutex_unlock (&task_id_counter_lock);
 
-    if (prog_func)
-        prog_func (task_id, BD_UTILS_PROG_STARTED, 0, msg);
+    if (current_prog_func)
+        current_prog_func (task_id, BD_UTILS_PROG_STARTED, 0, (gchar *)msg);
     return task_id;
 }
 
@@ -761,9 +816,12 @@ guint64 bd_utils_report_started (gchar *msg) {
  * @completion: percentage of completion
  * @msg: message describing the status of the task/action
  */
-void bd_utils_report_progress (guint64 task_id, guint64 completion, gchar *msg) {
-    if (prog_func)
-        prog_func (task_id, BD_UTILS_PROG_PROGRESS, completion, msg);
+void bd_utils_report_progress (guint64 task_id, guint64 completion, const gchar *msg) {
+    BDUtilsProgFunc current_prog_func;
+
+    current_prog_func = thread_prog_func != NULL ? thread_prog_func : prog_func;
+    if (current_prog_func)
+        current_prog_func (task_id, BD_UTILS_PROG_PROGRESS, completion, (gchar *)msg);
 }
 
 /**
@@ -771,9 +829,12 @@ void bd_utils_report_progress (guint64 task_id, guint64 completion, gchar *msg) 
  * @task_id: ID of the task/action
  * @msg: message describing the status of the task/action
  */
-void bd_utils_report_finished (guint64 task_id, gchar *msg) {
-    if (prog_func)
-        prog_func (task_id, BD_UTILS_PROG_FINISHED, 100, msg);
+void bd_utils_report_finished (guint64 task_id, const gchar *msg) {
+    BDUtilsProgFunc current_prog_func;
+
+    current_prog_func = thread_prog_func != NULL ? thread_prog_func : prog_func;
+    if (current_prog_func)
+        current_prog_func (task_id, BD_UTILS_PROG_FINISHED, 100, (gchar *)msg);
 }
 
 /**
@@ -801,4 +862,14 @@ gboolean bd_utils_echo_str_to_file (const gchar *str, const gchar *file_path, GE
     }
     g_io_channel_unref (out_file);
     return TRUE;
+}
+
+/**
+ * bd_utils_log:
+ * @level: log level
+ * @msg: log message
+ */
+void bd_utils_log (gint level, const gchar *msg) {
+    if (log_func)
+        log_func (level, msg);
 }

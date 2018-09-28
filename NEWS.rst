@@ -1,3 +1,271 @@
+Libblockdev 2.20
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- fixes
+
+  - Fix parsing extra arguments for LVM methods calls in the LVM DBus plugin.
+  - Multiple fixes for running tests on Debian testing.
+
+- development
+
+  - Vagrantfile template was added for easy development machine setup.
+
+**Full list of changes**
+
+Dennis Schridde (1):
+
+- Fix build of plugins by changing linking order
+
+Vojtech Trefny (17):
+
+- Fix spacing in NEWS.rst
+- Fix licence header in dbus.c
+- Do not require 'dmraid' package if built without dmraid support
+- Always build the VDO plugin
+- kbd: Check for zram module availability in 'bd_kbd_is_tech_avail'
+- Fix skipping zram tests on Fedora 27
+- Build the dm plugin without dmraid support on newer RHEL
+- tests: Try harder to get distribution version
+- Skip bcache tests on Debian testing
+- Skip NTFS mount test on Debian testing
+- Skip MDTestAddRemove on Debian
+- lvm-dbus: Fix parsing extra arguments for LVM methods calls
+- Fix how we check zram stats from /sys/block/zram0/stat
+- Add some missing test dependencies to the vagrant template
+- Add Ubuntu 18.04 VM configuration to the vagrant template
+- Skip nvdimm tests on systems without ndctl
+- Require newer version of cryptsetup for LUKS2 tests
+
+Vratislav Podzimek (6):
+
+- Mark the function stubs as static
+- Fix the error message when deleting partition fails
+- Add a Vagrantfile template
+- Document what the 'misc' directory contains
+- Fix how/where the bcache tests are skipped
+- Use unsafe caching for storage for devel/testing VMs
+
+
+Libblockdev 2.19
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- features
+
+  - vdo: new functions to get statistical data for existing VDO volumes (`bd_vdo_get_stats`)
+  - crypto: support for passing extra arguments for key derivation function when creating LUKS2 format
+
+**Full list of changes**
+
+Max Kellermann (8):
+
+- fix -Wstrict-prototypes
+- exec: make `msg` parameters const
+- plugins/check_deps: make all strings and `UtilDep` instances `const`
+- plugins/crypto: work around -Wdiscarded-qualifiers
+- plugins/dm: add explicit cast to work around -Wdiscarded-qualifiers
+- plugins/lvm{,-dbus}: get_lv_type_from_flags() returns const string
+- plugins/kbd: make wait_for_file() static
+- pkg-config: add -L${libdir} and -I${includedir}
+
+Tom Briden (1):
+
+- Re-order libbd_crypto_la_LIBADD to fix libtool issue
+
+Tomas Bzatek (2):
+
+- vdo: Properly destroy the yaml parser
+- fs: Properly close both ends of the pipe
+
+Vojtech Trefny (33):
+
+- Sync spec with downstream
+- Do not build VDO plugin on non-x86_64 architectures
+- Show simple summary after configure
+- Add Python override for bd_crypto_tc_open_full
+- Add a simple test case for bd_crypto_tc_open
+- Use libblkid in bd_crypto_is_luks
+- Make sure all our free and copy functions work with NULL
+- Fix few wrong names in doc strings
+- Use versioned command for Python 2
+- Reintroduce python2 support for Fedora 29
+- Allow specifying extra options for PBKDF when creating LUKS2
+- configure.ac: Fix missing parenthesis in blkid version check
+- acinclude.m4: Use AS_EXIT to fail in LIBBLOCKDEV_FAILURES
+- Skip 'test_cache_pool_create_remove' on CentOS 7
+- BlockDev.py Convert dictionary keys to set before using them
+- Make sure library tests properly clean after themselves
+- Make sure library_test works after fixing -Wstrict-prototypes
+- Do not build btrfs plugin on newer RHEL
+- Do not build KBD plugin with bcache support on RHEL
+- Skip btrfs tests if btrfs module is not available
+- Add version to tests that should be skipped on CentOS/RHEL 7
+- Skip VDO tests also when the 'kvdo' module is not available
+- Fix how we check zram stats from /sys/block/zram0/mm_stat
+- Fix calling BlockDev.reinit in swap tests
+- Fix vdo configuration options definition in spec file
+- Fix running pylint in tests
+- Ignore "bad-super-call" pylint warning in BlockDev.py
+- Fix three memory leaks in lvm-dbus.c
+- Fix licence headers in sources
+- lvm.c: Check for 'lvm' dependency in 'bd_lvm_is_tech_avail'
+- lvm-dbus.c: Check for 'lvmdbus' dependency in 'bd_lvm_is_tech_avail'
+- Add test for is_tech_available with multiple dependencies
+- Use python interpreter explicitly when running boilerplate_generator.py
+
+Libblockdev 2.18
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- features
+
+  - New plugin: vdo
+
+      - support for creating and managing VDO volumes
+
+  - Support for building dm plugin without libdmraid support -- configure option ``--without-dmraid``.
+
+**Full list of changes**
+
+Kai Lüke (2):
+
+- Correct arguments for ext4 repair with progress
+- Introduce reporting function per thread
+
+Tomas Bzatek (3):
+
+- vdo: Resolve real device file path
+- vdo: Implement bd_vdo_grow_physical()
+- vdo: Add tests for bd_vdo_grow_physical()
+
+Vojtech Trefny (14):
+
+- Update specs.rst and features.rst
+- Fix release number in NEWS.rst
+- Add 'bd_dm_is_tech_avail' to header file
+- Always check for error when (un)mounting
+- Add the VDO plugin
+- Add basic VDO plugin functionality
+- Add decimal units definition to utils/sizes.h
+- Add tests for VDO plugin
+- Only require plugins we really need in LVM dbus tests
+- Allow compiling libblockdev without libdmraid
+- Adjust to new NVDIMM namespace modes
+- Do not try to build VDO plugin on Fedora
+- Remove roadmap.rst
+- Add VDO to features.rst
+
+Vratislav Podzimek (2):
+
+- Use xfs_repair instead of xfs_db in bd_fs_xfs_check()
+- Clarify that checking an RW-mounted XFS file system is impossible
+
+segfault (1):
+
+- Fix off-by-one error when counting TCRYPT keyfiles
+
+
+Libblockdev 2.17
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- features
+
+  - New plugin: nvdimm
+
+    - support for NVDIMM namespaces management
+    - requires *libndctl* >= 58.4
+
+  - LUKS2 support
+
+    - support for creating LUKS2 format including authenticated disk encryption
+    - multiple new functions for working with LUKS devices (suspend/resume, header backup, metadata size...)
+
+  - Extended support for opening TrueCrypt/VeraCrypt volumes
+
+  - Support for building crypto plugin without escrow device support (removes
+    build dependency on *libvolume_key* and *libnss*) -- configure option ``--without-escrow``.
+
+  - Support for building libblockdev without Python 2 support -- configure option
+    ``--without-python2``.
+
+**Full list of changes**
+
+Bjorn Pagen (3):
+
+- Fix build against musl libc
+- Fix build with clang
+- Enforce ZERO_INIT gcc backwards compatibility
+
+Florian Klink (1):
+
+- s390: don't hardcode paths, search PATH
+
+Jan Pokorny (1):
+
+- New function for luks metadata size
+
+Vojtech Trefny (24):
+
+- Sync the spec file with downstream
+- Fix python2-gobject-base dependency on Fedora 26 and older
+- Add the NVDIMM plugin
+- Add tests for the NVDIMM plugin
+- Add --without-xyz to DISTCHECK_CONFIGURE_FLAGS for disabled plugins
+- Add function for getting NVDIMM namespace name from devname or path
+- Fix memory leaks discovered by clang
+- Get sector size for non-block NVDIMM namespaces too
+- lvm-dbus: Check returned job object for error
+- Add functions to suspend and resume a LUKS device
+- Add function for killing keyslot on a LUKS device
+- Add functions to backup and restore LUKS header
+- Require at least libndctl 58.4
+- Allow compiling libblockdev crypto plugin without escrow support
+- Allow building libblockdev without Python 2 support
+- Skip bcache tests on Rawhide
+- Add support for creating LUKS 2 format
+- Use libblockdev function to create LUKS 2 in tests
+- Add a basic test for creating LUKS 2 format
+- Add function to get information about a LUKS device
+- Add function to get information about LUKS 2 integrity devices
+- Add functions to resize LUKS 2
+- Add a generic logging function for libblockdev
+- Redirect cryptsetup log to libblockdev log
+
+Vratislav Podzimek (1):
+
+- Use '=' instead of '==' to compare using 'test'
+
+segfault (10):
+
+- Support unlocking VeraCrypt volumes
+- Support TCRYPT keyfiles
+- Support TCRYPT hidden containers
+- Support TCRYPT system volumes
+- Support VeraCrypt PIM
+- Add function bd_crypto_device_seems_encrypted
+- Make keyfiles parameter to bd_crypto_tc_open_full zero terminated
+- Don't use VeraCrypt PIM if compiled against libcryptsetup < 2.0
+- Make a link point to the relevant section
+- Add new functions to docs/libblockdev-sections.txt
+
 Libblockdev 2.16
 ----------------
 
@@ -16,12 +284,14 @@ for details.
 **Full list of changes**
 
 Jan Tulak (4):
+
 - Add a function to test if prog. reporting was initialized
 - Add progress reporting infrastructure for Ext fsck
 - Add e2fsck progress
 - Add tests for progress report
 
 Vojtech Trefny (5):
+
 - Fix link to online documentation
 - Update 'Testing libblockdev' section in documentation
 - Check if 'journalctl' is available before trying to use it in tests
@@ -29,6 +299,7 @@ Vojtech Trefny (5):
 - Add support for LUKS 2 opening and key management
 
 Vratislav Podzimek (2):
+
 - Fix how the new kernel module functions are added to docs
 - Sync the spec file with downstream
 
@@ -68,10 +339,12 @@ refactorization changes (in the file system plugin). See below for details.
 **Full list of changes**
 
 Vendula Poncova (2):
+
 - bd_s390_dasd_is_ldl should be true only for LDL DADSs
 - Fix bd_s390_dasd_format
 
 Vojtech Trefny (5):
+
 - Use only sgdisk to set flags on GPT
 - Add test for setting partition flags on GPT
 - Free locale struct in kbd plugin
@@ -79,6 +352,7 @@ Vojtech Trefny (5):
 - Check for btrfs module availability in btrfs module
 
 Vratislav Podzimek (11):
+
 - Do not lie about tag creation
 - Mark unstable tests as such
 - Split the FS plugin source into multiple files
@@ -121,13 +395,16 @@ features, in particular support for the NTFS file system. See below for details.
 **Full list of changes**
 
 Jan Pokorny (1):
+
 - Added function to get DM device subsystem
 
 Kai Lüke (2):
+
 - Add function wrappers for NTFS tools
 - Add some test cases for NTFS
 
 Vojtech Trefny (29):
+
 - Skip btrfs subvolume tests with btrfs-progs 4.13.2
 - Fix BSSize memory leaks in btrfs and mdraid plugins
 - Use system values in KbdTestBcacheStatusTest
@@ -159,11 +436,13 @@ Vojtech Trefny (29):
 - fs.c: Fix potential NULL pointer dereference
 
 Vratislav Podzimek (3):
+
 - Sync spec with downstream
 - Add pkgconfig definitions for the utils library
 - Respect the version in the blockdev.pc file
 
 intrigeri (1):
+
 - Support the legacy boot GPT flag
 
 
@@ -203,6 +482,7 @@ on demand and querying available technologies was implemented.
 **Full list of changes**
 
 Vojtech Trefny (14):
+
 - Allow compiling libblockdev without s390 plugin
 - Do not run g_clear_error after setting it
 - Fix zFCP LUN max length
@@ -219,6 +499,7 @@ Vojtech Trefny (14):
 - Use shorter prefix for tempfiles
 
 Vratislav Podzimek (9):
+
 - Add a function for getting plugin name
 - Dynamically check for the required utilities
 - Add functions for querying available technologies
