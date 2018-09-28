@@ -1,7 +1,7 @@
 libblockdev (2.20-1) unstable; urgency=medium
 
   [ Andreas Henriksson ]
-  * New upstream release (LP: #	1788374)
+  * New upstream release (LP: #1788374)
   * Use new configure switch to disable python2
   * Disable new nvdimm and vdo plugins for now
   * Ship new dbus.h in libblockdev-utils-dev
