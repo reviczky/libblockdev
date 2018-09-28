@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -21,11 +21,16 @@
 #include <unistd.h>
 #include <blockdev/utils.h>
 #include <libdevmapper.h>
+
+#ifdef WITH_BD_DMRAID
 #include <dmraid/dmraid.h>
 #include <libudev.h>
+#endif
 
 #include "dm.h"
 #include "check_deps.h"
+
+#define UNUSED __attribute__((unused))
 
 /* macros taken from the pyblock/dmraid.h file plus one more*/
 #define for_each_raidset(_c, _n) list_for_each_entry(_n, LC_RS(_c), list)
@@ -59,7 +64,7 @@ static GMutex deps_check_lock;
 #define DEPS_DMSETUP_MASK (1 << DEPS_DMSETUP)
 #define DEPS_LAST 1
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"dmsetup", DM_MIN_VERSION, NULL, "Library version:\\s+([\\d\\.]+)"},
 };
 
@@ -80,7 +85,7 @@ static void discard_dm_log (int level __attribute__((unused)), const char *file 
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_dm_check_deps () {
+gboolean bd_dm_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -110,7 +115,7 @@ gboolean bd_dm_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_dm_init () {
+gboolean bd_dm_init (void) {
     dm_log_with_errno_init ((dm_log_with_errno_fn) discard_dm_log);
     dm_log_init_verbose (0);
 
@@ -124,7 +129,7 @@ gboolean bd_dm_init () {
  * library's functions that unload it.**
  *
  */
-void bd_dm_close () {
+void bd_dm_close (void) {
     dm_log_with_errno_init (NULL);
     dm_log_init_verbose (0);
 }
@@ -143,10 +148,20 @@ void bd_dm_close () {
 gboolean bd_dm_is_tech_avail (BDDMTech tech, guint64 mode UNUSED, GError **error) {
     /* all combinations are supported by this implementation of the plugin, but
        BD_DM_TECH_MAP requires the 'dmsetup' utility */
-    if (tech == BD_DM_TECH_MAP)
-        return check_deps (&avail_deps, DEPS_DMSETUP_MASK, deps, DEPS_LAST, &deps_check_lock, error);
-    else
-        return TRUE;
+    switch (tech) {
+        case BD_DM_TECH_MAP:
+            return check_deps (&avail_deps, DEPS_DMSETUP_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+        case BD_DM_TECH_RAID:
+#ifndef WITH_BD_DMRAID
+            g_set_error (error, BD_DM_ERROR, BD_DM_ERROR_TECH_UNAVAIL,
+                         "DMRAID technology is not available, libblockdev has been compiled without dmraid support.");
+            return FALSE;
+#else
+            return TRUE;
+#endif
+        default:
+            return TRUE;
+    }
 }
 
 /**
@@ -271,7 +286,7 @@ gchar* bd_dm_node_from_name (const gchar *map_name, GError **error) {
  *
  * Returns: subsystem of the given device
  *
- * Tech category: %BD_DM_TECH_MAP-%BD_DM_TECH_QUERY
+ * Tech category: %BD_DM_TECH_MAP-%BD_DM_TECH_MODE_QUERY
  */
 gchar* bd_dm_get_subsystem_from_name (const gchar *device_name, GError **error) {
     gchar *output = NULL;
@@ -381,6 +396,7 @@ gboolean bd_dm_map_exists (const gchar *map_name, gboolean live_only, gboolean a
     return ret;
 }
 
+#ifdef WITH_BD_DMRAID
 /**
  * init_dmraid_stack: (skip)
  *
@@ -389,7 +405,7 @@ gboolean bd_dm_map_exists (const gchar *map_name, gboolean live_only, gboolean a
  */
 static struct lib_context* init_dmraid_stack (GError **error) {
     gint rc = 0;
-    gchar *argv[] = {"blockdev.dmraid", NULL};
+    gchar *argv[] = {(gchar *)"blockdev.dmraid", NULL};
     struct lib_context *lc;
 
     /* the code for this function was cherry-picked from the pyblock code */
@@ -501,6 +517,7 @@ static void find_raid_sets_for_dev (const gchar *name, const gchar *uuid, gint m
         }
     }
 }
+#endif // WITH_BD_DMRAID
 
 /**
  * bd_dm_get_member_raid_sets:
@@ -517,6 +534,13 @@ static void find_raid_sets_for_dev (const gchar *name, const gchar *uuid, gint m
  *
  * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_MODE_QUERY
  */
+#ifndef WITH_BD_DMRAID
+gchar** bd_dm_get_member_raid_sets (const gchar *name UNUSED, const gchar *uuid UNUSED, gint major UNUSED, gint minor UNUSED, GError **error) {
+    /* this will return FALSE and set error, because dmraid technology is not available */
+    bd_dm_is_tech_avail (BD_DM_TECH_RAID, BD_DM_TECH_MODE_QUERY, error);
+    return NULL;
+}
+#else
 gchar** bd_dm_get_member_raid_sets (const gchar *name, const gchar *uuid, gint major, gint minor, GError **error) {
     guint64 i = 0;
     struct lib_context *lc = NULL;
@@ -544,7 +568,9 @@ gchar** bd_dm_get_member_raid_sets (const gchar *name, const gchar *uuid, gint m
     libdmraid_exit (lc);
     return ret;
 }
+#endif
 
+#ifdef WITH_BD_DMRAID
 /**
  * find_in_raid_sets: (skip)
  *
@@ -615,6 +641,7 @@ static gboolean change_set_by_name (const gchar *name, enum activate_type action
     libdmraid_exit (lc);
     return TRUE;
 }
+#endif // WITH_BD_DMRAID
 
 /**
  * bd_dm_activate_raid_set:
@@ -623,8 +650,14 @@ static gboolean change_set_by_name (const gchar *name, enum activate_type action
  *
  * Returns: whether the RAID set @name was successfully activate or not
  *
- * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_CREATE_ACTIVATE
+ * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_MODE_CREATE_ACTIVATE
  */
+#ifndef WITH_BD_DMRAID
+gboolean bd_dm_activate_raid_set (const gchar *name UNUSED, GError **error) {
+    /* this will return FALSE and set error, because dmraid technology is not available */
+    return bd_dm_is_tech_avail (BD_DM_TECH_RAID, BD_DM_TECH_MODE_CREATE_ACTIVATE, error);
+}
+#else
 gboolean bd_dm_activate_raid_set (const gchar *name, GError **error) {
     guint64 progress_id = 0;
     gchar *msg = NULL;
@@ -637,6 +670,7 @@ gboolean bd_dm_activate_raid_set (const gchar *name, GError **error) {
     bd_utils_report_finished (progress_id, "Completed");
     return ret;
 }
+#endif
 
 /**
  * bd_dm_deactivate_raid_set:
@@ -645,8 +679,14 @@ gboolean bd_dm_activate_raid_set (const gchar *name, GError **error) {
  *
  * Returns: whether the RAID set @name was successfully deactivate or not
  *
- * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_REMOVE_DEACTIVATE
+ * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_MODE_REMOVE_DEACTIVATE
  */
+#ifndef WITH_BD_DMRAID
+gboolean bd_dm_deactivate_raid_set (const gchar *name UNUSED, GError **error) {
+    /* this will return FALSE and set error, because dmraid technology is not available */
+    return bd_dm_is_tech_avail (BD_DM_TECH_RAID, BD_DM_TECH_MODE_CREATE_ACTIVATE, error);
+}
+#else
 gboolean bd_dm_deactivate_raid_set (const gchar *name, GError **error) {
     guint64 progress_id = 0;
     gchar *msg = NULL;
@@ -659,6 +699,7 @@ gboolean bd_dm_deactivate_raid_set (const gchar *name, GError **error) {
     bd_utils_report_finished (progress_id, "Completed");
     return ret;
 }
+#endif
 
 /**
  * bd_dm_get_raid_set_type:
@@ -667,8 +708,15 @@ gboolean bd_dm_deactivate_raid_set (const gchar *name, GError **error) {
  *
  * Returns: string representation of the @name RAID set's type
  *
- * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_QUERY
+ * Tech category: %BD_DM_TECH_RAID-%BD_DM_TECH_MODE_QUERY
  */
+#ifndef WITH_BD_DMRAID
+gchar* bd_dm_get_raid_set_type (const gchar *name UNUSED, GError **error) {
+    /* this will return FALSE and set error, because dmraid technology is not available */
+    bd_dm_is_tech_avail (BD_DM_TECH_RAID, BD_DM_TECH_MODE_QUERY, error);
+    return NULL;
+}
+#else
 gchar* bd_dm_get_raid_set_type (const gchar *name, GError **error) {
     struct lib_context *lc = NULL;
     struct raid_set *iter_rs = NULL;
@@ -704,3 +752,4 @@ gchar* bd_dm_get_raid_set_type (const gchar *name, GError **error) {
     libdmraid_exit (lc);
     return g_strdup (type);
 }
+#endif

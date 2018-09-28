@@ -50,6 +50,8 @@ bd_plugins = { "lvm": BlockDev.Plugin.LVM,
                "part": BlockDev.Plugin.PART,
                "fs": BlockDev.Plugin.FS,
                "s390": BlockDev.Plugin.S390,
+               "nvdimm": BlockDev.Plugin.NVDIMM,
+               "vdo": BlockDev.Plugin.VDO,
 }
 
 
@@ -190,10 +192,35 @@ def btrfs_check(mountpoint, extra=None, **kwargs):
 __all__.append("btrfs_check")
 
 
-_crypto_luks_format = BlockDev.crypto_luks_format
+class CryptoLUKSPBKDF(BlockDev.CryptoLUKSPBKDF):
+    def __new__(cls, type=None, hash=None, max_memory_kb=0, iterations=0, time_ms=0, parallel_threads=0):  # pylint: disable=redefined-builtin
+        ret = BlockDev.CryptoLUKSPBKDF.new(type, hash, max_memory_kb, iterations, time_ms, parallel_threads)
+        ret.__class__ = cls
+        return ret
+    def __init__(self, *args, **kwargs):  # pylint: disable=unused-argument
+        super(CryptoLUKSPBKDF, self).__init__()  #pylint: disable=bad-super-call
+CryptoLUKSPBKDF = override(CryptoLUKSPBKDF)
+__all__.append("CryptoLUKSPBKDF")
+
+class CryptoLUKSExtra(BlockDev.CryptoLUKSExtra):
+    def __new__(cls, data_alignment=0, data_device=None, integrity=None, sector_size=0, label=None, subsystem=None, pbkdf=None):
+        if pbkdf is None:
+            pbkdf = CryptoLUKSPBKDF()
+        ret = BlockDev.CryptoLUKSExtra.new(data_alignment, data_device, integrity, sector_size, label, subsystem, pbkdf)
+        ret.__class__ = cls
+        return ret
+    def __init__(self, *args, **kwargs):   # pylint: disable=unused-argument
+        super(CryptoLUKSExtra, self).__init__()  #pylint: disable=bad-super-call
+CryptoLUKSExtra = override(CryptoLUKSExtra)
+__all__.append("CryptoLUKSExtra")
+
+# calling `crypto_luks_format_luks2` with `luks_version` set to
+# `BlockDev.CryptoLUKSVersion.LUKS1` and `extra` to `None` is the same
+# as using the "original" function `crypto_luks_format`
+_crypto_luks_format = BlockDev.crypto_luks_format_luks2
 @override(BlockDev.crypto_luks_format)
-def crypto_luks_format(device, cipher=None, key_size=0, passphrase=None, key_file=None, min_entropy=0):
-    return _crypto_luks_format(device, cipher, key_size, passphrase, key_file, min_entropy)
+def crypto_luks_format(device, cipher=None, key_size=0, passphrase=None, key_file=None, min_entropy=0, luks_version=BlockDev.CryptoLUKSVersion.LUKS1, extra=None):
+    return _crypto_luks_format(device, cipher, key_size, passphrase, key_file, min_entropy, luks_version, extra)
 __all__.append("crypto_luks_format")
 
 _crypto_luks_open = BlockDev.crypto_luks_open
@@ -202,10 +229,10 @@ def crypto_luks_open(device, name, passphrase=None, key_file=None, read_only=Fal
     return _crypto_luks_open(device, name, passphrase, key_file, read_only)
 __all__.append("crypto_luks_open")
 
-_crypto_luks_resize = BlockDev.crypto_luks_resize
+_crypto_luks_resize = BlockDev.crypto_luks_resize_luks2
 @override(BlockDev.crypto_luks_resize)
-def crypto_luks_resize(luks_device, size=0):
-    return _crypto_luks_resize(luks_device, size)
+def crypto_luks_resize(luks_device, size=0, passphrase=None, key_file=None):
+    return _crypto_luks_resize(luks_device, size, passphrase, key_file)
 __all__.append("crypto_luks_resize")
 
 _crypto_luks_add_key = BlockDev.crypto_luks_add_key
@@ -225,6 +252,20 @@ _crypto_escrow_device = BlockDev.crypto_escrow_device
 def crypto_escrow_device(device, passphrase, cert_data, directory, backup_passphrase=None):
     return _crypto_escrow_device(device, passphrase, cert_data, directory, backup_passphrase)
 __all__.append("crypto_escrow_device")
+
+_crypto_luks_resume = BlockDev.crypto_luks_resume
+@override(BlockDev.crypto_luks_resume)
+def crypto_luks_resume(device, passphrase=None, key_file=None):
+    return _crypto_luks_resume(device, passphrase, key_file)
+__all__.append("crypto_luks_resume")
+
+_crypto_tc_open = BlockDev.crypto_tc_open_full
+@override(BlockDev.crypto_tc_open)
+def crypto_tc_open(device, name, passphrase, read_only=False, keyfiles=None, hidden=False, system=False, veracrypt=False, veracrypt_pim=0):
+    if isinstance(passphrase, str):
+        passphrase = [ord(c) for c in passphrase]
+    return _crypto_tc_open(device, name, passphrase, keyfiles, hidden, system, veracrypt, veracrypt_pim, read_only)
+__all__.append("crypto_tc_open")
 
 
 _dm_create_linear = BlockDev.dm_create_linear
@@ -692,6 +733,134 @@ def part_create_table(disk, type, ignore_existing=True):
 __all__.append("part_create_table")
 
 
+_nvdimm_namespace_reconfigure = BlockDev.nvdimm_namespace_reconfigure
+@override(BlockDev.nvdimm_namespace_reconfigure)
+def nvdimm_namespace_reconfigure(namespace, mode, force=False, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _nvdimm_namespace_reconfigure(namespace, mode, force, extra)
+__all__.append("nvdimm_namespace_reconfigure")
+
+_nvdimm_namespace_info = BlockDev.nvdimm_namespace_info
+@override(BlockDev.nvdimm_namespace_info)
+def nvdimm_namespace_info(namespace, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _nvdimm_namespace_info(namespace, extra)
+__all__.append("nvdimm_namespace_info")
+
+_nvdimm_list_namespaces = BlockDev.nvdimm_list_namespaces
+@override(BlockDev.nvdimm_list_namespaces)
+def nvdimm_list_namespaces(bus=None, region=None, idle=False, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _nvdimm_list_namespaces(bus, region, idle, extra)
+__all__.append("nvdimm_list_namespaces")
+
+_nvdimm_namespace_enable = BlockDev.nvdimm_namespace_enable
+@override(BlockDev.nvdimm_namespace_enable)
+def nvdimm_namespace_enable(namespace, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _nvdimm_namespace_enable(namespace, extra)
+__all__.append("nvdimm_namespace_enable")
+
+_nvdimm_namespace_disable = BlockDev.nvdimm_namespace_disable
+@override(BlockDev.nvdimm_namespace_disable)
+def nvdimm_namespace_disable(namespace, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _nvdimm_namespace_disable(namespace, extra)
+__all__.append("nvdimm_namespace_disable")
+
+
+_vdo_create = BlockDev.vdo_create
+@override(BlockDev.vdo_create)
+def vdo_create(name, backing_device, logical_size=0, index_memory=0, compression=True, deduplication=True, write_policy=BlockDev.VDOWritePolicy.AUTO, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_create(name, backing_device, logical_size, index_memory, compression, deduplication, write_policy, extra)
+__all__.append("vdo_create")
+
+_vdo_remove = BlockDev.vdo_remove
+@override(BlockDev.vdo_remove)
+def vdo_remove(name, force=False, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_remove(name, force, extra)
+__all__.append("vdo_remove")
+
+_vdo_change_write_policy = BlockDev.vdo_change_write_policy
+@override(BlockDev.vdo_change_write_policy)
+def vdo_change_write_policy(name, write_policy, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_change_write_policy(name, write_policy, extra)
+__all__.append("vdo_change_write_policy")
+
+_vdo_enable_compression = BlockDev.vdo_enable_compression
+@override(BlockDev.vdo_enable_compression)
+def vdo_enable_compression(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_enable_compression(name, extra)
+__all__.append("vdo_enable_compression")
+
+_vdo_disable_compression = BlockDev.vdo_disable_compression
+@override(BlockDev.vdo_disable_compression)
+def vdo_disable_compression(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_disable_compression(name, extra)
+__all__.append("vdo_disable_compression")
+
+_vdo_enable_deduplication = BlockDev.vdo_enable_deduplication
+@override(BlockDev.vdo_enable_deduplication)
+def vdo_enable_deduplication(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_enable_deduplication(name, extra)
+__all__.append("vdo_enable_deduplication")
+
+_vdo_disable_deduplication = BlockDev.vdo_disable_deduplication
+@override(BlockDev.vdo_disable_deduplication)
+def vdo_disable_deduplication(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_disable_deduplication(name, extra)
+__all__.append("vdo_disable_deduplication")
+
+_vdo_activate = BlockDev.vdo_activate
+@override(BlockDev.vdo_activate)
+def vdo_activate(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_activate(name, extra)
+__all__.append("vdo_activate")
+
+_vdo_deactivate = BlockDev.vdo_deactivate
+@override(BlockDev.vdo_deactivate)
+def vdo_deactivate(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_deactivate(name, extra)
+__all__.append("vdo_deactivate")
+
+_vdo_start = BlockDev.vdo_start
+@override(BlockDev.vdo_start)
+def vdo_start(name, rebuild=False, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_start(name, rebuild, extra)
+__all__.append("vdo_start")
+
+_vdo_stop = BlockDev.vdo_stop
+@override(BlockDev.vdo_stop)
+def vdo_stop(name, force=False, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_stop(name, force, extra)
+__all__.append("vdo_stop")
+
+_vdo_grow_logical = BlockDev.vdo_grow_logical
+@override(BlockDev.vdo_grow_logical)
+def vdo_grow_logical(name, size, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_grow_logical(name, size, extra)
+__all__.append("vdo_grow_logical")
+
+_vdo_grow_physical = BlockDev.vdo_grow_physical
+@override(BlockDev.vdo_grow_physical)
+def vdo_grow_physical(name, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _vdo_grow_physical(name, extra)
+__all__.append("vdo_grow_physical")
+
+
 ## defined in this overrides only!
 def plugin_specs_from_names(plugin_names):
     ret = []
@@ -773,7 +942,7 @@ class ErrorProxy(object):
         """Let's make TAB-TAB in ipython work!"""
 
         if self._use_local:
-            items = set(dir(self._mod) + locals().keys())
+            items = set(dir(self._mod)) | set(locals().keys())
         else:
             items = set(dir(self._mod))
 
@@ -886,6 +1055,14 @@ class UtilsError(BlockDevError):
     pass
 __all__.append("UtilsError")
 
+class NVDIMMError(BlockDevError):
+    pass
+__all__.append("NVDIMMError")
+
+class VDOError(BlockDevError):
+    pass
+__all__.append("VDOError")
+
 class BlockDevNotImplementedError(NotImplementedError, BlockDevError):
     pass
 __all__.append("BlockDevNotImplementedError")
@@ -927,8 +1104,14 @@ __all__.append("part")
 fs = ErrorProxy("fs", BlockDev, [(GLib.Error, FSError)], [not_implemented_rule, fs_nofs_rule])
 __all__.append("fs")
 
+nvdimm = ErrorProxy("nvdimm", BlockDev, [(GLib.Error, NVDIMMError)], [not_implemented_rule])
+__all__.append("nvdimm")
+
 s390 = ErrorProxy("s390", BlockDev, [(GLib.Error, S390Error)], [not_implemented_rule])
 __all__.append("s390")
 
 utils = ErrorProxy("utils", BlockDev, [(GLib.Error, UtilsError)])
 __all__.append("utils")
+
+vdo = ErrorProxy("vdo", BlockDev, [(GLib.Error, VDOError)])
+__all__.append("vdo")

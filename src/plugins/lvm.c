@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -52,6 +52,9 @@ GQuark bd_lvm_error_quark (void)
 }
 
 BDLVMPVdata* bd_lvm_pvdata_copy (BDLVMPVdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMPVdata *new_data = g_new0 (BDLVMPVdata, 1);
 
     new_data->pv_name = g_strdup (data->pv_name);
@@ -71,6 +74,9 @@ BDLVMPVdata* bd_lvm_pvdata_copy (BDLVMPVdata *data) {
 }
 
 void bd_lvm_pvdata_free (BDLVMPVdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->pv_name);
     g_free (data->pv_uuid);
     g_free (data->vg_name);
@@ -78,6 +84,9 @@ void bd_lvm_pvdata_free (BDLVMPVdata *data) {
 }
 
 BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMVGdata *new_data = g_new0 (BDLVMVGdata, 1);
 
     new_data->name = g_strdup (data->name);
@@ -92,12 +101,18 @@ BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data) {
 }
 
 void bd_lvm_vgdata_free (BDLVMVGdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->name);
     g_free (data->uuid);
     g_free (data);
 }
 
 BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMLVdata *new_data = g_new0 (BDLVMLVdata, 1);
 
     new_data->lv_name = g_strdup (data->lv_name);
@@ -119,6 +134,9 @@ BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
 }
 
 void bd_lvm_lvdata_free (BDLVMLVdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->lv_name);
     g_free (data->vg_name);
     g_free (data->uuid);
@@ -134,6 +152,9 @@ void bd_lvm_lvdata_free (BDLVMLVdata *data) {
 }
 
 BDLVMCacheStats* bd_lvm_cache_stats_copy (BDLVMCacheStats *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMCacheStats *new = g_new0 (BDLVMCacheStats, 1);
 
     new->block_size = data->block_size;
@@ -165,7 +186,7 @@ static GMutex deps_check_lock;
 #define DEPS_THMS_MASK (1 << DEPS_THMS)
 #define DEPS_LAST 2
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"lvm", LVM_MIN_VERSION, "version", "LVM version:\\s+([\\d\\.]+)"},
     {"thin_metadata_size", NULL, NULL, NULL},
 };
@@ -179,7 +200,7 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_lvm_check_deps () {
+gboolean bd_lvm_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -209,7 +230,7 @@ gboolean bd_lvm_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_lvm_init () {
+gboolean bd_lvm_init (void) {
     /* nothing to do here */
     return TRUE;
 };
@@ -221,7 +242,7 @@ gboolean bd_lvm_init () {
  * library's functions that unload it.**
  *
  */
-void bd_lvm_close () {
+void bd_lvm_close (void) {
     /* nothing to do here */
 }
 
@@ -255,7 +276,7 @@ gboolean bd_lvm_is_tech_avail (BDLVMTech tech, guint64 mode, GError **error) {
             return TRUE;
     default:
         /* everything is supported by this implementation of the plugin */
-        return TRUE;
+        return check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error);
     }
 }
 
@@ -1901,7 +1922,7 @@ guint64 bd_lvm_cache_get_default_md_size (guint64 cache_size, GError **error __a
  *
  * Get LV type string from flags.
  */
-static gchar* get_lv_type_from_flags (BDLVMCachePoolFlags flags, gboolean meta, GError **error __attribute__((unused))) {
+static const gchar* get_lv_type_from_flags (BDLVMCachePoolFlags flags, gboolean meta, GError **error __attribute__((unused))) {
     if (!meta) {
         if (flags & BD_LVM_CACHE_POOL_STRIPED)
             return "striped";
@@ -1997,7 +2018,7 @@ BDLVMCacheMode bd_lvm_cache_get_mode_from_str (const gchar *mode_str, GError **e
  */
 gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name, guint64 pool_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags, const gchar **fast_pvs, GError **error) {
     gboolean success = FALSE;
-    gchar *type = NULL;
+    const gchar *type = NULL;
     gchar *name = NULL;
     gchar *msg = NULL;
     guint64 progress_id = 0;
@@ -2334,6 +2355,7 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
                       status->feature_flags);
         dm_task_destroy (task);
         dm_pool_destroy (pool);
+        bd_lvm_cache_stats_free (ret);
         return NULL;
     }
 

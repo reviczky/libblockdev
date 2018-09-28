@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2017 Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -23,14 +23,14 @@
 #include "check_deps.h"
 
 gboolean __attribute__ ((visibility ("hidden")))
-check_deps (volatile guint *avail_deps, guint req_deps, UtilDep *deps_specs, guint l_deps, GMutex *deps_check_lock, GError **error) {
+check_deps (volatile guint *avail_deps, guint req_deps, const UtilDep *deps_specs, guint l_deps, GMutex *deps_check_lock, GError **error) {
     guint i = 0;
     gboolean ret = FALSE;
     GError *l_error = NULL;
     guint val = 0;
 
     val = (guint) g_atomic_int_get (avail_deps);
-    if (val & req_deps)
+    if ((val & req_deps) == req_deps)
         /* we have everything we need */
         return TRUE;
 
@@ -40,7 +40,7 @@ check_deps (volatile guint *avail_deps, guint req_deps, UtilDep *deps_specs, gui
 
     /* maybe the other thread found out we have all we needed? */
     val = (guint) g_atomic_int_get (avail_deps);
-    if (val & req_deps) {
+    if ((val & req_deps) == req_deps) {
         g_mutex_unlock (deps_check_lock);
         return TRUE;
     }
@@ -64,18 +64,18 @@ check_deps (volatile guint *avail_deps, guint req_deps, UtilDep *deps_specs, gui
 
     g_mutex_unlock (deps_check_lock);
     val = (guint) g_atomic_int_get (avail_deps);
-    return (val & req_deps) != 0;
+    return (val & req_deps) == req_deps;
 }
 
 gboolean __attribute__ ((visibility ("hidden")))
-check_module_deps (volatile guint *avail_deps, guint req_deps, gchar **modules, guint l_modules, GMutex *deps_check_lock, GError **error) {
+check_module_deps (volatile guint *avail_deps, guint req_deps, const gchar *const*modules, guint l_modules, GMutex *deps_check_lock, GError **error) {
     guint i = 0;
     gboolean ret = FALSE;
     GError *l_error = NULL;
     guint val = 0;
 
     val = (guint) g_atomic_int_get (avail_deps);
-    if (val & req_deps)
+    if ((val & req_deps) == req_deps)
         /* we have everything we need */
         return TRUE;
 
@@ -85,7 +85,7 @@ check_module_deps (volatile guint *avail_deps, guint req_deps, gchar **modules, 
 
     /* maybe the other thread found out we have all we needed? */
     val = (guint) g_atomic_int_get (avail_deps);
-    if (val & req_deps) {
+    if ((val & req_deps) == req_deps) {
         g_mutex_unlock (deps_check_lock);
         return TRUE;
     }
@@ -118,5 +118,58 @@ check_module_deps (volatile guint *avail_deps, guint req_deps, gchar **modules, 
 
     g_mutex_unlock (deps_check_lock);
     val = (guint) g_atomic_int_get (avail_deps);
-    return (val & req_deps) != 0;
+    return (val & req_deps) == req_deps;
+}
+
+gboolean __attribute__ ((visibility ("hidden")))
+check_dbus_deps (volatile guint *avail_deps, guint req_deps, const DBusDep *buses, guint l_buses, GMutex *deps_check_lock, GError **error) {
+    guint i = 0;
+    gboolean ret = FALSE;
+    GError *l_error = NULL;
+    guint val = 0;
+
+    val = (guint) g_atomic_int_get (avail_deps);
+    if ((val & req_deps) == req_deps)
+        /* we have everything we need */
+        return TRUE;
+
+    /* else */
+    /* grab a lock to prevent multiple checks from running in parallel */
+    g_mutex_lock (deps_check_lock);
+
+    /* maybe the other thread found out we have all we needed? */
+    val = (guint) g_atomic_int_get (avail_deps);
+    if ((val & req_deps) == req_deps) {
+        g_mutex_unlock (deps_check_lock);
+        return TRUE;
+    }
+
+    for (i=0; i < l_buses; i++) {
+        if (((1 << i) & req_deps) && !((1 << i) & val)) {
+            ret = bd_utils_dbus_service_available (NULL, buses[i].bus_type, buses[i].bus_name, buses[i].obj_prefix, &l_error);
+            /* if not ret and l_error -> set/prepend error */
+            if (!ret) {
+                if (l_error) {
+                    if (*error)
+                        g_prefix_error (error, "%s\n", l_error->message);
+                    else
+                        g_set_error (error, BD_UTILS_MODULE_ERROR, BD_UTILS_MODULE_ERROR_MODULE_CHECK_ERROR,
+                                     "%s", l_error->message);
+                    g_clear_error (&l_error);
+                } else {
+                    if (*error)
+                        g_prefix_error (error, "DBus service '%s' not available\n", buses[i].bus_name);
+                    else
+                        g_set_error (error, BD_UTILS_MODULE_ERROR, BD_UTILS_MODULE_ERROR_MODULE_CHECK_ERROR,
+                                     "DBus service '%s' not available", buses[i].bus_name);
+                }
+
+            } else
+                g_atomic_int_or (avail_deps, 1 << i);
+        }
+    }
+
+    g_mutex_unlock (deps_check_lock);
+    val = (guint) g_atomic_int_get (avail_deps);
+    return (val & req_deps) == req_deps;
 }

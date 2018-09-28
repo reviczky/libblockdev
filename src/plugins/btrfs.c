@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -44,6 +44,9 @@ GQuark bd_btrfs_error_quark (void)
 }
 
 BDBtrfsDeviceInfo* bd_btrfs_device_info_copy (BDBtrfsDeviceInfo *info) {
+    if (info == NULL)
+        return NULL;
+
     BDBtrfsDeviceInfo *new_info = g_new0 (BDBtrfsDeviceInfo, 1);
 
     new_info->id = info->id;
@@ -55,11 +58,17 @@ BDBtrfsDeviceInfo* bd_btrfs_device_info_copy (BDBtrfsDeviceInfo *info) {
 }
 
 void bd_btrfs_device_info_free (BDBtrfsDeviceInfo *info) {
+    if (info == NULL)
+        return;
+
     g_free (info->path);
     g_free (info);
 }
 
 BDBtrfsSubvolumeInfo* bd_btrfs_subvolume_info_copy (BDBtrfsSubvolumeInfo *info) {
+    if  (info == NULL)
+        return NULL;
+
     BDBtrfsSubvolumeInfo *new_info = g_new0 (BDBtrfsSubvolumeInfo, 1);
 
     new_info->id = info->id;
@@ -70,11 +79,17 @@ BDBtrfsSubvolumeInfo* bd_btrfs_subvolume_info_copy (BDBtrfsSubvolumeInfo *info) 
 }
 
 void bd_btrfs_subvolume_info_free (BDBtrfsSubvolumeInfo *info) {
+    if (info == NULL)
+        return;
+
     g_free (info->path);
     g_free (info);
 }
 
 BDBtrfsFilesystemInfo* bd_btrfs_filesystem_info_copy (BDBtrfsFilesystemInfo *info) {
+    if (info == NULL)
+        return NULL;
+
     BDBtrfsFilesystemInfo *new_info = g_new0 (BDBtrfsFilesystemInfo, 1);
 
     new_info->label = g_strdup (info->label);
@@ -86,6 +101,9 @@ BDBtrfsFilesystemInfo* bd_btrfs_filesystem_info_copy (BDBtrfsFilesystemInfo *inf
 }
 
 void bd_btrfs_filesystem_info_free (BDBtrfsFilesystemInfo *info) {
+    if (info == NULL)
+        return;
+
     g_free (info->label);
     g_free (info->uuid);
     g_free (info);
@@ -99,7 +117,7 @@ static GMutex deps_check_lock;
 #define DEPS_BTRFS_MASK (1 << DEPS_BTRFS)
 #define DEPS_LAST 1
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"btrfs", BTRFS_MIN_VERSION, NULL, "[Bb]trfs.* v([\\d\\.]+)"},
 };
 
@@ -107,7 +125,7 @@ static UtilDep deps[DEPS_LAST] = {
 #define MODULE_DEPS_BTRFS_MASK (1 << MODULE_DEPS_BTRFS)
 #define MODULE_DEPS_LAST 1
 
-static gchar* module_deps[MODULE_DEPS_LAST] = { "btrfs" };
+static const gchar*const module_deps[MODULE_DEPS_LAST] = { "btrfs" };
 
 
 /**
@@ -118,7 +136,7 @@ static gchar* module_deps[MODULE_DEPS_LAST] = { "btrfs" };
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_btrfs_check_deps () {
+gboolean bd_btrfs_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -157,7 +175,7 @@ gboolean bd_btrfs_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_btrfs_init () {
+gboolean bd_btrfs_init (void) {
     /* nothing to do here */
     return TRUE;
 };
@@ -169,7 +187,7 @@ gboolean bd_btrfs_init () {
  * library's functions that unload it.**
  *
  */
-void bd_btrfs_close () {
+void bd_btrfs_close (void) {
     /* nothing to do here */
 }
 

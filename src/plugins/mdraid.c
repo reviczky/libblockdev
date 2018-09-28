@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -54,6 +54,9 @@ GQuark bd_md_error_quark (void)
  * Creates a new copy of @data.
  */
 BDMDExamineData* bd_md_examine_data_copy (BDMDExamineData *data) {
+    if (data == NULL)
+        return NULL;
+
     BDMDExamineData *new_data = g_new0 (BDMDExamineData, 1);
 
     new_data->device = g_strdup (data->device);
@@ -76,6 +79,9 @@ BDMDExamineData* bd_md_examine_data_copy (BDMDExamineData *data) {
  * Frees @data.
  */
 void bd_md_examine_data_free (BDMDExamineData *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->device);
     g_free (data->level);
     g_free (data->name);
@@ -91,6 +97,9 @@ void bd_md_examine_data_free (BDMDExamineData *data) {
  * Creates a new copy of @data.
  */
 BDMDDetailData* bd_md_detail_data_copy (BDMDDetailData *data) {
+    if (data == NULL)
+        return NULL;
+
     BDMDDetailData *new_data = g_new0 (BDMDDetailData, 1);
 
     new_data->device = g_strdup (data->device);
@@ -117,6 +126,9 @@ BDMDDetailData* bd_md_detail_data_copy (BDMDDetailData *data) {
  * Frees @data.
  */
 void bd_md_detail_data_free (BDMDDetailData *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->device);
     g_free (data->name);
     g_free (data->metadata);
@@ -135,7 +147,7 @@ static GMutex deps_check_lock;
 #define DEPS_MDADM_MASK (1 << DEPS_MDADM)
 #define DEPS_LAST 1
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"mdadm", MDADM_MIN_VERSION, NULL, "mdadm - v([\\d\\.]+)"},
 };
 
@@ -148,7 +160,7 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_md_check_deps () {
+gboolean bd_md_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -179,7 +191,7 @@ gboolean bd_md_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_md_init () {
+gboolean bd_md_init (void) {
     /* nothing to do here */
     return TRUE;
 };
@@ -191,7 +203,7 @@ gboolean bd_md_init () {
  * library's functions that unload it.**
  *
  */
-void bd_md_close () {
+void bd_md_close (void) {
     /* nothing to do here */
 }
 
@@ -978,9 +990,11 @@ BDMDExamineData* bd_md_examine (const gchar *device, GError **error) {
 
     argv[2] = "--export";
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
-    if (!success)
+    if (!success) {
         /* error is already populated */
+        bd_md_examine_data_free (ret);
         return FALSE;
+    }
 
     /* try to get a better information about RAID level because it may be
        misleading in the output without --export */
@@ -998,9 +1012,11 @@ BDMDExamineData* bd_md_examine (const gchar *device, GError **error) {
 
     argv[2] = "--brief";
     success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
-    if (!success)
+    if (!success) {
         /* error is already populated */
+        bd_md_examine_data_free (ret);
         return FALSE;
+    }
 
     /* try to find the "ARRAY /dev/md/something" pair in the output */
     output_fields = g_strsplit_set (output, " \n", 0);
@@ -1024,6 +1040,7 @@ BDMDExamineData* bd_md_examine (const gchar *device, GError **error) {
         g_set_error (error, BD_MD_ERROR, BD_MD_ERROR_PARSE,
                      "Failed to parse mdexamine metadata");
         g_hash_table_destroy (table);
+        bd_md_examine_data_free (ret);
         return NULL;
     }
 

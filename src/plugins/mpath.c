@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2014  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -53,7 +53,7 @@ static GMutex deps_check_lock;
 #define DEPS_MPATHCONF_MASK (1 << DEPS_MPATHCONF)
 #define DEPS_LAST 2
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"multipath", MULTIPATH_MIN_VERSION, NULL, "multipath-tools v([\\d\\.]+)"},
     {"mpathconf", NULL, NULL, NULL},
 };
@@ -67,7 +67,7 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_mpath_check_deps () {
+gboolean bd_mpath_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -97,7 +97,7 @@ gboolean bd_mpath_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_mpath_init () {
+gboolean bd_mpath_init (void) {
     /* nothing to do here */
     return TRUE;
 };
@@ -109,7 +109,7 @@ gboolean bd_mpath_init () {
  * library's functions that unload it.**
  *
  */
-void bd_mpath_close () {
+void bd_mpath_close (void) {
     /* nothing to do here */
 }
 
@@ -494,6 +494,8 @@ gchar** bd_mpath_get_mpath_members (GError **error) {
                 g_prefix_error (error, "Failed to determine deps for '%s'", names->name);
                 dm_task_destroy (task_names);
                 bd_utils_report_finished (progress_id, (*error)->message);
+                g_free (deps);
+                g_free (ret);
                 return NULL;
             }
             if (deps) {

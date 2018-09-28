@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [2.16], [vpodzime@redhat.com])
+AC_INIT([libblockdev], [2.20], [vpodzime@redhat.com])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -75,6 +75,22 @@ else
   AM_CONDITIONAL(WITH_S390, false)
 fi
 
+AC_ARG_WITH([python2],
+    AS_HELP_STRING([--with-python2], [support python2 @<:@default=check@:>@]),
+    [],
+    [with_python2=check])
+
+AC_SUBST(WITH_PYTHON2, 0)
+if test "x$with_python2" != "xno"; then
+    AC_PATH_PROG([python2], [python2], [no])
+    AS_IF([test "x$python2" == "xno"],
+    [if test "x$with_python2" = "xyes"; then
+      LIBBLOCKDEV_SOFT_FAILURE([Python2 support requested, but python2 is not available])
+      fi],
+    [AC_SUBST(WITH_PYTHON2, 1)])
+fi
+AM_CONDITIONAL(WITH_PYTHON2, test "x$with_python2" != "xno" -a "x$python2" != "xno")
+
 AC_ARG_WITH([python3],
     AS_HELP_STRING([--with-python3], [support python3 @<:@default=check@:>@]),
     [],
@@ -129,6 +145,28 @@ AS_IF([test "x$with_bcache" != "xno"],
       [AC_DEFINE([WITH_BD_BCACHE], [], [Define if bcache is supported]) AC_SUBST([WITH_BCACHE], [1])],
       [])
 
+AC_ARG_WITH([escrow],
+    AS_HELP_STRING([--with-escrow], [support escrow @<:@default=yes@:>@]),
+    [],
+    [with_escrow=yes])
+
+AC_SUBST([WITH_ESCROW], [0])
+AM_CONDITIONAL(WITH_ESCROW, test "x$with_escrow" != "xno")
+AS_IF([test "x$with_escrow" != "xno"],
+      [AC_DEFINE([WITH_BD_ESCROW], [], [Define if escrow is supported]) AC_SUBST([WITH_ESCROW], [1])],
+      [])
+
+AC_ARG_WITH([dmraid],
+    AS_HELP_STRING([--with-dmraid], [support dmraid @<:@default=yes@:>@]),
+    [],
+    [with_dmraid=yes])
+
+AC_SUBST([WITH_DMRAID], [0])
+AM_CONDITIONAL(WITH_DMRAID, test "x$with_dmraid" != "xno")
+AS_IF([test "x$with_dmraid" != "xno"],
+      [AC_DEFINE([WITH_BD_DMRAID], [], [Define if dmraid is supported]) AC_SUBST([WITH_DMRAID], [1])],
+      [])
+
 LIBBLOCKDEV_PLUGIN([BTRFS], [btrfs])
 LIBBLOCKDEV_PLUGIN([CRYPTO], [crypto])
 LIBBLOCKDEV_PLUGIN([DM], [dm])
@@ -141,6 +179,8 @@ LIBBLOCKDEV_PLUGIN([SWAP], [swap])
 LIBBLOCKDEV_PLUGIN([KBD], [kbd])
 LIBBLOCKDEV_PLUGIN([PART], [part])
 LIBBLOCKDEV_PLUGIN([FS], [fs])
+LIBBLOCKDEV_PLUGIN([NVDIMM], [nvdimm])
+LIBBLOCKDEV_PLUGIN([VDO], [vdo])
 
 AM_CONDITIONAL(WITH_PART_O_WITH_FS, test "x$with_part" != "xno" -o "x$with_fs" != "xno")
 
@@ -153,8 +193,12 @@ LIBBLOCKDEV_PKG_CHECK_MODULES([KMOD], [libkmod >= 19])
 
 AS_IF([test "x$with_crypto" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([CRYPTSETUP], [libcryptsetup >= 1.6.7])
-       LIBBLOCKDEV_PKG_CHECK_MODULES([NSS], [nss >= 3.18.0])
-       LIBBLOCKDEV_CHECK_HEADER([volume_key/libvolume_key.h], [$GLIB_CFLAGS $NSS_CFLAGS], [libvolume_key.h not available])
+      AS_IF([$PKG_CONFIG --atleast-version=2.0.3 libcryptsetup],
+            [AC_DEFINE([LIBCRYPTSETUP_2])], [])
+      AS_IF([test "x$with_escrow" != "xno"],
+            [LIBBLOCKDEV_PKG_CHECK_MODULES([NSS], [nss >= 3.18.0])
+             LIBBLOCKDEV_CHECK_HEADER([volume_key/libvolume_key.h], [$GLIB_CFLAGS $NSS_CFLAGS], [libvolume_key.h not available])],
+            [])
       ],
       [])
 
@@ -162,7 +206,7 @@ AS_IF([test "x$with_dm" != "xno" -o "x$with_lvm" != "xno" -o "x$with_lvm_dbus" !
       [LIBBLOCKDEV_PKG_CHECK_MODULES([DEVMAPPER], [devmapper >= 1.02.93])],
       [])
 
-AS_IF([test "x$with_dm" != "xno"],
+AS_IF([test "x$with_dm" != "xno" -a "x$with_dmraid" != "xno"],
       [LIBBLOCKDEV_CHECK_HEADER([dmraid/dmraid.h], [], [dmraid.h not available])],
       [])
 
@@ -176,13 +220,6 @@ AS_IF([test "x$with_fs" != "xno"],
        AS_IF([$PKG_CONFIG --atleast-version=2.30.0 mount],
              [AC_DEFINE([LIBMOUNT_NEW_ERR_API])], [])
 
-       LIBBLOCKDEV_PKG_CHECK_MODULES([BLKID], [blkid >= 2.23.0])
-       # older versions of libblkid don't support BLKID_SUBLKS_BADCSUM so let's just
-       # define it as 0 (neutral value for bit combinations of flags)
-       AS_IF([$PKG_CONFIG --atleast-version=2.27.0 blkid], [],
-             [AC_DEFINE([BLKID_SUBLKS_BADCSUM], [0],
-              [Define as neutral value if libblkid doesn't provide the definition])])
-
        # older versions of parted don't provide the libparted-fs-resize.pc file
        AS_IF([$PKG_CONFIG libparted-fs-resize],
              [LIBBLOCKDEV_PKG_CHECK_MODULES([PARTED_FS], [libparted-fs-resize >= 3.2])],
@@ -190,8 +227,29 @@ AS_IF([test "x$with_fs" != "xno"],
               AC_SUBST([PARTED_FS_CFLAGS], [])])],
       [])
 
-AS_IF([test "x$with_btrfs" != "xno" -o "x$with_mdraid" != "xno" -o "x$with_kbd" != "xno"],
+AS_IF([test "x$with_fs" != "xno" -o "x$with_crypto" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([BLKID], [blkid >= 2.23.0])
+      # older versions of libblkid don't support BLKID_SUBLKS_BADCSUM so let's just
+      # define it as 0 (neutral value for bit combinations of flags)
+      AS_IF([$PKG_CONFIG --atleast-version=2.27.0 blkid], [],
+            [AC_DEFINE([BLKID_SUBLKS_BADCSUM], [0],
+             [Define as neutral value if libblkid doesn't provide the definition])])]
+      [])
+
+AS_IF([test "x$with_btrfs" != "xno" -o "x$with_mdraid" != "xno" -o "x$with_kbd" != "xno" -o "x$with_vdo" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([BYTESIZE], [bytesize >= 0.1])],
+      [])
+
+AS_IF([test "x$with_nvdimm" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([UUID], [uuid])
+       LIBBLOCKDEV_PKG_CHECK_MODULES([NDCTL], [libndctl >= 58.4])
+       # new versions of libndctl new modes
+       AS_IF([$PKG_CONFIG --atleast-version=60 libndctl],
+             [AC_DEFINE([LIBNDCTL_NEW_MODES])], [])]
+      [])
+
+AS_IF([test "x$with_vdo" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([YAML], [yaml-0.1])]
       [])
 
 AC_SUBST([skip_patterns], [$skip_patterns])
@@ -201,3 +259,66 @@ CFLAGS="$CFLAGS -std=gnu99"
 
 AC_OUTPUT
 LIBBLOCKDEV_FAILURES
+
+
+if test "x$with_python2" != "xno" -a "x$python2" != "xno"; then
+  python2_info=yes
+else
+  python2_info=no
+fi
+
+if test "x$with_python3" != "xno" -a "x$python3" != "xno"; then
+  python3_info=yes
+else
+  python3_info=no
+fi
+
+if test "x$with_s390" != "xno" -a "x$on_s390" = "xyes"; then
+  s390_info=yes
+else
+  s390_info=no
+fi
+
+dnl ==========================================================================
+echo "
+               libblockdev $VERSION
+             ====================
+
+        prefix:                     ${prefix}
+        libdir:                     ${libdir}
+        libexecdir:                 ${libexecdir}
+        bindir:                     ${bindir}
+        sbindir:                    ${sbindir}
+        datadir:                    ${datadir}
+        sysconfdir:                 ${sysconfdir}
+        localstatedir:              ${localstatedir}
+        docdir:                     ${docdir}
+
+        compiler:                   ${CC}
+        cflags:                     ${CFLAGS}
+        cppflags:                   ${CPPFLAGS}
+        ldflags:                    ${LDFLAGS}
+
+        BTRFS plugin:               ${with_btrfs}
+        Crypto plugin:              ${with_crypto}
+            escrow support:         ${with_escrow}
+        DM plugin:                  ${with_dm}
+            dmraid support:         ${with_dmraid}
+        FS plugin:                  ${with_fs}
+        KBD plugin:                 ${with_kbd}
+            Bcache support:         ${with_bcache}
+        Loop plugin:                ${with_loop}
+        LVM plugin:                 ${with_lvm}
+        LVM DBus plugin:            ${with_lvm_dbus}
+        MDRAID plugin:              ${with_mdraid}
+        MPath plugin                ${with_mpath}
+        NVDIMM plugin:              ${with_nvdimm}
+        Part plugin:                ${with_part}
+        S390 plugin:                ${s390_info}
+        Swap plugin:                ${with_swap}
+        VDO plugin:                 ${with_vdo}
+
+        GObject introspection:      ${found_introspection}
+        Python 2 bindings:          ${python2_info}
+        Python 3 bindings:          ${python3_info}
+"

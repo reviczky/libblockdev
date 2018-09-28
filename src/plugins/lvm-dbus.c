@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2015-2016  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -54,8 +54,6 @@ static gchar *global_config_str = NULL;
 #define SNAP_INTF LVM_BUS_NAME".Snapshot"
 #define THPOOL_INTF LVM_BUS_NAME".ThinPool"
 #define CACHE_POOL_INTF LVM_BUS_NAME".CachePool"
-#define DBUS_TOP_IFACE "org.freedesktop.DBus"
-#define DBUS_TOP_OBJ "/org/freedesktop/DBus"
 #define DBUS_PROPS_IFACE "org.freedesktop.DBus.Properties"
 #define DBUS_INTRO_IFACE "org.freedesktop.DBus.Introspectable"
 #define METHOD_CALL_TIMEOUT 5000
@@ -64,7 +62,7 @@ static gchar *global_config_str = NULL;
 static GDBusConnection *bus = NULL;
 
 /* "friend" functions from the utils library */
-guint64 get_next_task_id ();
+guint64 get_next_task_id (void);
 void log_task_status (guint64 task_id, const gchar *msg);
 
 /**
@@ -86,6 +84,9 @@ GQuark bd_lvm_error_quark (void)
 }
 
 BDLVMPVdata* bd_lvm_pvdata_copy (BDLVMPVdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMPVdata *new_data = g_new0 (BDLVMPVdata, 1);
 
     new_data->pv_name = g_strdup (data->pv_name);
@@ -104,6 +105,9 @@ BDLVMPVdata* bd_lvm_pvdata_copy (BDLVMPVdata *data) {
 }
 
 void bd_lvm_pvdata_free (BDLVMPVdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->pv_name);
     g_free (data->pv_uuid);
     g_free (data->vg_name);
@@ -111,6 +115,9 @@ void bd_lvm_pvdata_free (BDLVMPVdata *data) {
 }
 
 BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMVGdata *new_data = g_new0 (BDLVMVGdata, 1);
 
     new_data->name = g_strdup (data->name);
@@ -125,12 +132,18 @@ BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data) {
 }
 
 void bd_lvm_vgdata_free (BDLVMVGdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->name);
     g_free (data->uuid);
     g_free (data);
 }
 
 BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMLVdata *new_data = g_new0 (BDLVMLVdata, 1);
 
     new_data->lv_name = g_strdup (data->lv_name);
@@ -152,6 +165,9 @@ BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
 }
 
 void bd_lvm_lvdata_free (BDLVMLVdata *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->lv_name);
     g_free (data->vg_name);
     g_free (data->uuid);
@@ -167,6 +183,9 @@ void bd_lvm_lvdata_free (BDLVMLVdata *data) {
 }
 
 BDLVMCacheStats* bd_lvm_cache_stats_copy (BDLVMCacheStats *data) {
+    if (data == NULL)
+        return NULL;
+
     BDLVMCacheStats *new = g_new0 (BDLVMCacheStats, 1);
 
     new->block_size = data->block_size;
@@ -215,16 +234,24 @@ static gboolean setup_dbus_connection (GError **error) {
 }
 
 static volatile guint avail_deps = 0;
+static volatile guint avail_dbus_deps = 0;
 static GMutex deps_check_lock;
 
 #define DEPS_THMS 0
 #define DEPS_THMS_MASK (1 << DEPS_THMS)
 #define DEPS_LAST 1
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"thin_metadata_size", NULL, NULL, NULL},
 };
 
+#define DBUS_DEPS_LVMDBUSD 0
+#define DBUS_DEPS_LVMDBUSD_MASK (1 << DBUS_DEPS_LVMDBUSD)
+#define DBUS_DEPS_LAST 1
+
+static const DBusDep dbus_deps[DBUS_DEPS_LAST] = {
+    {LVM_BUS_NAME, LVM_OBJ_PREFIX, G_BUS_TYPE_SYSTEM},
+};
 
 /**
  * bd_lvm_check_deps:
@@ -234,72 +261,20 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_lvm_check_deps () {
-    GVariant *ret = NULL;
-    GVariant *real_ret = NULL;
-    GVariantIter iter;
-    GVariant *service = NULL;
-    gboolean found = FALSE;
+gboolean bd_lvm_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean success = FALSE;
-    gboolean check_ret = FALSE;
+    gboolean check_ret = TRUE;
 
-    if (!bus && !setup_dbus_connection (&error)) {
-        g_critical ("Failed to setup DBus connection: %s", error->message);
-        return FALSE;
+    for (i=0; i < DBUS_DEPS_LAST; i++) {
+        success = check_dbus_deps (&avail_dbus_deps, DBUS_DEPS_LVMDBUSD_MASK, dbus_deps, DBUS_DEPS_LAST, &deps_check_lock, &error);
+        if (!success) {
+            g_warning ("%s", error->message);
+            g_clear_error (&error);
+        }
+        check_ret = check_ret && success;
     }
-
-    ret = g_dbus_connection_call_sync (bus, DBUS_TOP_IFACE, DBUS_TOP_OBJ, DBUS_TOP_IFACE,
-                                       "ListNames", NULL, NULL, G_DBUS_CALL_FLAGS_NONE,
-                                       -1, NULL, &error);
-    if (!ret) {
-        g_critical ("Failed to get available DBus services: %s", error->message);
-        return FALSE;
-    }
-
-    real_ret = g_variant_get_child_value (ret, 0);
-    g_variant_unref (ret);
-
-    g_variant_iter_init (&iter, real_ret);
-    while (!found && (service = g_variant_iter_next_value (&iter))) {
-        found = (g_strcmp0 (g_variant_get_string (service, NULL), LVM_BUS_NAME) == 0);
-        g_variant_unref (service);
-    }
-    g_variant_unref (real_ret);
-
-    ret = g_dbus_connection_call_sync (bus, DBUS_TOP_IFACE, DBUS_TOP_OBJ, DBUS_TOP_IFACE,
-                                       "ListActivatableNames", NULL, NULL, G_DBUS_CALL_FLAGS_NONE,
-                                       -1, NULL, &error);
-    if (!ret) {
-        g_critical ("Failed to get available DBus services: %s", error->message);
-        return FALSE;
-    }
-
-    real_ret = g_variant_get_child_value (ret, 0);
-    g_variant_unref (ret);
-
-    g_variant_iter_init (&iter, real_ret);
-    while (!found && (service = g_variant_iter_next_value (&iter))) {
-        found = (g_strcmp0 (g_variant_get_string (service, NULL), LVM_BUS_NAME) == 0);
-        g_variant_unref (service);
-    }
-    g_variant_unref (real_ret);
-
-    if (!found)
-        return FALSE;
-
-    /* try to introspect the root node - i.e. check we can access it and possibly
-       autostart the service */
-    ret = g_dbus_connection_call_sync (bus, LVM_BUS_NAME, LVM_OBJ_PREFIX, DBUS_INTRO_IFACE,
-                                       "Introspect", NULL, NULL, G_DBUS_CALL_FLAGS_NONE,
-                                       -1, NULL, &error);
-    if (ret)
-        g_variant_unref (ret);
-
-    /* there has to be no error reported */
-    check_ret = (error == NULL);
-    g_clear_error (&error);
 
     for (i=0; i < DEPS_LAST; i++) {
         success = bd_utils_check_util_version (deps[i].name, deps[i].version,
@@ -325,7 +300,7 @@ gboolean bd_lvm_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_lvm_init () {
+gboolean bd_lvm_init (void) {
     GError *error = NULL;
 
     /* the check() call should create the DBus connection for us, but let's not
@@ -345,7 +320,7 @@ gboolean bd_lvm_init () {
  * library's functions that unload it.**
  *
  */
-void bd_lvm_close () {
+void bd_lvm_close (void) {
     GError *error = NULL;
 
     /* the check() call should create the DBus connection for us, but let's not
@@ -386,7 +361,7 @@ gboolean bd_lvm_is_tech_avail (BDLVMTech tech, guint64 mode, GError **error) {
             return TRUE;
     default:
         /* everything is supported by this implementation of the plugin */
-        return TRUE;
+        return check_dbus_deps (&avail_dbus_deps, DBUS_DEPS_LVMDBUSD_MASK, dbus_deps, DBUS_DEPS_LAST, &deps_check_lock, error);
     }
 }
 
@@ -489,6 +464,35 @@ static GVariant* get_lvm_object_property (const gchar *obj_id, const gchar *ifac
     }
 }
 
+static gboolean unbox_params_and_add (GVariant *params, GVariantBuilder *builder) {
+    GVariantIter iter;
+    GVariant *param = NULL;
+    gboolean ret = FALSE;
+
+    if (g_variant_is_of_type (params, G_VARIANT_TYPE_DICTIONARY)) {
+        g_variant_iter_init (&iter, params);
+        while ((param = g_variant_iter_next_value (&iter))) {
+            g_variant_builder_add_value (builder, param);
+            ret = TRUE;
+        }
+        return ret;
+    }
+
+    if (g_variant_is_of_type (params, G_VARIANT_TYPE_VARIANT)) {
+        param = g_variant_get_variant (params);
+        return unbox_params_and_add (param, builder);
+    }
+
+    if (g_variant_is_container (params)) {
+        g_variant_iter_init (&iter, params);
+        while ((param = g_variant_iter_next_value (&iter)))
+            ret = unbox_params_and_add (param, builder);
+        return ret;
+    }
+
+    return FALSE;
+}
+
 static GVariant* call_lvm_method (const gchar *obj, const gchar *intf, const gchar *method, GVariant *params, GVariant *extra_params, const BDExtraArg **extra_args, guint64 *task_id, guint64 *progress_id, GError **error) {
     GVariant *config = NULL;
     GVariant *param = NULL;
@@ -505,6 +509,9 @@ static GVariant* call_lvm_method (const gchar *obj, const gchar *intf, const gch
     const BDExtraArg **extra_p = NULL;
     gboolean added_extra = FALSE;
 
+    if (!check_dbus_deps (&avail_dbus_deps, DBUS_DEPS_LVMDBUSD_MASK, dbus_deps, DBUS_DEPS_LAST, &deps_check_lock, error))
+        return NULL;
+
     /* don't allow global config string changes during the run */
     g_mutex_lock (&global_config_lock);
 
@@ -513,13 +520,8 @@ static GVariant* call_lvm_method (const gchar *obj, const gchar *intf, const gch
             /* add the global config to the extra_params */
             g_variant_builder_init (&extra_builder, G_VARIANT_TYPE_DICTIONARY);
 
-            if (extra_params) {
-                g_variant_iter_init (&iter, extra_params);
-                while ((param = g_variant_iter_next_value (&iter))) {
-                    g_variant_builder_add_value (&extra_builder, param);
-                    added_extra = TRUE;
-                }
-            }
+            if (extra_params)
+                added_extra = unbox_params_and_add (extra_params, &extra_builder);
 
             if (extra_args) {
                 for (extra_p=extra_args; *extra_p; extra_p++) {
@@ -605,6 +607,8 @@ static void call_lvm_method_sync (const gchar *obj, const gchar *intf, const gch
     gdouble progress = 0.0;
     gchar *log_msg = NULL;
     gboolean completed = FALSE;
+    gint64 error_code = 0;
+    gchar *error_msg = NULL;
 
     ret = call_lvm_method (obj, intf, method, params, extra_params, extra_args, &log_task_id, &prog_id, error);
     log_task_status (log_task_id, "Done.");
@@ -706,18 +710,38 @@ static void call_lvm_method_sync (const gchar *obj, const gchar *intf, const gch
                 log_msg = g_strdup_printf ("Got result: %s", obj_path);
                 log_task_status (log_task_id, log_msg);
                 g_free (log_msg);
-            } else
-                log_task_status (log_task_id, "No result");
+            } else {
+                ret = get_object_property (task_path, JOB_INTF, "GetError", error);
+                g_variant_get (ret, "(is)", &error_code, &error_msg);
+                if (error_code != 0) {
+                    if (error_msg) {
+                        log_msg = g_strdup_printf ("Got error: %s", error_msg);
+                        log_task_status (log_task_id, log_msg);
+                        bd_utils_report_finished (prog_id, log_msg);
+                        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_FAIL,
+                                     "Running '%s' method on the '%s' object failed: %s",
+                                     method, obj, error_msg);
+                        g_free (log_msg);
+                        g_free (error_msg);
+                    } else {
+                        log_task_status (log_task_id, "Got unknown error");
+                        bd_utils_report_finished (prog_id, "Got unknown error");
+                        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_FAIL,
+                                     "Got unknown error when running '%s' method on the '%s' object.",
+                                     method, obj);
+                    }
+
+                } else
+                    log_task_status (log_task_id, "No result");
+            }
             bd_utils_report_finished (prog_id, "Completed");
             g_free (obj_path);
 
             /* remove the job object and clean after ourselves */
             ret = g_dbus_connection_call_sync (bus, LVM_BUS_NAME, task_path, JOB_INTF, "Remove", NULL,
-                                               NULL, G_DBUS_CALL_FLAGS_NONE, METHOD_CALL_TIMEOUT, NULL, error);
+                                               NULL, G_DBUS_CALL_FLAGS_NONE, METHOD_CALL_TIMEOUT, NULL, NULL);
             if (ret)
                 g_variant_unref (ret);
-            if (*error)
-                g_clear_error (error);
 
             g_free (task_path);
             return;
@@ -2259,6 +2283,9 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
         ret[j] = get_lv_data_from_props (props, error);
         if (!(ret[j])) {
             g_slist_free (matched_lvs);
+            for (guint64 i = 0; i < j; i++)
+                bd_lvm_lvdata_free (ret[i]);
+            g_free (ret);
             return NULL;
         } else if ((g_strcmp0 (ret[j]->segtype, "thin-pool") == 0) ||
                    (g_strcmp0 (ret[j]->segtype, "cache-pool") == 0)) {
@@ -2267,6 +2294,9 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
         }
         if (error && *error) {
             g_slist_free (matched_lvs);
+            for (guint64 i = 0; i <= j; i++)
+                bd_lvm_lvdata_free (ret[i]);
+            g_free (ret);
             return NULL;
         }
         j++;
@@ -2501,7 +2531,7 @@ guint64 bd_lvm_cache_get_default_md_size (guint64 cache_size, GError **error __a
  *
  * Get LV type string from flags.
  */
-static gchar* get_lv_type_from_flags (BDLVMCachePoolFlags flags, gboolean meta, GError **error __attribute__((unused))) {
+static const gchar* get_lv_type_from_flags (BDLVMCachePoolFlags flags, gboolean meta, GError **error __attribute__((unused))) {
     if (!meta) {
         if (flags & BD_LVM_CACHE_POOL_STRIPED)
             return "striped";
@@ -2597,7 +2627,7 @@ BDLVMCacheMode bd_lvm_cache_get_mode_from_str (const gchar *mode_str, GError **e
  */
 gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name, guint64 pool_size, guint64 md_size, BDLVMCacheMode mode, BDLVMCachePoolFlags flags, const gchar **fast_pvs, GError **error) {
     gboolean success = FALSE;
-    gchar *type = NULL;
+    const gchar *type = NULL;
     gchar *name = NULL;
     GVariantBuilder builder;
     GVariant *params = NULL;
@@ -2987,6 +3017,7 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
                       status->feature_flags);
         dm_task_destroy (task);
         dm_pool_destroy (pool);
+        bd_lvm_cache_stats_free (ret);
         return NULL;
     }
 

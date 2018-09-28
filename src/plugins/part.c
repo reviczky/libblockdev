@@ -1,18 +1,18 @@
 /*
  * Copyright (C) 2016  Red Hat, Inc.
  *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * This library is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation; either
+ * version 2.1 of the License, or (at your option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
+ * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this library; if not, see <http://www.gnu.org/licenses/>.
  *
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
@@ -25,6 +25,7 @@
 #include <inttypes.h>
 #include <unistd.h>
 #include <sys/file.h>
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 #include <blockdev/utils.h>
@@ -62,6 +63,9 @@ GQuark bd_part_error_quark (void)
 }
 
 BDPartSpec* bd_part_spec_copy (BDPartSpec *data) {
+    if (data == NULL)
+        return NULL;
+
     BDPartSpec *ret = g_new0 (BDPartSpec, 1);
 
     ret->path = g_strdup (data->path);
@@ -75,6 +79,9 @@ BDPartSpec* bd_part_spec_copy (BDPartSpec *data) {
 }
 
 void bd_part_spec_free (BDPartSpec *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->path);
     g_free (data->name);
     g_free (data->type_guid);
@@ -82,6 +89,9 @@ void bd_part_spec_free (BDPartSpec *data) {
 }
 
 BDPartDiskSpec* bd_part_disk_spec_copy (BDPartDiskSpec *data) {
+    if (data == NULL)
+        return NULL;
+
     BDPartDiskSpec *ret = g_new0 (BDPartDiskSpec, 1);
 
     ret->path = g_strdup (data->path);
@@ -94,6 +104,9 @@ BDPartDiskSpec* bd_part_disk_spec_copy (BDPartDiskSpec *data) {
 }
 
 void bd_part_disk_spec_free (BDPartDiskSpec *data) {
+    if (data == NULL)
+        return;
+
     g_free (data->path);
     g_free (data);
 }
@@ -132,7 +145,7 @@ static GMutex deps_check_lock;
 #define DEPS_SFDISK_MASK (1 << DEPS_SFDISK)
 #define DEPS_LAST 2
 
-static UtilDep deps[DEPS_LAST] = {
+static const UtilDep deps[DEPS_LAST] = {
     {"sgdisk", "0.8.6", NULL, "GPT fdisk \\(sgdisk\\) version ([\\d\\.]+)"},
     {"sfdisk", NULL, NULL, NULL},
 };
@@ -146,7 +159,7 @@ static UtilDep deps[DEPS_LAST] = {
  * Function checking plugin's runtime dependencies.
  *
  */
-gboolean bd_part_check_deps () {
+gboolean bd_part_check_deps (void) {
     GError *error = NULL;
     guint i = 0;
     gboolean status = FALSE;
@@ -176,7 +189,7 @@ gboolean bd_part_check_deps () {
  * library's initialization functions.**
  *
  */
-gboolean bd_part_init () {
+gboolean bd_part_init (void) {
     ped_exception_set_handler ((PedExceptionHandler*) bd_exc_handler);
     return TRUE;
 }
@@ -188,7 +201,7 @@ gboolean bd_part_init () {
  * library's functions that unload it.**
  *
  */
-void bd_part_close () {
+void bd_part_close (void) {
     ped_exception_set_handler (NULL);
 }
 
@@ -730,9 +743,11 @@ BDPartSpec* bd_part_get_best_free_region (const gchar *disk, BDPartType type, gu
     if (!free_regs)
         /* error should be populated */
         return NULL;
-    if (!(*free_regs))
+    if (!(*free_regs)) {
         /* no free regions */
+        g_free (free_regs);
         return NULL;
+    }
 
     if (type == BD_PART_TYPE_NORMAL) {
         for (free_reg_p=free_regs; *free_reg_p; free_reg_p++) {
@@ -926,7 +941,7 @@ static PedPartition* add_part_to_disk (PedDevice *dev, PedDisk *disk, BDPartType
         return NULL;
     }
 
-    part = ped_partition_new (disk, type, NULL, geom->start, geom->end);
+    part = ped_partition_new (disk, (PedPartitionType)type, NULL, geom->start, geom->end);
     if (!part) {
         set_parted_error (error, BD_PART_ERROR_FAIL);
         g_prefix_error (error, "Failed to create new partition on device '%s'", dev->path);
@@ -1169,7 +1184,7 @@ gboolean bd_part_delete_part (const gchar *disk, const gchar *part, GError **err
     status = ped_disk_delete_partition (ped_disk, ped_part);
     if (status == 0) {
         set_parted_error (error, BD_PART_ERROR_FAIL);
-        g_prefix_error (error, "Failed to get partition '%d' on device '%s'", part_num, disk);
+        g_prefix_error (error, "Failed to delete partition '%d' on device '%s'", part_num, disk);
         ped_disk_destroy (ped_disk);
         ped_device_destroy (dev);
         bd_utils_report_finished (progress_id, (*error)->message);
@@ -1354,7 +1369,7 @@ static gboolean set_gpt_flags (const gchar *device, int part_num, guint64 flags,
         real_flags |= 0x4000000000000000; /* 1 << 62 */
     if (flags & BD_PART_FLAG_GPT_NO_AUTOMOUNT)
         real_flags |= 0x8000000000000000; /* 1 << 63 */
-    mask_str = g_strdup_printf ("%.16"__PRI64_PREFIX"x", real_flags);
+    mask_str = g_strdup_printf ("%.16"PRIx64, real_flags);
 
     args[2] = g_strdup_printf ("%d:=:%s", part_num, mask_str);
     g_free (mask_str);
@@ -1564,7 +1579,7 @@ gboolean bd_part_set_part_flags (const gchar *disk, const gchar *part, guint64 f
     PedPartition *ped_part = NULL;
     const gchar *part_num_str = NULL;
     gint part_num = 0;
-    guint64 i = 0;
+    int i = 0;
     gint status = 0;
     gboolean ret = FALSE;
     guint64 progress_id = 0;

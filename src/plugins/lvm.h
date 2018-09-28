@@ -43,6 +43,7 @@ typedef enum {
     BD_LVM_ERROR_CACHE_INVAL,
     BD_LVM_ERROR_CACHE_NOCACHE,
     BD_LVM_ERROR_TECH_UNAVAIL,
+    BD_LVM_ERROR_FAIL,
 } BDLVMError;
 
 typedef enum {
@@ -164,9 +165,9 @@ typedef enum {
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_lvm_check_deps ();
-gboolean bd_lvm_init ();
-void bd_lvm_close ();
+gboolean bd_lvm_check_deps (void);
+gboolean bd_lvm_init (void);
+void bd_lvm_close (void);
 
 gboolean bd_lvm_is_tech_avail (BDLVMTech tech, guint64 mode, GError **error);
 
