@@ -28,26 +28,55 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_btrfs_subvolume_info_free@Base 2.14
  bd_btrfs_subvolume_info_get_type@Base 2.14
  bd_crypto_device_is_luks@Base 2.14
+ bd_crypto_device_seems_encrypted@Base 2.20
  bd_crypto_error_quark@Base 2.14
  bd_crypto_escrow_device@Base 2.14
  bd_crypto_generate_backup_passphrase@Base 2.14
+ bd_crypto_integrity_info@Base 2.20
+ bd_crypto_integrity_info_copy@Base 2.20
+ bd_crypto_integrity_info_free@Base 2.20
+ bd_crypto_integrity_info_get_type@Base 2.20
  bd_crypto_is_tech_avail@Base 2.14
  bd_crypto_luks_add_key@Base 2.14
  bd_crypto_luks_add_key_blob@Base 2.14
  bd_crypto_luks_change_key@Base 2.14
  bd_crypto_luks_change_key_blob@Base 2.14
  bd_crypto_luks_close@Base 2.14
+ bd_crypto_luks_extra_copy@Base 2.20
+ bd_crypto_luks_extra_free@Base 2.20
+ bd_crypto_luks_extra_get_type@Base 2.20
+ bd_crypto_luks_extra_new@Base 2.20
  bd_crypto_luks_format@Base 2.14
  bd_crypto_luks_format_blob@Base 2.14
+ bd_crypto_luks_format_luks2@Base 2.20
+ bd_crypto_luks_format_luks2_blob@Base 2.20
+ bd_crypto_luks_get_metadata_size@Base 2.20
+ bd_crypto_luks_header_backup@Base 2.20
+ bd_crypto_luks_header_restore@Base 2.20
+ bd_crypto_luks_info@Base 2.20
+ bd_crypto_luks_info_copy@Base 2.20
+ bd_crypto_luks_info_free@Base 2.20
+ bd_crypto_luks_info_get_type@Base 2.20
+ bd_crypto_luks_kill_slot@Base 2.20
  bd_crypto_luks_open@Base 2.14
  bd_crypto_luks_open_blob@Base 2.14
+ bd_crypto_luks_pbkdf_copy@Base 2.20
+ bd_crypto_luks_pbkdf_free@Base 2.20
+ bd_crypto_luks_pbkdf_get_type@Base 2.20
+ bd_crypto_luks_pbkdf_new@Base 2.20
  bd_crypto_luks_remove_key@Base 2.14
  bd_crypto_luks_remove_key_blob@Base 2.14
  bd_crypto_luks_resize@Base 2.14
+ bd_crypto_luks_resize_luks2@Base 2.20
+ bd_crypto_luks_resize_luks2_blob@Base 2.20
+ bd_crypto_luks_resume@Base 2.20
+ bd_crypto_luks_resume_blob@Base 2.20
  bd_crypto_luks_status@Base 2.14
+ bd_crypto_luks_suspend@Base 2.20
  bd_crypto_luks_uuid@Base 2.14
  bd_crypto_tc_close@Base 2.14
  bd_crypto_tc_open@Base 2.14
+ bd_crypto_tc_open_full@Base 2.20
  bd_dm_activate_raid_set@Base 2.14
  bd_dm_create_linear@Base 2.14
  bd_dm_deactivate_raid_set@Base 2.14
@@ -280,6 +309,19 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_mpath_is_mpath_member@Base 2.14
  bd_mpath_is_tech_avail@Base 2.14
  bd_mpath_set_friendly_names@Base 2.14
+ bd_nvdimm_error_quark@Base 2.20
+ bd_nvdimm_is_tech_avail@Base 2.20
+ bd_nvdimm_list_namespaces@Base 2.20
+ bd_nvdimm_namespace_disable@Base 2.20
+ bd_nvdimm_namespace_enable@Base 2.20
+ bd_nvdimm_namespace_get_devname@Base 2.20
+ bd_nvdimm_namespace_get_mode_from_str@Base 2.20
+ bd_nvdimm_namespace_get_mode_str@Base 2.20
+ bd_nvdimm_namespace_info@Base 2.20
+ bd_nvdimm_namespace_info_copy@Base 2.20
+ bd_nvdimm_namespace_info_free@Base 2.20
+ bd_nvdimm_namespace_info_get_type@Base 2.20
+ bd_nvdimm_namespace_reconfigure@Base 2.20
  bd_part_create_part@Base 2.14
  bd_part_create_table@Base 2.14
  bd_part_delete_part@Base 2.14
@@ -347,6 +389,32 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_switch_init_checks@Base 2.14
  bd_try_init@Base 2.14
  bd_try_reinit@Base 2.14
+ bd_vdo_activate@Base 2.20
+ bd_vdo_change_write_policy@Base 2.20
+ bd_vdo_create@Base 2.20
+ bd_vdo_deactivate@Base 2.20
+ bd_vdo_disable_compression@Base 2.20
+ bd_vdo_disable_deduplication@Base 2.20
+ bd_vdo_enable_compression@Base 2.20
+ bd_vdo_enable_deduplication@Base 2.20
+ bd_vdo_error_quark@Base 2.20
+ bd_vdo_get_stats@Base 2.20
+ bd_vdo_get_stats_full@Base 2.20
+ bd_vdo_get_write_policy_from_str@Base 2.20
+ bd_vdo_get_write_policy_str@Base 2.20
+ bd_vdo_grow_logical@Base 2.20
+ bd_vdo_grow_physical@Base 2.20
+ bd_vdo_info@Base 2.20
+ bd_vdo_info_copy@Base 2.20
+ bd_vdo_info_free@Base 2.20
+ bd_vdo_info_get_type@Base 2.20
+ bd_vdo_is_tech_avail@Base 2.20
+ bd_vdo_remove@Base 2.20
+ bd_vdo_start@Base 2.20
+ bd_vdo_stats_copy@Base 2.20
+ bd_vdo_stats_free@Base 2.20
+ bd_vdo_stats_get_type@Base 2.20
+ bd_vdo_stop@Base 2.20
  get_btrfs_functions@Base 2.14
  get_btrfs_num_functions@Base 2.14
  get_crypto_functions@Base 2.14
@@ -365,12 +433,16 @@ libblockdev.so.2 libblockdev2 #MINVER#
  get_mdraid_num_functions@Base 2.14
  get_mpath_functions@Base 2.14
  get_mpath_num_functions@Base 2.14
+ get_nvdimm_functions@Base 2.20
+ get_nvdimm_num_functions@Base 2.20
  get_part_functions@Base 2.14
  get_part_num_functions@Base 2.14
  (arch=s390x)get_s390_functions@Base 2.14
  (arch=s390x)get_s390_num_functions@Base 2.14
  get_swap_functions@Base 2.14
  get_swap_num_functions@Base 2.14
+ get_vdo_functions@Base 2.20
+ get_vdo_num_functions@Base 2.20
  load_btrfs_from_plugin@Base 2.14
  load_crypto_from_plugin@Base 2.14
  load_dm_from_plugin@Base 2.14
@@ -380,9 +452,11 @@ libblockdev.so.2 libblockdev2 #MINVER#
  load_lvm_from_plugin@Base 2.14
  load_mdraid_from_plugin@Base 2.14
  load_mpath_from_plugin@Base 2.14
+ load_nvdimm_from_plugin@Base 2.20
  load_part_from_plugin@Base 2.14
  (arch=s390x)load_s390_from_plugin@Base 2.14
  load_swap_from_plugin@Base 2.14
+ load_vdo_from_plugin@Base 2.20
  unload_btrfs@Base 2.14
  unload_crypto@Base 2.14
  unload_dm@Base 2.14
@@ -392,6 +466,8 @@ libblockdev.so.2 libblockdev2 #MINVER#
  unload_lvm@Base 2.14
  unload_mdraid@Base 2.14
  unload_mpath@Base 2.14
+ unload_nvdimm@Base 2.20
  unload_part@Base 2.14
  (arch=s390x)unload_s390@Base 2.14
  unload_swap@Base 2.14
+ unload_vdo@Base 2.20
