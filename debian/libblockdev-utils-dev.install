@@ -1,5 +1,6 @@
 usr/lib/*/libbd_utils.so
 usr/lib/*/pkgconfig/blockdev-utils.pc
+usr/include/blockdev/dbus.h
 usr/include/blockdev/module.h
 usr/include/blockdev/utils.h
 usr/include/blockdev/sizes.h
