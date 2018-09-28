@@ -1,8 +1,21 @@
-libblockdev (2.20-1) UNRELEASED; urgency=medium
+libblockdev (2.20-1) unstable; urgency=medium
 
-  * New upstream release.
+  [ Andreas Henriksson ]
+  * New upstream release (LP: #	1788374)
+  * Use new configure switch to disable python2
+  * Disable new nvdimm and vdo plugins for now
+  * Ship new dbus.h in libblockdev-utils-dev
+  * libblockdev2.symbols: drop internal _-prefixed symbols
+  * libblockdev2.symbols: Drop bd_.*_stub symbols
+  * libblockdev-kbd2.symbols: drop internal wait_for_file symbol
+  * Add newly introduced symbols
 
- -- Andreas Henriksson <andreas@fatal.se>  Fri, 28 Sep 2018 19:04:15 +0200
+  [ Jeremy Bicha ]
+  * Add lintian overrides for package-name-doesnt-match-sonames:
+    - Package names like libblockdev-lvm2 are more clear than libbd-lvm2
+  * Bump Standards-Version to 4.2.1
+
+ -- Jeremy Bicha <jbicha@debian.org>  Fri, 28 Sep 2018 15:31:01 -0400
 
 libblockdev (2.16-2) unstable; urgency=high
 
