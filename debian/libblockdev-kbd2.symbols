@@ -25,4 +25,3 @@ libbd_kbd.so.2 libblockdev-kbd2 #MINVER#
  bd_kbd_zram_remove_device@Base 2.14
  bd_kbd_zram_stats_copy@Base 2.14
  bd_kbd_zram_stats_free@Base 2.14
- wait_for_file@Base 2.14
