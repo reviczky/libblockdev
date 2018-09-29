@@ -355,30 +355,18 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_plugin_spec_get_type@Base 2.14
  bd_reinit@Base 2.14
  (arch=s390x)bd_s390_dasd_format@Base 2.14
- (arch=s390x)bd_s390_dasd_format_stub@Base 2.14
  (arch=s390x)bd_s390_dasd_is_fba@Base 2.14
- (arch=s390x)bd_s390_dasd_is_fba_stub@Base 2.14
  (arch=s390x)bd_s390_dasd_is_ldl@Base 2.14
- (arch=s390x)bd_s390_dasd_is_ldl_stub@Base 2.14
  (arch=s390x)bd_s390_dasd_needs_format@Base 2.14
- (arch=s390x)bd_s390_dasd_needs_format_stub@Base 2.14
  (arch=s390x)bd_s390_dasd_online@Base 2.14
- (arch=s390x)bd_s390_dasd_online_stub@Base 2.14
  (arch=s390x)bd_s390_error_quark@Base 2.14
  (arch=s390x)bd_s390_is_tech_avail@Base 2.14
- (arch=s390x)bd_s390_is_tech_avail_stub@Base 2.14
  (arch=s390x)bd_s390_sanitize_dev_input@Base 2.14
- (arch=s390x)bd_s390_sanitize_dev_input_stub@Base 2.14
  (arch=s390x)bd_s390_zfcp_offline@Base 2.14
- (arch=s390x)bd_s390_zfcp_offline_stub@Base 2.14
  (arch=s390x)bd_s390_zfcp_online@Base 2.14
- (arch=s390x)bd_s390_zfcp_online_stub@Base 2.14
  (arch=s390x)bd_s390_zfcp_sanitize_lun_input@Base 2.14
- (arch=s390x)bd_s390_zfcp_sanitize_lun_input_stub@Base 2.14
  (arch=s390x)bd_s390_zfcp_sanitize_wwpn_input@Base 2.14
- (arch=s390x)bd_s390_zfcp_sanitize_wwpn_input_stub@Base 2.14
  (arch=s390x)bd_s390_zfcp_scsi_offline@Base 2.14
- (arch=s390x)bd_s390_zfcp_scsi_offline_stub@Base 2.14
  bd_swap_error_quark@Base 2.14
  bd_swap_is_tech_avail@Base 2.14
  bd_swap_mkswap@Base 2.14
