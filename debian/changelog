@@ -1,3 +1,12 @@
+libblockdev (2.20-2) unstable; urgency=medium
+
+  * Team upload.
+  * libblockdev2.symbols: Drop s390x specific stub symbols
+  * debian/rules: drop no longer needed removal of python2
+  * python3-blockdev: add python3-gi dependency (Closes: #896303)
+
+ -- Andreas Henriksson <andreas@fatal.se>  Sat, 29 Sep 2018 12:56:11 +0200
+
 libblockdev (2.20-1) unstable; urgency=medium
 
   [ Andreas Henriksson ]
