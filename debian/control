@@ -131,7 +131,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          btrfs-progs
 Description: BTRFS plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the BTRFS-related functionality.
 
 Package: libblockdev-btrfs-dev
@@ -152,7 +152,7 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
 Description: Crypto plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to encrypted devices (LUKS).
 
 Package: libblockdev-crypto-dev
@@ -174,7 +174,7 @@ Depends: ${shlibs:Depends},
          dmsetup (>= 1.02.93),
          dmraid
 Description: Device Mapper plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to Device Mapper.
 
 Package: libblockdev-dm-dev
@@ -197,7 +197,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${misc:Depends}, ${shlibs:Depends}, e2fsprogs
 Description: file system plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to operations with file systems.
 
 Package: libblockdev-fs-dev
@@ -220,7 +220,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          bcache-tools (>= 1.0.8)
 Description: kernel block device plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to kernel block devices (namely zRAM and
  Bcache).
 
@@ -241,7 +241,7 @@ Architecture: any
 Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Loop device plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to loop devices.
 
 Package: libblockdev-loop-dev
@@ -264,7 +264,7 @@ Depends: ${shlibs:Depends},
          lvm2 (>= 2.02.116),
          thin-provisioning-tools
 Description: LVM plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the LVM-related functionality.
 
 Package: libblockdev-lvm-dev
@@ -285,7 +285,7 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
 Description: LVM DBus plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the LVM-related functionality utilizing the LVM DBus API.
 
 Package: libblockdev-lvm-dbus-dev
@@ -305,7 +305,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          mdadm (>= 3.3.2)
 Description: MD RAID plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to MD RAID.
 
 Package: libblockdev-mdraid-dev
@@ -327,7 +327,7 @@ Depends: ${shlibs:Depends},
          ${misc:Depends},
          multipath-tools (>= 0.4.9)
 Description: Multipath plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to multipath devices.
 
 Package: libblockdev-mpath-dev
@@ -350,7 +350,7 @@ Depends: ${shlibs:Depends},
          gdisk (>= 0.8.6),
          fdisk | util-linux (<< 2.29.2-3~)
 Description: Partitioning plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to partitioning devices.
 
 Package: libblockdev-part-dev
@@ -369,7 +369,7 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
 Description: Swap plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to swap devices.
 
 Package: libblockdev-swap-dev
@@ -393,7 +393,7 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
 Description: VDO plugin for libblockdev
- The libblockdev library plugin (and in the same time a standalone library)
+ The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to Virtual Data Optimizer (VDO).
 
 Package: libblockdev-vdo-dev
