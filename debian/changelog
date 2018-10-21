@@ -1,3 +1,11 @@
+libblockdev (2.20-3) unstable; urgency=medium
+
+  * Build the new VDO plugin
+  * debian/copyright: The upstream source is LGPL-2.1+ not GPL-2.1+
+    - Thanks Thorsten Alteholz for the careful ftpmaster review
+
+ -- Jeremy Bicha <jbicha@debian.org>  Sat, 20 Oct 2018 20:15:54 -0400
+
 libblockdev (2.20-2) unstable; urgency=medium
 
   * Team upload.
