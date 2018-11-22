@@ -9,7 +9,7 @@ Build-Depends: debhelper (>= 11),
                python3:any,
                libglib2.0-dev (>= 2.42.2),
                libgirepository1.0-dev,
-               libcryptsetup-dev (>= 1.6.7),
+               libcryptsetup-dev (>= 1.6.7) [linux-any],
                libdevmapper-dev (>= 1.02.93),
                libudev-dev (>= 216),
                libsystemd-dev,
@@ -17,7 +17,7 @@ Build-Depends: debhelper (>= 11),
                libvolume-key-dev,
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
-               libndctl-dev (>= 63-1.2~),
+               libndctl-dev (>= 63-1.2~) [!hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32]
                libparted-dev (>= 3.1),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
@@ -148,7 +148,7 @@ Description: BTRFS plugin for libblockdev - development
  libblockdev-btrfs plugin/library.
 
 Package: libblockdev-crypto2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -158,7 +158,7 @@ Description: Crypto plugin for libblockdev
 
 Package: libblockdev-crypto-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-crypto2 (= ${binary:Version}),
          libglib2.0-dev,
@@ -344,7 +344,9 @@ Description: Multipath plugin for libblockdev - development
  with the libblockdev-mpath plugin/library.
 
 Package: libblockdev-nvdimm2
-Architecture: any
+# Via debian/rules, it's actually:
+# Architecture: !hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -354,7 +356,9 @@ Description: NVDIMM plugin for libblockdev
 
 Package: libblockdev-nvdimm-dev
 Section: libdevel
-Architecture: any
+# Via debian/rules, it's actually:
+# Architecture: !hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-nvdimm2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -435,7 +439,7 @@ Architecture: any
 Multi-Arch: same
 Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-btrfs2 (= ${binary:Version}),
-         libblockdev-crypto2 (= ${binary:Version}),
+         libblockdev-crypto2 (= ${binary:Version}) [linux-any],
          libblockdev-dm2 (= ${binary:Version}),
          libblockdev-fs2 (= ${binary:Version}),
          libblockdev-kbd2 (= ${binary:Version}),

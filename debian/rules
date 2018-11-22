@@ -3,15 +3,27 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs -Wl,--as-needed
 
-%:
-	dh $@  --with python3,gir
+ifneq ($(DEB_HOST_ARCH_OS),linux)
+CONF_FLAGS = --without-crypto --without nvdimm
+else ifneq (,$(filter hppa powerpc powerpcspe x32,$(DEB_HOST_ARCH)))
+CONF_FLAGS += --without-nvdimm
+# Don't build these binary packages on those architectures.
+# We do it this way since we can't set excluded Architectures
+# for binary packages in debian/control but it's easier to keep track
+# of the architectures we don't want than all the arches we do want
+# The arch list comes from https://buildd.debian.org/status/package.php?p=ndctl
+BUILD_PACKAGES = -Nlibblockdev-nvdimm-dev -Nlibblockdev-nvdimm2
+endif
 
-# nvdimm requires ndctl https://bugs.debian.org/829257
+%:
+	dh $@  --with python3,gir $(BUILD_PACKAGES)
+
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		--disable-tests \
 		--without-s390 \
 		--without-python2 \
+		$(CONF_FLAGS)
 		$(NULL)
 
 override_dh_install:
