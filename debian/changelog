@@ -1,3 +1,11 @@
+libblockdev (2.20-4) unstable; urgency=medium
+
+  * Team upload.
+  * Build the new NVDIMM plugin
+  * Bump debhelper compat to 11
+
+ -- Jeremy Bicha <jbicha@debian.org>  Thu, 22 Nov 2018 08:18:22 -0500
+
 libblockdev (2.20-3) unstable; urgency=medium
 
   * Build the new VDO plugin
