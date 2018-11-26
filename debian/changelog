@@ -1,3 +1,10 @@
+libblockdev (2.20-5) unstable; urgency=medium
+
+  * Try to build the crypto & nvdimm plugins only on architectures
+    where they will build
+
+ -- Jeremy Bicha <jbicha@debian.org>  Mon, 26 Nov 2018 07:27:52 -0500
+
 libblockdev (2.20-4) unstable; urgency=medium
 
   * Team upload.
