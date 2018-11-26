@@ -3,15 +3,13 @@
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs -Wl,--as-needed
 
-ifneq ($(DEB_HOST_ARCH_OS),linux)
-CONF_FLAGS = --without-crypto --without nvdimm
-else ifneq (,$(filter hppa powerpc powerpcspe x32,$(DEB_HOST_ARCH)))
-CONF_FLAGS += --without-nvdimm
-# Don't build these binary packages on those architectures.
+# Don't build nvdimm binary packages on those architectures.
 # We do it this way since we can't set excluded Architectures
 # for binary packages in debian/control but it's easier to keep track
 # of the architectures we don't want than all the arches we do want
 # The arch list comes from https://buildd.debian.org/status/package.php?p=ndctl
+ifneq (,$(filter hppa powerpc powerpcspe x32,$(DEB_HOST_ARCH)))
+CONF_FLAGS += --without-nvdimm
 BUILD_PACKAGES = -Nlibblockdev-nvdimm-dev -Nlibblockdev-nvdimm2
 endif
 

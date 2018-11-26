@@ -9,7 +9,7 @@ Build-Depends: debhelper (>= 11),
                python3:any,
                libglib2.0-dev (>= 2.42.2),
                libgirepository1.0-dev,
-               libcryptsetup-dev (>= 1.6.7) [linux-any],
+               libcryptsetup-dev (>= 1.6.7),
                libdevmapper-dev (>= 1.02.93),
                libudev-dev (>= 216),
                libsystemd-dev,
@@ -17,7 +17,7 @@ Build-Depends: debhelper (>= 11),
                libvolume-key-dev,
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
-               libndctl-dev (>= 63-1.2~) [!hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32],
+               libndctl-dev (>= 63-1.2~) [!hppa !powerpc !powerpcspe !x32],
                libparted-dev (>= 3.1),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
@@ -33,7 +33,7 @@ Vcs-Git: https://salsa.debian.org/utopia-team/libblockdev.git
 Homepage: https://github.com/storaged-project/libblockdev
 
 Package: libblockdev2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Library for manipulating block devices
@@ -49,7 +49,7 @@ Description: Library for manipulating block devices
 
 Package: libblockdev-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev2 (= ${binary:Version}),
          gir1.2-blockdev-2.0 (= ${binary:Version}),
@@ -64,7 +64,7 @@ Description: Library for manipulating block devices - development
 
 Package: gir1.2-blockdev-2.0
 Section: introspection
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${misc:Depends},
@@ -86,7 +86,7 @@ Description: Python 3 gobject-introspection bindings for libblockdev
  libblockdev in Python3.
 
 Package: libblockdev-utils2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -96,7 +96,7 @@ Description: Utility functions for libblockdev
 
 Package: libblockdev-utils-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-utils2 (= ${binary:Version}),
          libglib2.0-dev,
@@ -106,7 +106,7 @@ Description: Utility functions for libblockdev - development
  with the libblockdev-utils library.
 
 Package: libblockdev-part-err2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -116,7 +116,7 @@ Description: Partition error utility functions for libblockdev
 
 Package: libblockdev-part-err-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-part-err2 (= ${binary:Version}),
          libglib2.0-dev,
@@ -126,7 +126,7 @@ Description: Partition error utility functions for libblockdev - development
  with the libblockdev-part-err library.
 
 Package: libblockdev-btrfs2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -137,7 +137,7 @@ Description: BTRFS plugin for libblockdev
 
 Package: libblockdev-btrfs-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-btrfs2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -168,7 +168,7 @@ Description: Crypto plugin for libblockdev - development
  with the libblockdev-crypto plugin/library.
 
 Package: libblockdev-dm2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -180,7 +180,7 @@ Description: Device Mapper plugin for libblockdev
 
 Package: libblockdev-dm-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-dm2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -194,7 +194,7 @@ Description: Device Mapper plugin for libblockdev - development
  with the libblockdev-dm plugin/library.
 
 Package: libblockdev-fs2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${misc:Depends}, ${shlibs:Depends}, e2fsprogs
 Description: file system plugin for libblockdev
@@ -203,7 +203,7 @@ Description: file system plugin for libblockdev
 
 Package: libblockdev-fs-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-fs2 (= ${binary:Version}),
          libparted-dev,
@@ -215,7 +215,7 @@ Description: file system plugin for libblockdev - development
  with the libblockdev-fs plugin/library.
 
 Package: libblockdev-kbd2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -227,7 +227,7 @@ Description: kernel block device plugin for libblockdev
 
 Package: libblockdev-kbd-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-kbd2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -238,7 +238,7 @@ Description: kernel block device plugin for libblockdev - development
  with the libblockdev-kbd plugin/library.
 
 Package: libblockdev-loop2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: Loop device plugin for libblockdev
@@ -247,7 +247,7 @@ Description: Loop device plugin for libblockdev
 
 Package: libblockdev-loop-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-loop2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -258,7 +258,7 @@ Description: Loop device plugin for libblockdev - development
  with the libblockdev-loop plugin/library.
 
 Package: libblockdev-lvm2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -270,7 +270,7 @@ Description: LVM plugin for libblockdev
 
 Package: libblockdev-lvm-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-lvm2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -281,7 +281,7 @@ Description: LVM plugin for libblockdev - development
  with the libblockdev-lvm plugin/library.
 
 Package: libblockdev-lvm-dbus2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -291,7 +291,7 @@ Description: LVM DBus plugin for libblockdev
 
 Package: libblockdev-lvm-dbus-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-lvm-dbus2 (= ${binary:Version}),
          ${misc:Depends}
@@ -300,7 +300,7 @@ Description: LVM DBus plugin for libblockdev - development
  with the libblockdev-lvm plugin/library.
 
 Package: libblockdev-mdraid2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -311,7 +311,7 @@ Description: MD RAID plugin for libblockdev
 
 Package: libblockdev-mdraid-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-mdraid2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -322,7 +322,7 @@ Description: MD RAID plugin for libblockdev - development
  with the libblockdev-mdraid plugin/library.
 
 Package: libblockdev-mpath2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -333,7 +333,7 @@ Description: Multipath plugin for libblockdev
 
 Package: libblockdev-mpath-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -369,7 +369,7 @@ Description: NVDIMM plugin for libblockdev - development
  with the libblockdev-nvdimm plugin/library.
 
 Package: libblockdev-part2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
@@ -381,7 +381,7 @@ Description: Partitioning plugin for libblockdev
 
 Package: libblockdev-part-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-part2 (= ${binary:Version}),
          ${misc:Depends}
@@ -390,7 +390,7 @@ Description: Partitioning plugin for libblockdev - development
  with the libblockdev-part plugin/library.
 
 Package: libblockdev-swap2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -400,7 +400,7 @@ Description: Swap plugin for libblockdev
 
 Package: libblockdev-swap-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Depends: libblockdev-swap2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
@@ -414,7 +414,7 @@ Description: Swap plugin for libblockdev - development
 # Package: libblockdev-s390-dev
 
 Package: libblockdev-vdo2
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends}
@@ -424,7 +424,7 @@ Description: VDO plugin for libblockdev
 
 Package: libblockdev-vdo-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-vdo2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
@@ -435,11 +435,11 @@ Description: VDO plugin for libblockdev - development
  with the libblockdev-vdo plugin/library.
 
 Package: libblockdev-plugins-all
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-btrfs2 (= ${binary:Version}),
-         libblockdev-crypto2 (= ${binary:Version}) [linux-any],
+         libblockdev-crypto2 (= ${binary:Version}),
          libblockdev-dm2 (= ${binary:Version}),
          libblockdev-fs2 (= ${binary:Version}),
          libblockdev-kbd2 (= ${binary:Version}),
@@ -447,6 +447,7 @@ Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-lvm2 (= ${binary:Version}),
          libblockdev-lvm-dbus2 (= ${binary:Version}),
          libblockdev-mdraid2 (= ${binary:Version}),
+         libblockdev-nvdimm2 (= ${binary:Version}) [!hppa !powerpc !powerpcspe !x32],
          libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-part2 (= ${binary:Version}),
          libblockdev-part-err2 (= ${binary:Version}),
