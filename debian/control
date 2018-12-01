@@ -17,7 +17,7 @@ Build-Depends: debhelper (>= 11),
                libvolume-key-dev,
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
-               libndctl-dev (>= 63-1.2~) [!hppa !powerpc !powerpcspe !x32],
+               libndctl-dev (>= 63-1.2~) [!hppa !ia64 !powerpc !powerpcspe !x32],
                libparted-dev (>= 3.1),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
@@ -345,7 +345,7 @@ Description: Multipath plugin for libblockdev - development
 
 Package: libblockdev-nvdimm2
 # Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32
+# Architecture: !hurd-any !kfreebsd-any !hppa !ia64 !powerpc !powerpcspe !x32
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -357,7 +357,7 @@ Description: NVDIMM plugin for libblockdev
 Package: libblockdev-nvdimm-dev
 Section: libdevel
 # Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !hppa !powerpc !powerpcspe !x32
+# Architecture: !hurd-any !kfreebsd-any !hppa !ia64 !powerpc !powerpcspe !x32
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-nvdimm2 (= ${binary:Version}),
