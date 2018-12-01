@@ -1,3 +1,10 @@
+libblockdev (2.20-6) unstable; urgency=medium
+
+  * Don't build for non-Linux since kmod & other required deps are Linux-only
+  * Don't try to build nvdimm plugin on ia64 since ndctl hasn't built there yet
+
+ -- Jeremy Bicha <jbicha@debian.org>  Sat, 01 Dec 2018 17:00:56 -0500
+
 libblockdev (2.20-5) unstable; urgency=medium
 
   * Try to build the crypto & nvdimm plugins only on architectures
