@@ -1,3 +1,10 @@
+libblockdev (2.20-7) unstable; urgency=medium
+
+  * Cherry-pick Use-512bit-keys-in-LUKS-by-default.patch:
+    - Use AES-256 (512 bit key) by default. From 2.21. (Closes: #910249)
+
+ -- Jeremy Bicha <jbicha@debian.org>  Tue, 05 Mar 2019 01:08:22 -0500
+
 libblockdev (2.20-6) unstable; urgency=medium
 
   * Don't build for non-Linux since kmod & other required deps are Linux-only
