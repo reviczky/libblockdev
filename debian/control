@@ -5,6 +5,7 @@ Maintainer: Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.
 Uploaders: Martin Pitt <mpitt@debian.org>
 Build-Depends: debhelper-compat (= 12),
                libtool,
+               autoconf-archive,
                dh-python,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
