@@ -1,3 +1,109 @@
+Libblockdev 2.22
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- nvdimm
+
+  - new function for getting list of supported sector sizes for namespaces
+
+- fixes
+
+  - multiple memory leaks fixed
+
+
+**Full list of changes**
+
+Adam Williamson (1):
+
+- Sync spec file with python2 obsoletion added downstream
+
+Tomas Bzatek (17):
+
+- bd_fs_xfs_get_info: Allow passing error == NULL
+- lvm: Fix some obvious memory leaks
+- lvm: Use g_ptr_array_free() for creating lists
+- lvm: Fix leaking BDLVMPVdata.vg_uuid
+- exec: Fix some memory leaks
+- mdraid: Fix g_strsplit() leaks
+- s390: Fix g_strsplit() leaks
+- ext: Fix g_strsplit() leaks
+- ext: Fix g_match_info_fetch() leaks
+- kbd: Fix g_match_info_fetch() leaks
+- part: Fix leaking objects
+- ext: Fix leaking string
+- part: Fix leaking string in args
+- mdraid: Fix leaking error
+- mdraid: Fix leaking BDMDExamineData.metadata
+- btrfs: Fix number of memory leaks
+- module: Fix libkmod related leak
+
+Vojtech Trefny (7):
+
+- Sync spec with downstream
+- Allow skiping tests only based on architecture
+- New function to get supported sector sizes for NVDIMM namespaces
+- Use existing cryptsetup API for changing keyslot passphrase
+- tests: Fix removing targetcli lun
+- Remove device-mapper-multipath dependency from fs and part plugins
+- tests: Fix Debian testing "version" for skipping
+
+
+Libblockdev 2.21
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Notable changes**
+
+- crypto
+
+  - default key size for LUKS was changed to 512bit
+
+- tools
+
+  - new simple cli tools that use libblockdev
+  - first tool is ``lvm-cache-stats`` for displaying stats for LVM cache devices
+  - use configure option ``--without-tools`` to disable building these
+
+
+**Full list of changes**
+
+Vojtech Trefny (19):
+
+- Use libblkid to check swap status before swapon
+- Add error codes and Python exceptions for swapon fails
+- Add libblkid-devel as a build dependency for the swap plugin
+- Skip VDO grow physical test
+- crypto_test.py: Use blkid instead of lsblk to check luks label
+- Use major/minor macros from sys/sysmacros.h instead of linux/kdev_t.h
+- Add custom error message for wrong passphrase for open
+- Skip LUKS2+integrity test on systems without dm-integrity module
+- Use cryptsetup to check LUKS2 label
+- Fix LUKS2 resize password test
+- crypto: Do not try to use keyring on systems without keyring support
+- lvm-dbus: Do not pass extra arguments enclosed in a tuple
+- Enable cryptsetup debug messages when compiled using --enable-debug
+- vagrant: install 'autoconf-archive' on Ubuntu
+- vagrant: remove F27 and add F29
+- Add 'autoconf-archive' to build requires
+- tests: Remove some old/irrelevant skips
+- tests: Stop skipping some tests on Debian testing
+- Fix checking swap status on lvm/md
+
+Vratislav Podzimek (6):
+
+- Discard messages from libdevmapper in the LVM plugins
+- Add a tool for getting cached LVM statistics
+- Make building tools optional
+- Document what the 'tools' directory contains
+- Add a new subpackage with the tool(s)
+- Use 512bit keys in LUKS by default
+
 Libblockdev 2.20
 ----------------
 

@@ -19,6 +19,7 @@
 %define with_gi @WITH_GI@
 %define with_escrow @WITH_ESCROW@
 %define with_dmraid @WITH_DMRAID@
+%define with_tools @WITH_TOOLS@
 
 # python2 is not available on RHEL > 7 and not needed on Fedora > 29
 %if 0%{?rhel} > 7 || 0%{?fedora} > 29 || %{with_python2} == 0
@@ -113,14 +114,17 @@
 %if %{with_vdo} != 1
 %define vdo_copts --without-vdo
 %endif
+%if %{with_tools} != 1
+%define tools_copts --without-tools
+%endif
 %if %{with_gi} != 1
 %define gi_copts --disable-introspection
 %endif
 
-%define configure_opts %{?python2_copts} %{?python3_copts} %{?bcache_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?kbd_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?vdo_copts} %{?gi_copts}
+%define configure_opts %{?python2_copts} %{?python3_copts} %{?bcache_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?kbd_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?vdo_copts} %{?tools_copts} %{?gi_copts}
 
 Name:        libblockdev
-Version:     2.20
+Version:     2.22
 Release:     1%{?dist}
 Summary:     A library for low-level manipulation with block devices
 License:     LGPLv2+
@@ -133,6 +137,9 @@ BuildRequires: gobject-introspection-devel
 %endif
 %if %{with_python2}
 BuildRequires: python2-devel
+%else
+# Obsolete the python2 subpackage to avoid errors on upgrade
+Obsoletes:     python2-blockdev < %{version}-%{release}
 %endif
 %if %{with_python3}
 BuildRequires: python3-devel
@@ -141,6 +148,7 @@ BuildRequires: python3-devel
 BuildRequires: gtk-doc
 %endif
 BuildRequires: glib2-doc
+BuildRequires: autoconf-archive
 
 # Needed for the escrow tests in tests/crypto_test.py, but not used to build
 # BuildRequires: volume_key
@@ -307,7 +315,6 @@ BuildRequires: libblkid-devel
 BuildRequires: libmount-devel
 Summary:     The FS plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} >= 0.11
-Requires: device-mapper-multipath
 
 %description fs
 The libblockdev library plugin (and in the same time a standalone library)
@@ -497,7 +504,6 @@ with the libblockdev-nvdimm plugin/library.
 BuildRequires: parted-devel
 Summary:     The partitioning plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} >= 0.11
-Requires: device-mapper-multipath
 Requires: gdisk
 Requires: util-linux
 
@@ -519,6 +525,7 @@ with the libblockdev-part plugin/library.
 
 %if %{with_swap}
 %package swap
+BuildRequires: libblkid-devel
 Summary:     The swap plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} >= 0.11
 Requires: util-linux
@@ -572,6 +579,20 @@ This package contains header files and pkg-config files needed for development
 with the libblockdev-vdo plugin/library.
 %endif
 
+%if %{with_tools}
+%package tools
+Summary:    Various nice tools based on libblockdev
+Requires:   %{name}
+Requires:   %{name}-lvm
+BuildRequires: libbytesize-devel
+%if %{with_lvm_dbus} == 1
+Recommends: %{name}-lvm-dbus
+%endif
+
+%description tools
+Various nice storage-related tools based on libblockdev.
+
+%endif
 
 %ifarch s390 s390x
 %package s390
@@ -943,6 +964,10 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %{_includedir}/blockdev/vdo.h
 %endif
 
+%if %{with_tools}
+%files tools
+%{_bindir}/lvm-cache-stats
+%endif
 
 %ifarch s390 s390x
 %files s390
@@ -957,6 +982,70 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %files plugins-all
 
 %changelog
+* Wed Jun 12 2019 Vojtech Trefny <vtrefny@redhat.com> - 2.22-1
+- tests: Fix Debian testing "version" for skipping (vtrefny)
+- module: Fix libkmod related leak (tbzatek)
+- btrfs: Fix number of memory leaks (tbzatek)
+- mdraid: Fix leaking BDMDExamineData.metadata (tbzatek)
+- mdraid: Fix leaking error (tbzatek)
+- part: Fix leaking string in args (tbzatek)
+- ext: Fix leaking string (tbzatek)
+- part: Fix leaking objects (tbzatek)
+- kbd: Fix g_match_info_fetch() leaks (tbzatek)
+- ext: Fix g_match_info_fetch() leaks (tbzatek)
+- ext: Fix g_strsplit() leaks (tbzatek)
+- s390: Fix g_strsplit() leaks (tbzatek)
+- mdraid: Fix g_strsplit() leaks (tbzatek)
+- exec: Fix some memory leaks (tbzatek)
+- lvm: Fix leaking BDLVMPVdata.vg_uuid (tbzatek)
+- lvm: Use g_ptr_array_free() for creating lists (tbzatek)
+- lvm: Fix some obvious memory leaks (tbzatek)
+- Remove device-mapper-multipath dependency from fs and part plugins (vtrefny)
+- bd_fs_xfs_get_info: Allow passing error == NULL (tbzatek)
+- tests: Fix removing targetcli lun (vtrefny)
+- Use existing cryptsetup API for changing keyslot passphrase (vtrefny)
+- New function to get supported sector sizes for NVDIMM namespaces (vtrefny)
+- Allow skiping tests only based on architecture (vtrefny)
+- Sync spec file with python2 obsoletion added downstream (awilliam)
+- Sync spec with downstream (vtrefny)
+
+* Thu Feb 28 2019 Adam Williamson <awilliam@redhat.com> - 2.21-2
+- Obsolete the python2 subpackage if we're not building it
+
+* Thu Feb 21 2019 Vojtech Trefny <vtrefny@redhat.com> - 2.21-1
+- Fix checking swap status on lvm/md (vtrefny)
+- tests: Stop skipping some tests on Debian testing (vtrefny)
+- tests: Remove some old/irrelevant skips (vtrefny)
+- Use 512bit keys in LUKS by default (vratislav.podzimek)
+- Add 'autoconf-archive' to build requires (vtrefny)
+- vagrant: remove F27 and add F29 (vtrefny)
+- vagrant: install 'autoconf-archive' on Ubuntu (vtrefny)
+- Enable cryptsetup debug messages when compiled using --enable-debug (vtrefny)
+- lvm-dbus: Do not pass extra arguments enclosed in a tuple (vtrefny)
+- crypto: Do not try to use keyring on systems without keyring support (vtrefny)
+- Fix LUKS2 resize password test (vtrefny)
+- Use cryptsetup to check LUKS2 label (vtrefny)
+- Skip LUKS2+integrity test on systems without dm-integrity module (vtrefny)
+- Add custom error message for wrong passphrase for open (vtrefny)
+- Use major/minor macros from sys/sysmacros.h instead of linux/kdev_t.h (vtrefny)
+- crypto_test.py: Use blkid instead of lsblk to check luks label (vtrefny)
+- Skip VDO grow physical test (vtrefny)
+- Add libblkid-devel as a build dependency for the swap plugin (vtrefny)
+- Add error codes and Python exceptions for swapon fails (vtrefny)
+- Use libblkid to check swap status before swapon (vtrefny)
+- Add a new subpackage with the tool(s) (v.podzimek)
+- Document what the 'tools' directory contains (v.podzimek)
+- Make building tools optional (v.podzimek)
+- Add a tool for getting cached LVM statistics (v.podzimek)
+- Discard messages from libdevmapper in the LVM plugins (v.podzimek)
+
+* Fri Feb 01 2019 Fedora Release Engineering <releng@fedoraproject.org> - 2.20-3
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_30_Mass_Rebuild
+
+* Mon Oct 08 2018 Vojtech Trefny <vtrefny@redhat.com> - 2.20-2
+- Use libblkid to check swap status before swapon (vtrefny)
+- Add error codes and Python exceptions for swapon fails (vtrefny)
+
 * Wed Sep 26 2018 Vojtech Trefny <vtrefny@redhat.com> - 2.20-1
 - Use unsafe caching for storage for devel/testing VMs (v.podzimek)
 - Require newer version of cryptsetup for LUKS2 tests (vtrefny)
@@ -1030,6 +1119,15 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 - Show simple summary after configure (vtrefny)
 - Do not build VDO plugin on non-x86_64 architectures (vtrefny)
 - Sync spec with downstream (vtrefny)
+
+* Fri Jul 13 2018 Fedora Release Engineering <releng@fedoraproject.org> - 2.18-4
+- Rebuilt for https://fedoraproject.org/wiki/Fedora_29_Mass_Rebuild
+
+* Mon Jul 09 2018 Vojtech Trefny <vtrefny@redhat.com> - 2.18-3
+- Reitroduce python2 support for Fedora 29
+
+* Mon Jul 02 2018 Miro Hrončok <mhroncok@redhat.com> - 2.18-2
+- Rebuilt for Python 3.7
 
 * Wed Jun 20 2018 Vojtech Trefny <vtrefny@redhat.com> - 2.18-1
 - Add VDO to features.rst (vtrefny)
