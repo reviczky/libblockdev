@@ -21,8 +21,8 @@ override_dh_auto_configure:
 		--disable-tests \
 		--without-s390 \
 		--without-python2 \
+		--without-tools \
 		$(CONF_FLAGS)
-		$(NULL)
 
 override_dh_install:
 	find debian -name '*.la' -print -delete
