@@ -1,8 +1,26 @@
-libblockdev (2.22-1) UNRELEASED; urgency=medium
+libblockdev (2.22-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Rebase patches
+  * Bump debhelper compat level to 12.
+    Use new debhelper-compat syntax and drop debian/compat
+  * Mark libblockdev-swap-dev as Multi-Arch: same
+  * Disable tools via --withouth-tools configure switch
+    lvm-cache-stats is a simple tool for displaying stats for LVM cache
+    devices which was introduced in version 2.21. It is the only tool at
+    this point and we don't really need it so disable it to avoid the need
+    for a new binary package. Should more tools be added which appear to be
+    useful, this decision can be revisited.
+  * Update symbols file for libblockdev2 and libblockdev-nvdimm2
+  * Bump Standards-Version to 4.4.0
+  * Add library-not-linked-against-libc lintian override for
+    libblockdev-part-err2.
+    The library only uses symbols from glib, but not glibc.
+  * Add Build-Depends on autoconf-archive.
+    Required during autoreconf for the AX_CHECK_ENABLE_DEBUG macro.
 
- -- Michael Biebl <biebl@debian.org>  Wed, 10 Jul 2019 12:49:31 +0200
+ -- Michael Biebl <biebl@debian.org>  Wed, 10 Jul 2019 13:54:39 +0200
 
 libblockdev (2.20-7) unstable; urgency=medium
 
