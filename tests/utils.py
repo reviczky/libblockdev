@@ -116,7 +116,7 @@ def _delete_target(wwn, backstore=None):
         _delete_backstore(backstore)
 
 def _delete_lun(wwn, delete_target=True, backstore=None):
-    status = subprocess.call(["targetcli", "/loopback/%s/luns/lun0 delete"], stdout=DEVNULL)
+    status = subprocess.call(["targetcli", "/loopback/%s/luns delete lun0" % wwn], stdout=DEVNULL)
     if status != 0:
         raise RuntimeError("Failed to delete the '%s' loopback device's lun0" % wwn)
     if delete_target:
@@ -272,7 +272,7 @@ def get_version():
     return (distro, version)
 
 
-def skip_on(skip_on_distros, skip_on_version="", skip_on_arch="", reason=""):
+def skip_on(skip_on_distros=None, skip_on_version="", skip_on_arch="", reason=""):
     """A function returning a decorator to skip some test on a given distribution-version combination
 
     :param skip_on_distros: distro(s) to skip the test on
@@ -288,7 +288,7 @@ def skip_on(skip_on_distros, skip_on_version="", skip_on_arch="", reason=""):
     arch = os.uname()[-1]
 
     def decorator(func):
-        if distro in skip_on_distros and (not skip_on_version or skip_on_version == version) and \
+        if (skip_on_distros is None or distro in skip_on_distros) and (not skip_on_version or skip_on_version == version) and \
            (not skip_on_arch or skip_on_arch == arch):
             msg = "not supported on this distribution in this version and arch" + (": %s" % reason if reason else "")
             return unittest.skip(msg)(func)

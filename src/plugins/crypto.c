@@ -250,6 +250,9 @@ static void crypto_log_redirect (gint level, const gchar *msg, void *usrptr __at
  *
  */
 gboolean bd_crypto_init (void) {
+#ifdef DEBUG
+    crypt_set_debug_level (CRYPT_DEBUG_ALL);
+#endif
     c_locale = newlocale (LC_ALL_MASK, "C", c_locale);
     crypt_set_log_callback (NULL, &crypto_log_redirect, NULL);
     return TRUE;
@@ -265,6 +268,7 @@ gboolean bd_crypto_init (void) {
 void bd_crypto_close (void) {
     c_locale = (locale_t) 0;
     crypt_set_log_callback (NULL, NULL, NULL);
+    crypt_set_debug_level (CRYPT_DEBUG_NONE);
 }
 
 /**
@@ -1033,8 +1037,13 @@ static gboolean luks_open (const gchar *device, const gchar *name, const guint8 
     g_free (key_buffer);
 
     if (ret < 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to activate device: %s", strerror_l(-ret, c_locale));
+        if (ret == -EPERM)
+          g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                       "Failed to activate device: Incorrect passphrase.");
+        else
+          g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                       "Failed to activate device: %s", strerror_l(-ret, c_locale));
+
         crypt_free (cd);
         bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
@@ -1359,8 +1368,6 @@ gboolean bd_crypto_luks_remove_key (const gchar *device, const gchar *pass, cons
 gboolean bd_crypto_luks_change_key_blob (const gchar *device, const guint8 *pass_data, gsize data_len, const guint8 *npass_data, gsize ndata_len, GError **error) {
     struct crypt_device *cd = NULL;
     gint ret = 0;
-    gchar *volume_key = NULL;
-    gsize vk_size = 0;
     guint64 progress_id = 0;
     gchar *msg = NULL;
 
@@ -1385,41 +1392,21 @@ gboolean bd_crypto_luks_change_key_blob (const gchar *device, const guint8 *pass
         return FALSE;
     }
 
-    vk_size = crypt_get_volume_key_size(cd);
-    volume_key = (gchar *) g_malloc (vk_size);
-
-    ret = crypt_volume_key_get (cd, CRYPT_ANY_SLOT, volume_key, &vk_size, (char*) pass_data, data_len);
+    ret = crypt_keyslot_change_by_passphrase (cd, CRYPT_ANY_SLOT, CRYPT_ANY_SLOT,
+                                              (char*) pass_data, data_len,
+                                              (char*) npass_data, ndata_len);
     if (ret < 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to load device's volume key: %s", strerror_l(-ret, c_locale));
+        if (ret == -EPERM)
+            g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                         "Failed to change the passphrase: No keyslot with given passphrase found.");
+        else
+            g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_ADD_KEY,
+                         "Failed to change the passphrase: %s", strerror_l (-ret, c_locale));
         crypt_free (cd);
-        g_free (volume_key);
         bd_utils_report_finished (progress_id, (*error)->message);
         return FALSE;
     }
 
-    /* ret is the number of the slot with the given pass */
-    ret = crypt_keyslot_destroy (cd, ret);
-    if (ret != 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_REMOVE_KEY,
-                     "Failed to remove the old passphrase: %s", strerror_l(-ret, c_locale));
-        crypt_free (cd);
-        g_free (volume_key);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    ret = crypt_keyslot_add_by_volume_key (cd, ret, volume_key, vk_size, (char*) npass_data, ndata_len);
-    if (ret < 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_ADD_KEY,
-                     "Failed to add the new passphrase: %s", strerror_l(-ret, c_locale));
-        crypt_free (cd);
-        g_free (volume_key);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    g_free (volume_key);
     crypt_free (cd);
     bd_utils_report_finished (progress_id, "Completed");
     return TRUE;
@@ -1444,6 +1431,7 @@ gboolean bd_crypto_luks_change_key (const gchar *device, const gchar *pass, cons
 
 static gboolean luks_resize (const gchar *luks_device, guint64 size, const guint8 *pass_data, gsize data_len, const gchar *key_file, GError **error) {
     struct crypt_device *cd = NULL;
+    struct crypt_active_device cad;
     gint ret = 0;
     guint64 progress_id = 0;
     gchar *msg = NULL;
@@ -1463,6 +1451,16 @@ static gboolean luks_resize (const gchar *luks_device, guint64 size, const guint
         return FALSE;
     }
 
+    ret = crypt_get_active_device (cd, luks_device, &cad);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to get information about '%s': %s",
+                     luks_device, strerror_l(-ret, c_locale));
+        crypt_free (cd);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
     if (pass_data || key_file) {
         if (key_file) {
             success = g_file_get_contents (key_file, &key_buffer, &buf_len, error);
@@ -1478,7 +1476,7 @@ static gboolean luks_resize (const gchar *luks_device, guint64 size, const guint
 #ifdef LIBCRYPTSETUP_2
         ret = crypt_activate_by_passphrase (cd, NULL, CRYPT_ANY_SLOT,
                                             key_buffer ? key_buffer : (char*) pass_data,
-                                            buf_len, CRYPT_ACTIVATE_KEYRING_KEY);
+                                            buf_len, cad.flags & CRYPT_ACTIVATE_KEYRING_KEY);
 #else
         ret = crypt_activate_by_passphrase (cd, NULL, CRYPT_ANY_SLOT,
                                             key_buffer ? key_buffer : (char*) pass_data,
@@ -1487,8 +1485,12 @@ static gboolean luks_resize (const gchar *luks_device, guint64 size, const guint
         g_free (key_buffer);
 
         if (ret < 0) {
-            g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                         "Failed to activate device: %s", strerror_l(-ret, c_locale));
+            if (ret == -EPERM)
+              g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                           "Failed to activate device: Incorrect passphrase.");
+            else
+              g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                           "Failed to activate device: %s", strerror_l(-ret, c_locale));
             crypt_free (cd);
             bd_utils_report_finished (progress_id, (*error)->message);
             return FALSE;

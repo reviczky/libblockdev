@@ -294,6 +294,14 @@ gboolean bd_lvm_check_deps (void) {
 }
 
 /**
+ * discard_dm_log: (skip)
+ */
+static void discard_dm_log (int level __attribute__((unused)), const char *file __attribute__((unused)), int line __attribute__((unused)),
+                            int dm_errno_or_class __attribute__((unused)), const char *f __attribute__((unused)), ...) {
+    return;
+}
+
+/**
  * bd_lvm_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -309,6 +317,9 @@ gboolean bd_lvm_init (void) {
         g_critical ("Failed to setup DBus connection: %s", error->message);
         return FALSE;
     }
+
+    dm_log_with_errno_init ((dm_log_with_errno_fn) discard_dm_log);
+    dm_log_init_verbose (0);
 
     return TRUE;
 }
@@ -329,6 +340,9 @@ void bd_lvm_close (void) {
         g_critical ("Failed to flush DBus connection: %s", error->message);
     if (!g_dbus_connection_close_sync (bus, NULL, &error))
         g_critical ("Failed to close DBus connection: %s", error->message);
+
+    dm_log_with_errno_init (NULL);
+    dm_log_init_verbose (0);
 }
 
 /**
@@ -1332,7 +1346,6 @@ gboolean bd_lvm_pvremove (const gchar *device, const BDExtraArg **extra, GError 
 
     params = g_variant_builder_end (&builder);
     g_variant_builder_clear (&builder);
-    params = g_variant_new ("(v)", params);
     call_lvm_obj_method_sync (device, PV_INTF, "Remove", NULL, params, extra, error);
     if (*error && g_error_matches (*error, BD_LVM_ERROR, BD_LVM_ERROR_NOEXIST))
         /* if the object doesn't exist, the given device is not a PV and thus
@@ -1949,7 +1962,6 @@ gboolean bd_lvm_lvremove (const gchar *vg_name, const gchar *lv_name, gboolean f
     }
     extra_params = g_variant_builder_end (&builder);
     g_variant_builder_clear (&builder);
-    extra_params = g_variant_new ("(v)", extra_params);
 
     call_lv_method_sync (vg_name, lv_name, "Remove", NULL, extra_params, extra, error);
 

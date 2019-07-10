@@ -2,7 +2,7 @@ import unittest
 import os
 import overrides_hack
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, run_command
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, run_command, run
 from gi.repository import BlockDev, GLib
 
 
@@ -96,6 +96,48 @@ class SwapTestCase(SwapTest):
 
         _ret, out, _err = run_command("blkid -ovalue -sLABEL -p %s" % self.loop_dev)
         self.assertEqual(out, "BlockDevSwap")
+
+    def test_swapon_pagesize(self):
+        """Verify that activating swap with different pagesize fails"""
+
+        # create swap with 64k pagesize
+        ret, out, err = run_command("mkswap --pagesize 65536 %s" % self.loop_dev)
+        if ret != 0:
+            self.fail("Failed to prepare swap for pagesize test: %s %s" % (out, err))
+
+        # activation should fail because swap has different pagesize
+        with self.assertRaises(BlockDev.SwapPagesizeError):
+            BlockDev.swap.swapon(self.loop_dev)
+
+    def _remove_map(self, map_name):
+        run("dmsetup remove -f %s" % map_name)
+
+    def test_swapstatus_dm(self):
+        """Verify that swapstatus works correctly with DM devices"""
+
+        dm_name = "swapstatus-test"
+
+        self.addCleanup(self._remove_map, dm_name)
+        run("dmsetup create %s --table \"0 $((`lsblk -osize -b %s -nd`/512)) linear %s 0\"" % (dm_name, self.loop_dev, self.loop_dev))
+
+        succ = BlockDev.swap_mkswap("/dev/mapper/%s" % dm_name, None, None)
+        self.assertTrue(succ)
+
+        on = BlockDev.swap_swapstatus("/dev/mapper/%s" % dm_name)
+        self.assertFalse(on)
+
+        succ = BlockDev.swap_swapon("/dev/mapper/%s" % dm_name, -1)
+        self.assertTrue(succ)
+
+        on = BlockDev.swap_swapstatus("/dev/mapper/%s" % dm_name)
+        self.assertTrue(on)
+
+        succ = BlockDev.swap_swapoff("/dev/mapper/%s" % dm_name)
+        self.assertTrue(succ)
+
+        on = BlockDev.swap_swapstatus("/dev/mapper/%s" % dm_name)
+        self.assertFalse(on)
+
 
 class SwapUnloadTest(SwapTest):
     def setUp(self):
