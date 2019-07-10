@@ -401,6 +401,7 @@ Description: Swap plugin for libblockdev
 Package: libblockdev-swap-dev
 Section: libdevel
 Architecture: linux-any
+Multi-Arch: same
 Depends: libblockdev-swap2 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
