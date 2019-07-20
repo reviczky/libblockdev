@@ -1,3 +1,29 @@
+libblockdev (2.20-7+deb10u1) buster; urgency=medium
+
+  [ intrigeri ]
+  * Use existing cryptsetup API for changing keyslot passphrase.
+    Cherry-pick upstream fix to use existing cryptsetup API for atomically
+    changing a keyslot passphrase, instead of deleting the old keyslot
+    before adding the new one. This avoids data loss when attempting to
+    change the passphrase of a LUKS2 device via udisks2, e.g. from GNOME
+    Disks.
+    Deleting a keyslot and then adding one is risky: if anything goes wrong
+    before the new keyslot is successfully added, no usable keyslot is left
+    and the device cannot be unlocked anymore. There's little chances this
+    causes actual problems with LUKS1, but LUKS2 defaults to the memory-hard
+    Argon2 key derivation algorithm, which is implemented in cryptsetup with
+    the assumption that it runs as root with no MEMLOCK ulimit; this
+    assumption is wrong when run by udisks2.service under
+    LimitMEMLOCK=65536, which breaks adding the new keyslot, and makes us
+    hit the problematic situation (user data loss) every time.
+    With this change, changing a LUKS2 passphrase via udisks2 will still
+    fail in some cases, until the MEMLOCK ulimit problem is solved in
+    cryptsetup or workaround'ed in udisks2. But at least, if it fails, it
+    will fail _atomically_ and the original passphrase will still work.
+    (Closes: #928893)
+
+ -- Michael Biebl <biebl@debian.org>  Sat, 20 Jul 2019 23:18:18 +0200
+
 libblockdev (2.20-7) unstable; urgency=medium
 
   * Cherry-pick Use-512bit-keys-in-LUKS-by-default.patch:
