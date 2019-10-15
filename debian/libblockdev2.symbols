@@ -127,8 +127,10 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_fs_ext4_resize@Base 2.14
  bd_fs_ext4_set_label@Base 2.14
  bd_fs_ext4_wipe@Base 2.14
+ bd_fs_freeze@Base 2.23
  bd_fs_get_fstype@Base 2.14
  bd_fs_get_mountpoint@Base 2.14
+ bd_fs_is_mountpoint@Base 2.23
  bd_fs_is_tech_avail@Base 2.14
  bd_fs_mount@Base 2.14
  bd_fs_ntfs_check@Base 2.14
@@ -144,6 +146,7 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_fs_repair@Base 2.14
  bd_fs_resize@Base 2.14
  bd_fs_set_label@Base 2.14
+ bd_fs_unfreeze@Base 2.23
  bd_fs_unmount@Base 2.14
  bd_fs_vfat_check@Base 2.14
  bd_fs_vfat_get_info@Base 2.14
@@ -404,59 +407,3 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_vdo_stats_free@Base 2.20
  bd_vdo_stats_get_type@Base 2.20
  bd_vdo_stop@Base 2.20
- get_btrfs_functions@Base 2.14
- get_btrfs_num_functions@Base 2.14
- get_crypto_functions@Base 2.14
- get_crypto_num_functions@Base 2.14
- get_dm_functions@Base 2.14
- get_dm_num_functions@Base 2.14
- get_fs_functions@Base 2.14
- get_fs_num_functions@Base 2.14
- get_kbd_functions@Base 2.14
- get_kbd_num_functions@Base 2.14
- get_loop_functions@Base 2.14
- get_loop_num_functions@Base 2.14
- get_lvm_functions@Base 2.14
- get_lvm_num_functions@Base 2.14
- get_mdraid_functions@Base 2.14
- get_mdraid_num_functions@Base 2.14
- get_mpath_functions@Base 2.14
- get_mpath_num_functions@Base 2.14
- get_nvdimm_functions@Base 2.20
- get_nvdimm_num_functions@Base 2.20
- get_part_functions@Base 2.14
- get_part_num_functions@Base 2.14
- (arch=s390x)get_s390_functions@Base 2.14
- (arch=s390x)get_s390_num_functions@Base 2.14
- get_swap_functions@Base 2.14
- get_swap_num_functions@Base 2.14
- get_vdo_functions@Base 2.20
- get_vdo_num_functions@Base 2.20
- load_btrfs_from_plugin@Base 2.14
- load_crypto_from_plugin@Base 2.14
- load_dm_from_plugin@Base 2.14
- load_fs_from_plugin@Base 2.14
- load_kbd_from_plugin@Base 2.14
- load_loop_from_plugin@Base 2.14
- load_lvm_from_plugin@Base 2.14
- load_mdraid_from_plugin@Base 2.14
- load_mpath_from_plugin@Base 2.14
- load_nvdimm_from_plugin@Base 2.20
- load_part_from_plugin@Base 2.14
- (arch=s390x)load_s390_from_plugin@Base 2.14
- load_swap_from_plugin@Base 2.14
- load_vdo_from_plugin@Base 2.20
- unload_btrfs@Base 2.14
- unload_crypto@Base 2.14
- unload_dm@Base 2.14
- unload_fs@Base 2.14
- unload_kbd@Base 2.14
- unload_loop@Base 2.14
- unload_lvm@Base 2.14
- unload_mdraid@Base 2.14
- unload_mpath@Base 2.14
- unload_nvdimm@Base 2.20
- unload_part@Base 2.14
- (arch=s390x)unload_s390@Base 2.14
- unload_swap@Base 2.14
- unload_vdo@Base 2.20

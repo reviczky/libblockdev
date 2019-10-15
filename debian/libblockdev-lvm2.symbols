@@ -68,4 +68,3 @@ libbd_lvm.so.2 libblockdev-lvm2 #MINVER#
  bd_lvm_vgremove@Base 2.14
  bd_lvm_vgrename@Base 2.14
  bd_lvm_vgs@Base 2.14
- global_config_lock@Base 2.14

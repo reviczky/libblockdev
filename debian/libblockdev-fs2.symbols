@@ -36,17 +36,17 @@ libbd_fs.so.2 libblockdev-fs2 #MINVER#
  bd_fs_ext4_resize@Base 2.14
  bd_fs_ext4_set_label@Base 2.14
  bd_fs_ext4_wipe@Base 2.14
- bd_fs_ext_is_tech_avail@Base 2.16
+ bd_fs_freeze@Base 2.23
  bd_fs_get_fstype@Base 2.14
  bd_fs_get_mountpoint@Base 2.14
  bd_fs_init@Base 2.14
+ bd_fs_is_mountpoint@Base 2.23
  bd_fs_is_tech_avail@Base 2.14
  bd_fs_mount@Base 2.14
  bd_fs_ntfs_check@Base 2.14
  bd_fs_ntfs_get_info@Base 2.14
  bd_fs_ntfs_info_copy@Base 2.14
  bd_fs_ntfs_info_free@Base 2.14
- bd_fs_ntfs_is_tech_avail@Base 2.16
  bd_fs_ntfs_mkfs@Base 2.14
  bd_fs_ntfs_repair@Base 2.14
  bd_fs_ntfs_resize@Base 2.14
@@ -55,12 +55,12 @@ libbd_fs.so.2 libblockdev-fs2 #MINVER#
  bd_fs_repair@Base 2.14
  bd_fs_resize@Base 2.14
  bd_fs_set_label@Base 2.14
+ bd_fs_unfreeze@Base 2.23
  bd_fs_unmount@Base 2.14
  bd_fs_vfat_check@Base 2.14
  bd_fs_vfat_get_info@Base 2.14
  bd_fs_vfat_info_copy@Base 2.14
  bd_fs_vfat_info_free@Base 2.14
- bd_fs_vfat_is_tech_avail@Base 2.16
  bd_fs_vfat_mkfs@Base 2.14
  bd_fs_vfat_repair@Base 2.14
  bd_fs_vfat_resize@Base 2.14
@@ -71,7 +71,6 @@ libbd_fs.so.2 libblockdev-fs2 #MINVER#
  bd_fs_xfs_get_info@Base 2.14
  bd_fs_xfs_info_copy@Base 2.14
  bd_fs_xfs_info_free@Base 2.14
- bd_fs_xfs_is_tech_avail@Base 2.16
  bd_fs_xfs_mkfs@Base 2.14
  bd_fs_xfs_repair@Base 2.14
  bd_fs_xfs_resize@Base 2.14
