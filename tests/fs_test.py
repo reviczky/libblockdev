@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 from contextlib import contextmanager
 import utils
-from utils import run, create_sparse_tempfile, mount, umount, unstable_test, skip_on
+from utils import run, create_sparse_tempfile, mount, umount, TestTags, tag_test
 import six
 import overrides_hack
 
@@ -97,6 +97,7 @@ class FSTestCase(unittest.TestCase):
             self.fail("Failed to set %s read-write" % device)
 
 class TestGenericWipe(FSTestCase):
+    @tag_test(TestTags.CORE)
     def test_generic_wipe(self):
         """Verify that generic signature wipe works as expected"""
 
@@ -210,16 +211,19 @@ class ExtTestMkfs(FSTestCase):
 
         BlockDev.fs_wipe(self.loop_dev, True)
 
+    @tag_test(TestTags.CORE)
     def test_ext2_mkfs(self):
         """Verify that it is possible to create a new ext2 file system"""
         self._test_ext_mkfs(mkfs_function=BlockDev.fs_ext2_mkfs,
                             ext_version="ext2")
 
+    @tag_test(TestTags.CORE)
     def test_ext3_mkfs(self):
         """Verify that it is possible to create a new ext3 file system"""
         self._test_ext_mkfs(mkfs_function=BlockDev.fs_ext3_mkfs,
                             ext_version="ext3")
 
+    @tag_test(TestTags.CORE)
     def test_ext4_mkfs(self):
         """Verify that it is possible to create a new ext4 file system"""
         self._test_ext_mkfs(mkfs_function=BlockDev.fs_ext4_mkfs,
@@ -385,16 +389,19 @@ class ExtGetInfo(FSTestCase):
             self.assertTrue(fi.uuid)
             self.assertTrue(fi.state, "clean")
 
+    @tag_test(TestTags.CORE)
     def test_ext2_get_info(self):
         """Verify that it is possible to get info about an ext2 file system"""
         self._test_ext_get_info(mkfs_function=BlockDev.fs_ext2_mkfs,
                                 info_function=BlockDev.fs_ext2_get_info)
 
+    @tag_test(TestTags.CORE)
     def test_ext3_get_info(self):
         """Verify that it is possible to get info about an ext3 file system"""
         self._test_ext_get_info(mkfs_function=BlockDev.fs_ext3_mkfs,
                                 info_function=BlockDev.fs_ext3_get_info)
 
+    @tag_test(TestTags.CORE)
     def test_ext4_get_info(self):
         """Verify that it is possible to get info about an ext4 file system"""
         self._test_ext_get_info(mkfs_function=BlockDev.fs_ext4_mkfs,
@@ -511,6 +518,7 @@ class ExtResize(FSTestCase):
                               resize_function=BlockDev.fs_ext4_resize)
 
 class XfsTestMkfs(FSTestCase):
+    @tag_test(TestTags.CORE)
     def test_xfs_mkfs(self):
         """Verify that it is possible to create a new xfs file system"""
 
@@ -597,6 +605,7 @@ class XfsTestRepair(FSTestCase):
         self.assertTrue(succ)
 
 class XfsGetInfo(FSTestCase):
+    @tag_test(TestTags.CORE)
     def test_xfs_get_info(self):
         """Verify that it is possible to get info about an xfs file system"""
 
@@ -970,6 +979,7 @@ class MountTest(FSTestCase):
         if ret != 0:
             self.fail("Failed to remove user user '%s': %s" % (self.username, err))
 
+    @tag_test(TestTags.CORE)
     def test_mount(self):
         """ Test basic mounting and unmounting """
 
@@ -985,12 +995,18 @@ class MountTest(FSTestCase):
         self.assertTrue(succ)
         self.assertTrue(os.path.ismount(tmp))
 
+        succ = BlockDev.fs_is_mountpoint(tmp)
+        self.assertTrue(tmp)
+
         mnt = BlockDev.fs_get_mountpoint(self.loop_dev)
         self.assertEqual(mnt, tmp)
 
         succ = BlockDev.fs_unmount(self.loop_dev, False, False, None)
         self.assertTrue(succ)
         self.assertFalse(os.path.ismount(tmp))
+
+        succ = BlockDev.fs_is_mountpoint(tmp)
+        self.assertFalse(succ)
 
         mnt = BlockDev.fs_get_mountpoint(self.loop_dev)
         self.assertIsNone(mnt)
@@ -1053,7 +1069,7 @@ class MountTest(FSTestCase):
             BlockDev.fs_mount(loop_dev, tmp_dir, None, "rw", None)
         self.assertFalse(os.path.ismount(tmp_dir))
 
-    @unittest.skipUnless("JENKINS_HOME" in os.environ, "skipping test that modifies system configuration")
+    @tag_test(TestTags.UNSAFE)
     def test_mount_fstab(self):
         """ Test mounting and unmounting devices in /etc/fstab """
         # this test will change /etc/fstab, we want to revert the changes when it finishes
@@ -1088,7 +1104,7 @@ class MountTest(FSTestCase):
         self.assertTrue(succ)
         self.assertFalse(os.path.ismount(tmp))
 
-    @unittest.skipUnless("JENKINS_HOME" in os.environ, "skipping test that modifies system configuration")
+    @tag_test(TestTags.UNSAFE)
     def test_mount_fstab_user(self):
         """ Test mounting and unmounting devices in /etc/fstab as non-root user """
         # this test will change /etc/fstab, we want to revert the changes when it finishes
@@ -1135,7 +1151,6 @@ class MountTest(FSTestCase):
             BlockDev.fs_unmount(self.loop_dev, run_as_uid=uid, run_as_gid=gid)
         self.assertTrue(os.path.ismount(tmp))
 
-    @skip_on("debian", "10", reason="NTFS mounting is broken on Debian testing")
     def test_mount_ntfs(self):
         """ Test basic mounting and unmounting with NTFS filesystem"""
         # using NTFS because it uses a helper program (mount.ntfs) and libmount
@@ -1184,18 +1199,34 @@ class MountTest(FSTestCase):
         self.assertTrue(succ)
         self.assertFalse(os.path.ismount(tmp))
 
+    def test_mount_ntfs_ro(self):
+        """ Test mounting and unmounting read-only device with NTFS filesystem"""
+
+        if not self.ntfs_avail:
+            self.skipTest("skipping NTFS: not available")
+
+        succ = BlockDev.fs_ntfs_mkfs(self.loop_dev, None)
+        self.assertTrue(succ)
+
+        tmp = tempfile.mkdtemp(prefix="libblockdev.", suffix="mount_test")
+        self.addCleanup(os.rmdir, tmp)
+
         # set the device read-only
         self.setro(self.loop_dev)
         self.addCleanup(self.setrw, self.loop_dev)
 
-        # standard mount (rw) should fail
+        # forced rw mount should fail
         with self.assertRaises(GLib.GError):
-            BlockDev.fs_mount(self.loop_dev, tmp, "ntfs", None)
+            BlockDev.fs_mount(self.loop_dev, tmp, "ntfs", "rw")
 
         # read-only mount should work
         succ = BlockDev.fs_mount(self.loop_dev, tmp, "ntfs", "ro")
         self.assertTrue(succ)
         self.assertTrue(os.path.ismount(tmp))
+
+        succ = BlockDev.fs_unmount(self.loop_dev, False, False, None)
+        self.assertTrue(succ)
+        self.assertFalse(os.path.ismount(tmp))
 
 class GenericCheck(FSTestCase):
     log = []
@@ -1361,7 +1392,7 @@ class GenericResize(FSTestCase):
                                   fs_info_func=info_prepare,
                                   info_size_func=expected_size)
 
-    @unstable_test
+    @tag_test(TestTags.UNSTABLE)
     def test_vfat_generic_resize(self):
         """Test generic resize function with a vfat file system"""
         self._test_generic_resize(mkfs_function=BlockDev.fs_vfat_mkfs)
@@ -1434,3 +1465,63 @@ class GenericResize(FSTestCase):
             fi = BlockDev.fs_xfs_get_info(lv)
         self.assertTrue(fi)
         self.assertEqual(fi.block_size * fi.block_count, 90 * 1024**2)
+
+
+class FSFreezeTest(FSTestCase):
+
+    def _clean_up(self):
+        try:
+            BlockDev.fs_unfreeze(self.loop_dev)
+        except:
+            pass
+
+        BlockDev.fs_wipe(self.loop_dev, True)
+
+        super(FSFreezeTest, self)._clean_up()
+
+    def test_freeze_xfs(self):
+        """ Test basic freezing and un-freezing with XFS """
+
+        succ = BlockDev.fs_xfs_mkfs(self.loop_dev, None)
+        self.assertTrue(succ)
+
+        # try to freeze with non-existing mountpoint
+        with self.assertRaises(GLib.GError):
+            BlockDev.fs_freeze("/not/a/mountpoint")
+
+        tmp = tempfile.mkdtemp(prefix="libblockdev.", suffix="freeze_test")
+        self.addCleanup(os.rmdir, tmp)
+
+        self.addCleanup(umount, self.loop_dev)
+        succ = BlockDev.fs_mount(self.loop_dev, tmp, "xfs", None)
+        self.assertTrue(succ)
+        self.assertTrue(os.path.ismount(tmp))
+
+        succ = BlockDev.fs_freeze(tmp)
+        self.assertTrue(succ)
+
+        # try to freeze again (should fail)
+        with self.assertRaises(GLib.GError):
+            BlockDev.fs_freeze(tmp)
+
+        # and unfreeze
+        succ = BlockDev.fs_unfreeze(tmp)
+        self.assertTrue(succ)
+
+    def test_freeze_vfat(self):
+        """ Test basic freezing and un-freezing with FAT """
+
+        succ = BlockDev.fs_vfat_mkfs(self.loop_dev, None)
+        self.assertTrue(succ)
+
+        tmp = tempfile.mkdtemp(prefix="libblockdev.", suffix="freeze_test")
+        self.addCleanup(os.rmdir, tmp)
+
+        self.addCleanup(umount, self.loop_dev)
+        succ = BlockDev.fs_mount(self.loop_dev, tmp, "vfat", None)
+        self.assertTrue(succ)
+        self.assertTrue(os.path.ismount(tmp))
+
+        # FAT doesn't support freezing
+        with self.assertRaises(GLib.GError):
+            BlockDev.fs_freeze(tmp)
