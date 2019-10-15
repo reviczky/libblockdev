@@ -10,6 +10,7 @@ import unittest
 import time
 import sys
 from contextlib import contextmanager
+from enum import Enum
 from itertools import chain
 
 from gi.repository import GLib
@@ -265,6 +266,8 @@ def get_version():
     if cpe:
         # 2nd to 4th fields from e.g. "cpe:/o:fedoraproject:fedora:25" or "cpe:/o:redhat:enterprise_linux:7.3:GA:server"
         _project, distro, version = tuple(cpe.split(":")[2:5])
+        # we want just the major version, so remove all decimal places (if any)
+        version = str(int(float(version)))
     else:
         pretty_name = str(sys_info.Get("org.freedesktop.hostname1", "OperatingSystemPrettyName", dbus_interface=dbus.PROPERTIES_IFACE))
         distro, version = get_version_from_pretty_name(pretty_name)
@@ -347,6 +350,33 @@ def unstable_test(test):
             print("unstable-fail...", end="", file=sys.stderr)
 
     return decorated_test
+
+
+class TestTags(Enum):
+    SLOW = 1        # slow tests
+    UNSTABLE = 2    # randomly failing tests
+    UNSAFE = 3      # tests that change system configuration
+    CORE = 4        # tests covering core functionality
+    NOSTORAGE = 5   # tests that don't work with storage
+    EXTRADEPS = 6   # tests that require special configuration and/or device to run
+    REGRESSION = 7  # regression tests
+    SOURCEONLY = 8  # tests that can't run against installed library
+
+
+def tag_test(*tags):
+    def decorator(func):
+        func.slow = TestTags.SLOW in tags
+        func.unstable = TestTags.UNSTABLE in tags
+        func.unsafe = TestTags.UNSAFE in tags
+        func.core = TestTags.CORE in tags
+        func.nostorage = TestTags.NOSTORAGE in tags
+        func.extradeps = TestTags.EXTRADEPS in tags
+        func.regression = TestTags.REGRESSION in tags
+        func.sourceonly = TestTags.SOURCEONLY in tags
+
+        return func
+
+    return decorator
 
 
 def run(cmd_string):
