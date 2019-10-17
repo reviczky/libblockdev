@@ -346,7 +346,7 @@ Description: Multipath plugin for libblockdev - development
 
 Package: libblockdev-nvdimm2
 # Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !hppa !ia64 !powerpc !powerpcspe !x32
+# Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -358,7 +358,7 @@ Description: NVDIMM plugin for libblockdev
 Package: libblockdev-nvdimm-dev
 Section: libdevel
 # Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !hppa !ia64 !powerpc !powerpcspe !x32
+# Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-nvdimm2 (= ${binary:Version}),
@@ -449,7 +449,7 @@ Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-lvm2 (= ${binary:Version}),
          libblockdev-lvm-dbus2 (= ${binary:Version}),
          libblockdev-mdraid2 (= ${binary:Version}),
-         libblockdev-nvdimm2 (= ${binary:Version}) [!hppa !powerpc !powerpcspe !x32],
+         libblockdev-nvdimm2 (= ${binary:Version}) [!ia64],
          libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-part2 (= ${binary:Version}),
          libblockdev-part-err2 (= ${binary:Version}),
