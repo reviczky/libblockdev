@@ -14,7 +14,7 @@ BUILD_PACKAGES = -Nlibblockdev-nvdimm-dev -Nlibblockdev-nvdimm2
 endif
 
 %:
-	dh $@  --with python3,gir $(BUILD_PACKAGES)
+	dh $@ $(BUILD_PACKAGES)
 
 override_dh_auto_configure:
 	dh_auto_configure -- \

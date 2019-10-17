@@ -4,9 +4,10 @@ Priority: optional
 Maintainer: Utopia Maintenance Team <pkg-utopia-maintainers@lists.alioth.debian.org>
 Uploaders: Martin Pitt <mpitt@debian.org>
 Build-Depends: debhelper-compat (= 12),
+               dh-sequence-gir,
+               dh-sequence-python3,
                libtool,
                autoconf-archive,
-               dh-python,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
                libgirepository1.0-dev,
@@ -26,7 +27,6 @@ Build-Depends: debhelper-compat (= 12),
                libyaml-dev,
                libkmod-dev (>= 19),
                gtk-doc-tools,
-               gobject-introspection,
                pylint,
 Standards-Version: 4.4.1
 Vcs-Browser: https://salsa.debian.org/utopia-team/libblockdev
