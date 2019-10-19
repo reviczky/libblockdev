@@ -1,3 +1,11 @@
+libblockdev (2.23-2) unstable; urgency=medium
+
+  * Team upload
+  * Build-Depend on dh-sequence-gir & dh-sequence-python3
+  * Enable libblockdev-nvdimm on all non-Linux architectures except ia64
+
+ -- Jeremy Bicha <jbicha@debian.org>  Sat, 19 Oct 2019 05:39:45 -0400
+
 libblockdev (2.23-1) unstable; urgency=medium
 
   * Team upload
