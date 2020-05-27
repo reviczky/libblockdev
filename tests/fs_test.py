@@ -156,6 +156,22 @@ class TestGenericWipe(FSTestCase):
         with six.assertRaisesRegex(self, GLib.GError, "No signature detected on the device"):
             BlockDev.fs_wipe(self.loop_dev, True)
 
+    def test_generic_wipe_force(self):
+        """Verify that generic signature wipe works as expected with the force option"""
+
+        succ = BlockDev.fs_ext4_mkfs(self.loop_dev)
+        self.assertTrue(succ)
+
+        with mounted(self.loop_dev, self.mount_dir):
+            with self.assertRaises(GLib.GError):
+                # force wipe with force=False should fail
+                BlockDev.fs_wipe_force(self.loop_dev, True, False)
+
+            succ = BlockDev.fs_wipe_force(self.loop_dev, True, True)
+            self.assertTrue(succ)
+
+        fs_type = check_output(["blkid", "-ovalue", "-sTYPE", "-p", self.loop_dev]).strip()
+        self.assertEqual(fs_type, b"")
 
 class TestClean(FSTestCase):
     def test_clean(self):
@@ -1027,6 +1043,18 @@ class MountTest(FSTestCase):
         _ret, out, _err = utils.run_command("grep %s /proc/mounts" % tmp)
         self.assertTrue(out)
         self.assertIn("ro,noexec", out)
+
+        succ = BlockDev.fs_unmount(self.loop_dev, False, False, None)
+        self.assertTrue(succ)
+        self.assertFalse(os.path.ismount(tmp))
+
+        # mount with UID=0 and GUID=0
+        succ = BlockDev.fs_mount(self.loop_dev, tmp, run_as_uid="0", run_as_gid="0")
+        self.assertTrue(succ)
+        self.assertTrue(os.path.ismount(tmp))
+
+        with self.assertRaises(GLib.GError):
+            BlockDev.fs_mount(self.loop_dev, tmp, run_as_uid="a", run_as_gid="a")
 
         succ = BlockDev.fs_unmount(self.loop_dev, False, False, None)
         self.assertTrue(succ)
