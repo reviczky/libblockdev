@@ -28,6 +28,7 @@
 #include <errno.h>
 #include <syslog.h>
 #include <blkid.h>
+#include <strings.h>
 #include <blockdev/utils.h>
 
 #ifdef WITH_BD_ESCROW
@@ -242,6 +243,16 @@ static void crypto_log_redirect (gint level, const gchar *msg, void *usrptr __at
     }
 }
 
+static void safe_zero (void *data, size_t len) {
+#ifdef HAVE_EXPLICIT_BZERO
+    explicit_bzero (data, len);
+#else
+    /* taken from glibc string/explicit_bzero.c */
+    memset (data, '\0', len);
+    asm volatile ("" ::: "memory");
+#endif
+}
+
 /**
  * bd_crypto_init:
  *
@@ -339,6 +350,19 @@ gboolean bd_crypto_is_tech_avail (BDCryptoTech tech, guint64 mode, GError **erro
             if (ret != mode) {
                 g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_TECH_UNAVAIL,
                              "Only 'query' supported for Integrity");
+                return FALSE;
+            } else
+                return TRUE;
+        case BD_CRYPTO_TECH_BITLK:
+#ifndef LIBCRYPTSETUP_BITLK
+            g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_TECH_UNAVAIL,
+                         "BITLK technology requires libcryptsetup >= 2.3.0");
+            return FALSE;
+#endif
+            ret = mode & BD_CRYPTO_TECH_MODE_OPEN_CLOSE;
+            if (ret != mode) {
+                g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_TECH_UNAVAIL,
+                             "Only 'open' supported for BITLK");
                 return FALSE;
             } else
                 return TRUE;
@@ -858,6 +882,7 @@ static gboolean luks_format (const gchar *device, const gchar *cipher, guint64 k
         }
         ret = crypt_keyslot_add_by_volume_key (cd, CRYPT_ANY_SLOT, NULL, 0,
                                                (const char*) key_buffer, buf_len);
+        safe_zero (key_buffer, buf_len);
         g_free (key_buffer);
         if (ret < 0) {
             g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_ADD_KEY,
@@ -1034,7 +1059,11 @@ static gboolean luks_open (const gchar *device, const gchar *name, const guint8 
 
     ret = crypt_activate_by_passphrase (cd, name, CRYPT_ANY_SLOT, key_buffer ? key_buffer : (char*) pass_data,
                                         buf_len, read_only ? CRYPT_ACTIVATE_READONLY : 0);
-    g_free (key_buffer);
+
+    if (key_buffer) {
+        safe_zero (key_buffer, buf_len);
+        g_free (key_buffer);
+    }
 
     if (ret < 0) {
         if (ret == -EPERM)
@@ -1090,6 +1119,38 @@ gboolean bd_crypto_luks_open_blob (const gchar *device, const gchar *name, const
     return luks_open (device, name, (const guint8*) pass_data, data_len, NULL, read_only, error);
 }
 
+static gboolean _crypto_close (const gchar *device, const gchar *tech_name, GError **error) {
+    struct crypt_device *cd = NULL;
+    gint ret = 0;
+    guint64 progress_id = 0;
+    gchar *msg = NULL;
+
+    msg = g_strdup_printf ("Started closing %s device '%s'", tech_name, device);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
+
+    ret = crypt_init_by_name (&cd, device);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to initialize device: %s", strerror_l (-ret, c_locale));
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ret = crypt_deactivate (cd, device);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to deactivate device: %s", strerror_l (-ret, c_locale));
+        crypt_free (cd);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    crypt_free (cd);
+    bd_utils_report_finished (progress_id, "Completed");
+    return TRUE;
+}
+
 /**
  * bd_crypto_luks_close:
  * @luks_device: LUKS device to close
@@ -1100,35 +1161,7 @@ gboolean bd_crypto_luks_open_blob (const gchar *device, const gchar *name, const
  * Tech category: %BD_CRYPTO_TECH_LUKS-%BD_CRYPTO_TECH_MODE_OPEN_CLOSE
  */
 gboolean bd_crypto_luks_close (const gchar *luks_device, GError **error) {
-    struct crypt_device *cd = NULL;
-    gint ret = 0;
-    guint64 progress_id = 0;
-    gchar *msg = NULL;
-
-    msg = g_strdup_printf ("Started closing LUKS device '%s'", luks_device);
-    progress_id = bd_utils_report_started (msg);
-    g_free (msg);
-
-    ret = crypt_init_by_name (&cd, luks_device);
-    if (ret != 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to initialize device: %s", strerror_l(-ret, c_locale));
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    ret = crypt_deactivate (cd, luks_device);
-    if (ret != 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to deactivate device: %s", strerror_l(-ret, c_locale));
-        crypt_free (cd);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    crypt_free (cd);
-    bd_utils_report_finished (progress_id, "Completed");
-    return TRUE;
+    return _crypto_close (luks_device, "LUKS", error);
 }
 
 /**
@@ -1244,8 +1277,15 @@ gboolean bd_crypto_luks_add_key (const gchar *device, const gchar *pass, const g
                                            key_buf ? (const guint8*) key_buf : (const guint8*) pass, buf_len,
                                            nkey_buf ? (const guint8*) nkey_buf : (const guint8*) npass, nbuf_len,
                                            error);
-    g_free (key_buf);
-    g_free (nkey_buf);
+    if (key_buf) {
+        safe_zero (key_buf, buf_len);
+        g_free (key_buf);
+    }
+
+    if (nkey_buf) {
+        safe_zero (nkey_buf, nbuf_len);
+        g_free (nkey_buf);
+    }
 
     return success;
 }
@@ -1347,7 +1387,11 @@ gboolean bd_crypto_luks_remove_key (const gchar *device, const gchar *pass, cons
         buf_len = strlen (pass);
 
     success = bd_crypto_luks_remove_key_blob (device, key_buf ? (const guint8*) key_buf : (const guint8*) pass, buf_len, error);
-    g_free (key_buf);
+
+    if (key_buf) {
+        safe_zero (key_buf, buf_len);
+        g_free (key_buf);
+    }
 
     return success;
 }
@@ -1482,7 +1526,10 @@ static gboolean luks_resize (const gchar *luks_device, guint64 size, const guint
                                             key_buffer ? key_buffer : (char*) pass_data,
                                             buf_len, 0);
 #endif
-        g_free (key_buffer);
+        if (key_buffer) {
+            safe_zero (key_buffer, buf_len);
+            g_free (key_buffer);
+        }
 
         if (ret < 0) {
             if (ret == -EPERM)
@@ -1677,8 +1724,8 @@ static gboolean luks_resume (const gchar *luks_device, const guint8 *pass_data, 
                                       buf_len);
 
     if (key_buffer) {
-      memset (key_buffer, 0, buf_len);
-      g_free (key_buffer);
+        safe_zero (key_buffer, buf_len);
+        g_free (key_buffer);
     }
 
     if (ret < 0) {
@@ -2172,35 +2219,7 @@ gboolean bd_crypto_tc_open_full (const gchar *device, const gchar *name, const g
  * Tech category: %BD_CRYPTO_TECH_TRUECRYPT-%BD_CRYPTO_TECH_MODE_OPEN_CLOSE
  */
 gboolean bd_crypto_tc_close (const gchar *tc_device, GError **error) {
-    struct crypt_device *cd = NULL;
-    gint ret = 0;
-    guint64 progress_id = 0;
-    gchar *msg = NULL;
-
-    msg = g_strdup_printf ("Started closing TrueCrypt/VeraCrypt device '%s'", tc_device);
-    progress_id = bd_utils_report_started (msg);
-    g_free (msg);
-
-    ret = crypt_init_by_name (&cd, tc_device);
-    if (ret != 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to initialize device: %s", strerror_l(-ret, c_locale));
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    ret = crypt_deactivate (cd, tc_device);
-    if (ret != 0) {
-        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
-                     "Failed to deactivate device: %s", strerror_l(-ret, c_locale));
-        crypt_free (cd);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    crypt_free (cd);
-    bd_utils_report_finished (progress_id, "Completed");
-    return TRUE;
+    return _crypto_close (tc_device, "TrueCrypt/VeraCrypt", error);
 }
 
 #ifdef WITH_BD_ESCROW
@@ -2431,3 +2450,97 @@ gboolean bd_crypto_escrow_device (const gchar *device, const gchar *passphrase, 
     return ret;
 }
 #endif // WITH_BD_ESCROW
+
+/**
+ * bd_crypto_bitlk_open:
+ * @device: the device to open
+ * @name: name for the BITLK device
+ * @pass_data: (array length=data_len): a passphrase for the BITLK volume (may contain arbitrary binary data)
+ * @data_len: length of the @pass_data buffer
+ * @read_only: whether to open as read-only or not (meaning read-write)
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the @device was successfully opened or not
+ *
+ * Tech category: %BD_CRYPTO_TECH_BITLK-%BD_CRYPTO_TECH_MODE_OPEN_CLOSE
+ */
+#ifndef LIBCRYPTSETUP_BITLK
+gboolean bd_crypto_bitlk_open (const gchar *device UNUSED, const gchar *name UNUSED, const guint8* pass_data UNUSED, gsize data_len UNUSED, gboolean read_only UNUSED, GError **error) {
+    /* this will return FALSE and set error, because BITLK technology is not available */
+    return bd_crypto_is_tech_avail (BD_CRYPTO_TECH_BITLK, BD_CRYPTO_TECH_MODE_OPEN_CLOSE, error);
+#else
+gboolean bd_crypto_bitlk_open (const gchar *device, const gchar *name, const guint8* pass_data, gsize data_len, gboolean read_only, GError **error) {
+    struct crypt_device *cd = NULL;
+    gint ret = 0;
+    guint64 progress_id = 0;
+    gchar *msg = NULL;
+
+    msg = g_strdup_printf ("Started opening '%s' BITLK device", device);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
+
+    if (data_len == 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_NO_KEY,
+                     "No passphrase specified, cannot open.");
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ret = crypt_init (&cd, device);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to initialize device: %s", strerror_l (-ret, c_locale));
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ret = crypt_load (cd, CRYPT_BITLK, NULL);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to load device's parameters: %s", strerror_l (-ret, c_locale));
+        crypt_free (cd);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    ret = crypt_activate_by_passphrase (cd, name, CRYPT_ANY_SLOT, (char*) pass_data,
+                                        data_len, read_only ? CRYPT_ACTIVATE_READONLY : 0);
+
+    if (ret < 0) {
+        if (ret == -EPERM)
+          g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                       "Failed to activate device: Incorrect passphrase.");
+        else
+          g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                       "Failed to activate device: %s", strerror_l (-ret, c_locale));
+
+        crypt_free (cd);
+        bd_utils_report_finished (progress_id, (*error)->message);
+        return FALSE;
+    }
+
+    crypt_free (cd);
+    bd_utils_report_finished (progress_id, "Completed");
+    return TRUE;
+#endif
+}
+
+/**
+ * bd_crypto_bitlk_close:
+ * @bitlk_device: BITLK device to close
+ * @error: (out): place to store error (if any)
+ *
+ * Returns: whether the given @bitlk_device was successfully closed or not
+ *
+ * Tech category: %BD_CRYPTO_TECH_BITLK-%BD_CRYPTO_TECH_MODE_OPEN_CLOSE
+ */
+#ifndef LIBCRYPTSETUP_BITLK
+gboolean bd_crypto_bitlk_close (const gchar *bitlk_device UNUSED, GError **error) {
+    /* this will return FALSE and set error, because BITLK technology is not available */
+    return bd_crypto_is_tech_avail (BD_CRYPTO_TECH_BITLK, BD_CRYPTO_TECH_MODE_OPEN_CLOSE, error);
+#else
+gboolean bd_crypto_bitlk_close (const gchar *bitlk_device, GError **error) {
+    return _crypto_close (bitlk_device, "BITLK", error);
+#endif
+}
+
