@@ -22,6 +22,11 @@ libbd_lvm.so.2 libblockdev-lvm2 #MINVER#
  bd_lvm_get_supported_pe_sizes@Base 2.14
  bd_lvm_get_thpool_meta_size@Base 2.14
  bd_lvm_get_thpool_padding@Base 2.14
+ bd_lvm_get_vdo_compression_state_str@Base 2.24
+ bd_lvm_get_vdo_index_state_str@Base 2.24
+ bd_lvm_get_vdo_operating_mode_str@Base 2.24
+ bd_lvm_get_vdo_write_policy_from_str@Base 2.24
+ bd_lvm_get_vdo_write_policy_str@Base 2.24
  bd_lvm_init@Base 2.14
  bd_lvm_is_supported_pe_size@Base 2.14
  bd_lvm_is_tech_avail@Base 2.14
@@ -57,6 +62,20 @@ libbd_lvm.so.2 libblockdev-lvm2 #MINVER#
  bd_lvm_thpool_convert@Base 2.14
  bd_lvm_thpoolcreate@Base 2.14
  bd_lvm_thsnapshotcreate@Base 2.14
+ bd_lvm_vdo_disable_compression@Base 2.24
+ bd_lvm_vdo_disable_deduplication@Base 2.24
+ bd_lvm_vdo_enable_compression@Base 2.24
+ bd_lvm_vdo_enable_deduplication@Base 2.24
+ bd_lvm_vdo_get_stats@Base 2.24
+ bd_lvm_vdo_get_stats_full@Base 2.24
+ bd_lvm_vdo_info@Base 2.24
+ bd_lvm_vdo_pool_convert@Base 2.24
+ bd_lvm_vdo_pool_create@Base 2.24
+ bd_lvm_vdo_pool_resize@Base 2.24
+ bd_lvm_vdo_resize@Base 2.24
+ bd_lvm_vdodata_copy@Base 2.24
+ bd_lvm_vdodata_free@Base 2.24
+ bd_lvm_vdolvpoolname@Base 2.24
  bd_lvm_vgactivate@Base 2.14
  bd_lvm_vgcreate@Base 2.14
  bd_lvm_vgdata_copy@Base 2.14

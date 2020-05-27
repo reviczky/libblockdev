@@ -27,6 +27,8 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_btrfs_subvolume_info_copy@Base 2.14
  bd_btrfs_subvolume_info_free@Base 2.14
  bd_btrfs_subvolume_info_get_type@Base 2.14
+ bd_crypto_bitlk_close@Base 2.24
+ bd_crypto_bitlk_open@Base 2.24
  bd_crypto_device_is_luks@Base 2.14
  bd_crypto_device_seems_encrypted@Base 2.20
  bd_crypto_error_quark@Base 2.14
@@ -159,6 +161,7 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_fs_vfat_set_label@Base 2.14
  bd_fs_vfat_wipe@Base 2.14
  bd_fs_wipe@Base 2.14
+ bd_fs_wipe_force@Base 2.24
  bd_fs_xfs_check@Base 2.14
  bd_fs_xfs_get_info@Base 2.14
  bd_fs_xfs_info_copy@Base 2.14
@@ -230,6 +233,11 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_lvm_get_supported_pe_sizes@Base 2.14
  bd_lvm_get_thpool_meta_size@Base 2.14
  bd_lvm_get_thpool_padding@Base 2.14
+ bd_lvm_get_vdo_compression_state_str@Base 2.24
+ bd_lvm_get_vdo_index_state_str@Base 2.24
+ bd_lvm_get_vdo_operating_mode_str@Base 2.24
+ bd_lvm_get_vdo_write_policy_from_str@Base 2.24
+ bd_lvm_get_vdo_write_policy_str@Base 2.24
  bd_lvm_is_supported_pe_size@Base 2.14
  bd_lvm_is_tech_avail@Base 2.14
  bd_lvm_is_valid_thpool_chunk_size@Base 2.14
@@ -266,6 +274,24 @@ libblockdev.so.2 libblockdev2 #MINVER#
  bd_lvm_thpool_convert@Base 2.14
  bd_lvm_thpoolcreate@Base 2.14
  bd_lvm_thsnapshotcreate@Base 2.14
+ bd_lvm_vdo_disable_compression@Base 2.24
+ bd_lvm_vdo_disable_deduplication@Base 2.24
+ bd_lvm_vdo_enable_compression@Base 2.24
+ bd_lvm_vdo_enable_deduplication@Base 2.24
+ bd_lvm_vdo_get_stats@Base 2.24
+ bd_lvm_vdo_get_stats_full@Base 2.24
+ bd_lvm_vdo_info@Base 2.24
+ bd_lvm_vdo_pool_convert@Base 2.24
+ bd_lvm_vdo_pool_create@Base 2.24
+ bd_lvm_vdo_pool_resize@Base 2.24
+ bd_lvm_vdo_resize@Base 2.24
+ bd_lvm_vdo_stats_copy@Base 2.24
+ bd_lvm_vdo_stats_free@Base 2.24
+ bd_lvm_vdo_stats_get_type@Base 2.24
+ bd_lvm_vdodata_copy@Base 2.24
+ bd_lvm_vdodata_free@Base 2.24
+ bd_lvm_vdodata_get_type@Base 2.24
+ bd_lvm_vdolvpoolname@Base 2.24
  bd_lvm_vgactivate@Base 2.14
  bd_lvm_vgcreate@Base 2.14
  bd_lvm_vgdata_copy@Base 2.14

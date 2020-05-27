@@ -1,5 +1,7 @@
 libbd_crypto.so.2 libblockdev-crypto2 #MINVER#
 * Build-Depends-Package: libblockdev-crypto-dev
+ bd_crypto_bitlk_close@Base 2.24
+ bd_crypto_bitlk_open@Base 2.24
  bd_crypto_check_deps@Base 2.14
  bd_crypto_close@Base 2.14
  bd_crypto_device_is_luks@Base 2.14

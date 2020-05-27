@@ -67,6 +67,7 @@ libbd_fs.so.2 libblockdev-fs2 #MINVER#
  bd_fs_vfat_set_label@Base 2.14
  bd_fs_vfat_wipe@Base 2.14
  bd_fs_wipe@Base 2.14
+ bd_fs_wipe_force@Base 2.24
  bd_fs_xfs_check@Base 2.14
  bd_fs_xfs_get_info@Base 2.14
  bd_fs_xfs_info_copy@Base 2.14
