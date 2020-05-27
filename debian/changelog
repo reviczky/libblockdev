@@ -1,8 +1,14 @@
-libblockdev (2.24-1) UNRELEASED; urgency=medium
+libblockdev (2.24-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Bump Standards-Version to 4.5.0
+  * Disable deprecated VDO plugin.
+    The VDO plugin has been deprecated in this release and is scheduled to be
+    removed in 3.0. Its functionality is replaced by LVM VDO.
+  * Update symbols files
 
- -- Michael Biebl <biebl@debian.org>  Wed, 27 May 2020 17:23:45 +0200
+ -- Michael Biebl <biebl@debian.org>  Wed, 27 May 2020 17:45:01 +0200
 
 libblockdev (2.23-2) unstable; urgency=medium
 
