@@ -1,5 +1,6 @@
-libblockdev (2.24-2) UNRELEASED; urgency=medium
+libblockdev (2.24-2) unstable; urgency=medium
 
+  * Team upload
   * debian/rules:
     - Omit libblockdev-mpath and libblockdev-plugins-all on Ubuntu/i386
       (Closes: #947275)
