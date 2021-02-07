@@ -73,9 +73,9 @@ libbd_lvm.so.2 libblockdev-lvm2 #MINVER#
  bd_lvm_vdo_pool_create@Base 2.24
  bd_lvm_vdo_pool_resize@Base 2.24
  bd_lvm_vdo_resize@Base 2.24
- bd_lvm_vdodata_copy@Base 2.24
- bd_lvm_vdodata_free@Base 2.24
  bd_lvm_vdolvpoolname@Base 2.24
+ bd_lvm_vdopooldata_copy@Base 2.25
+ bd_lvm_vdopooldata_free@Base 2.25
  bd_lvm_vgactivate@Base 2.14
  bd_lvm_vgcreate@Base 2.14
  bd_lvm_vgdata_copy@Base 2.14
