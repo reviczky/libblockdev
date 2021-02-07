@@ -1,8 +1,17 @@
-libblockdev (2.25-1) UNRELEASED; urgency=medium
+libblockdev (2.25-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Bump Standards-Version to 4.5.1
+  * Fix bd_lvm_vdopooldata_* symbols
+  * Set upstream metadata fields: Bug-Submit, Bug-Database, Repository,
+    Repository-Browse
+  * Fix dependencies of python3-blockdev.
+    It requires gir1.2-blockdev-2.0, libblockdev2 is only an indirect
+    dependency. (Closes: #974686)
+  * Bump debhelper-compat to 13
 
- -- Michael Biebl <biebl@debian.org>  Sun, 07 Feb 2021 18:13:16 +0100
+ -- Michael Biebl <biebl@debian.org>  Sun, 07 Feb 2021 21:45:49 +0100
 
 libblockdev (2.24-2) unstable; urgency=medium
 
