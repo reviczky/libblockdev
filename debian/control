@@ -76,8 +76,8 @@ Description: libblockdev introspection data
 Package: python3-blockdev
 Section: python
 Architecture: all
-Depends: libblockdev2 (>= ${source:Version}),
-         libblockdev2 (<< ${source:Version}.1~),
+Depends: gir1.2-blockdev-2.0 (>= ${source:Version}),
+         gir1.2-blockdev-2.0 (<< ${source:Version}.1~),
          python3-gi,
          ${python3:Depends},
          ${misc:Depends}
