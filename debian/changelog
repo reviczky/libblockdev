@@ -1,3 +1,9 @@
+libblockdev (2.25-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+
+ -- Michael Biebl <biebl@debian.org>  Sun, 07 Feb 2021 18:13:16 +0100
+
 libblockdev (2.24-2) unstable; urgency=medium
 
   * Team upload
