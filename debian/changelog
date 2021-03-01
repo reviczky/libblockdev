@@ -1,3 +1,11 @@
+libblockdev (2.25-2) unstable; urgency=medium
+
+  * Team upload
+  * fs: Allow using empty label for vfat with newest dosfstools
+    (Closes: #983751)
+
+ -- Michael Biebl <biebl@debian.org>  Mon, 01 Mar 2021 21:33:20 +0100
+
 libblockdev (2.25-1) unstable; urgency=medium
 
   * Team upload
