@@ -1,8 +1,13 @@
-libblockdev (2.26-1) UNRELEASED; urgency=medium
+libblockdev (2.26-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Drop thin-provisioning-tools dependency from libblockdev-lvm2.
+    It is no longer needed as the thin_metadata_size tool isn't used
+    anymore. (Closes: #987899)
+  * Drop patches, applied upstream
 
- -- Michael Biebl <biebl@debian.org>  Mon, 16 Aug 2021 12:37:28 +0200
+ -- Michael Biebl <biebl@debian.org>  Mon, 16 Aug 2021 12:48:49 +0200
 
 libblockdev (2.25-2) unstable; urgency=medium
 
