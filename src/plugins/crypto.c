@@ -774,8 +774,15 @@ static gboolean luks_format (const gchar *device, const gchar *cipher, guint64 k
         return FALSE;
     }
 
-    /* resolve requested/default key_size (should be in bytes) */
-    key_size = (key_size != 0) ? (key_size / 8) : (DEFAULT_LUKS_KEYSIZE_BITS / 8);
+    if (key_size == 0) {
+        if (g_str_has_prefix (cipher_specs[1], "xts-"))
+            key_size = DEFAULT_LUKS_KEYSIZE_BITS * 2;
+        else
+            key_size = DEFAULT_LUKS_KEYSIZE_BITS;
+    }
+
+    /* key_size should be in bytes */
+    key_size = key_size / 8;
 
     /* wait for enough random data entropy (if requested) */
     if (min_entropy > 0) {
@@ -1268,6 +1275,7 @@ gboolean bd_crypto_luks_add_key (const gchar *device, const gchar *pass, const g
         success = g_file_get_contents (nkey_file, &nkey_buf, &nbuf_len, error);
         if (!success) {
             g_prefix_error (error, "Failed to load key from file '%s': ", nkey_file);
+            g_free (key_buf);
             return FALSE;
         }
     } else
