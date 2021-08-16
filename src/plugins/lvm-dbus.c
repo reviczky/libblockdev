@@ -241,7 +241,6 @@ static gboolean setup_dbus_connection (GError **error) {
     return TRUE;
 }
 
-static volatile guint avail_deps = 0;
 static volatile guint avail_dbus_deps = 0;
 static volatile guint avail_features = 0;
 static volatile guint avail_module_deps = 0;
@@ -2927,6 +2926,7 @@ gboolean bd_lvm_cache_detach (const gchar *vg_name, const gchar *cached_lv, gboo
     lv_id = g_strdup_printf ("%s/%s", vg_name, cached_lv);
     call_lvm_obj_method_sync (lv_id, CACHED_LV_INTF, "DetachCachePool", params, NULL, extra, TRUE, error);
     g_free (lv_id);
+    g_free (cache_pool_name);
     return ((*error) == NULL);
 }
 

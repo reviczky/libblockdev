@@ -1,3 +1,47 @@
+Libblockdev 2.26
+----------------
+
+New minor release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Full list of changes**
+
+Manuel Wassermann (1):
+
+- exec: Fix deprecated glib function call Glib will rename
+  "g_spawn_check_exit_status()" to "g_spawn_check_wait_status()" in version
+  2.69.
+
+Tomasz Paweł Gajc (1):
+
+- remove unused variable and fix build with LLVM/clang
+
+Vojtech Trefny (22):
+
+- NEWS.rts: Fix markup
+- crypto: Fix default key size for non XTS ciphers
+- vdo: Do not use g_memdup in bd_vdo_stats_copy
+- fs: Allow using empty label for vfat with newest dosfstools
+- tests: Call fs_vfat_mkfs with "--mbr=n" extra option in tests
+- kbd: Fix memory leak
+- crypto: Fix memory leak
+- dm: Fix memory leak in the DM plugin and DM logging redirect function
+- fs: Fix memory leak
+- kbd: Fix memory leak
+- lvm-dbus: Fix memory leak
+- mdraid: Fix memory leak
+- swap: Fix memory leak
+- tests: Make sure the test temp mount is always unmounted
+- tests: Do not check that XFS shrink fails with xfsprogs >= 5.12
+- tests: Temporarily skip test_snapshotcreate_lvorigin_snapshotmerge
+- Fix skipping tests on Debian testing
+- crypto: Let cryptsetup autodect encryption sector size when not specified
+- tests: Do not try to remove VG before removing the VDO pool
+- tests: Force remove LVM VG /dev/ entry not removed by vgremove
+- tests: Tag LvmPVVGLVcachePoolCreateRemoveTestCase as unstable
+- Add missing plugins to the default config
+
+
 Libblockdev 2.25
 ----------------
 
@@ -7,6 +51,7 @@ for details.
 **Full list of changes**
 
 Tomas Bzatek (6):
+
 - exec: Fix polling for stdout and stderr
 - exec: Use non-blocking read and process the buffer manually
 - exec: Clarify the BDUtilsProgExtract callback documentation
@@ -15,6 +60,7 @@ Tomas Bzatek (6):
 - lvm: Fix bd_lvm_vdopooldata_* symbols
 
 Vojtech Trefny (10):
+
 - exec: Fix setting locale for util calls
 - fs: Do not report error when errors were fixed by e2fsck
 - README: Use CI status image for 2.x-branch on 2.x
