@@ -34,12 +34,6 @@
       version: "9"
       reason: "volume_key asks for password in non-interactive mode on this release"
 
-- test: fs_test.MountTest.test_mount_ntfs_ro
-  skip_on:
-    - distro: "debian"
-      version: ["9", "10", "11", "testing"]
-      reason: "NTFS mounting of read-only devices doesn't work as expected on Debian"
-
 - test: kbd_test.KbdZRAM*
   skip_on:
     - distro: "debian"
@@ -143,3 +137,9 @@
     - distro: "centos"
       version: "9"
       reason: "snapshot merge doesn't work on CentOS 9 Stream with LVM DBus API"
+
+- test: (lvm_test|lvm_dbus_tests).LvmTestLVcreateType
+  skip_on:
+    - distro: "centos"
+      version: "9"
+      reason: "Creating RAID 1 LV on CentOS/RHEL 9 causes a system deadlock"
