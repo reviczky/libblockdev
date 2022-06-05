@@ -425,8 +425,8 @@ class ExtGetInfo(FSTestCase):
         self.assertTrue(fi)
         self.assertEqual(fi.block_size, 1024)
         self.assertEqual(fi.block_count, 100 * 1024**2 / 1024)
-        # at least 90 % should be available, so it should be reported
-        self.assertGreater(fi.free_blocks, 0.90 * 100 * 1024**2 / 1024)
+        # at least 80 % should be available, so it should be reported
+        self.assertGreater(fi.free_blocks, 0.80 * 100 * 1024**2 / 1024)
         self.assertEqual(fi.label, "")
         # should be an non-empty string
         self.assertTrue(fi.uuid)
@@ -436,8 +436,8 @@ class ExtGetInfo(FSTestCase):
             fi = BlockDev.fs_ext4_get_info(self.loop_dev)
             self.assertEqual(fi.block_size, 1024)
             self.assertEqual(fi.block_count, 100 * 1024**2 / 1024)
-            # at least 90 % should be available, so it should be reported
-            self.assertGreater(fi.free_blocks, 0.90 * 100 * 1024**2 / 1024)
+            # at least 80 % should be available, so it should be reported
+            self.assertGreater(fi.free_blocks, 0.80 * 100 * 1024**2 / 1024)
             self.assertEqual(fi.label, "")
             # should be an non-empty string
             self.assertTrue(fi.uuid)
@@ -515,8 +515,8 @@ class ExtResize(FSTestCase):
         self.assertTrue(fi)
         self.assertEqual(fi.block_size, 1024)
         self.assertEqual(fi.block_count, 100 * 1024**2 / 1024)
-        # at least 90 % should be available, so it should be reported
-        self.assertGreater(fi.free_blocks, 0.90 * 100 * 1024**2 / 1024)
+        # at least 80 % should be available, so it should be reported
+        self.assertGreater(fi.free_blocks, 0.80 * 100 * 1024**2 / 1024)
 
         succ = resize_function(self.loop_dev, 50 * 1024**2, None)
         self.assertTrue(succ)
@@ -532,8 +532,8 @@ class ExtResize(FSTestCase):
         self.assertTrue(fi)
         self.assertEqual(fi.block_size, 1024)
         self.assertEqual(fi.block_count, 100 * 1024**2 / 1024)
-        # at least 90 % should be available, so it should be reported
-        self.assertGreater(fi.free_blocks, 0.90 * 100 * 1024**2 / 1024)
+        # at least 80 % should be available, so it should be reported
+        self.assertGreater(fi.free_blocks, 0.80 * 100 * 1024**2 / 1024)
 
         # resize again
         succ = resize_function(self.loop_dev, 50 * 1024**2, None)
@@ -550,8 +550,8 @@ class ExtResize(FSTestCase):
         self.assertTrue(fi)
         self.assertEqual(fi.block_size, 1024)
         self.assertEqual(fi.block_count, 100 * 1024**2 / 1024)
-        # at least 90 % should be available, so it should be reported
-        self.assertGreater(fi.free_blocks, 0.90 * 100 * 1024**2 / 1024)
+        # at least 80 % should be available, so it should be reported
+        self.assertGreater(fi.free_blocks, 0.80 * 100 * 1024**2 / 1024)
 
     def test_ext2_resize(self):
         """Verify that it is possible to resize an ext2 file system"""
@@ -1050,6 +1050,10 @@ class MountTest(FSTestCase):
 
         self.addCleanup(umount, self.loop_dev)
 
+        # try mounting unknown filesystem type
+        with self.assertRaisesRegex(GLib.GError, r"Filesystem type .* not configured in kernel."):
+            BlockDev.fs_mount(self.loop_dev, tmp, "nonexisting", None)
+
         succ = BlockDev.fs_mount(self.loop_dev, tmp, "vfat", None)
         self.assertTrue(succ)
         self.assertTrue(os.path.ismount(tmp))
@@ -1270,34 +1274,6 @@ class MountTest(FSTestCase):
         self.assertTrue(succ)
         self.assertFalse(os.path.ismount(tmp))
 
-    def test_mount_ntfs_ro(self):
-        """ Test mounting and unmounting read-only device with NTFS filesystem"""
-
-        if not self.ntfs_avail:
-            self.skipTest("skipping NTFS: not available")
-
-        succ = BlockDev.fs_ntfs_mkfs(self.loop_dev, None)
-        self.assertTrue(succ)
-
-        tmp = tempfile.mkdtemp(prefix="libblockdev.", suffix="mount_test")
-        self.addCleanup(os.rmdir, tmp)
-
-        # set the device read-only
-        self.setro(self.loop_dev)
-        self.addCleanup(self.setrw, self.loop_dev)
-
-        # forced rw mount should fail
-        with self.assertRaises(GLib.GError):
-            BlockDev.fs_mount(self.loop_dev, tmp, "ntfs", "rw")
-
-        # read-only mount should work
-        succ = BlockDev.fs_mount(self.loop_dev, tmp, "ntfs", "ro")
-        self.assertTrue(succ)
-        self.assertTrue(os.path.ismount(tmp))
-
-        succ = BlockDev.fs_unmount(self.loop_dev, False, False, None)
-        self.assertTrue(succ)
-        self.assertFalse(os.path.ismount(tmp))
 
 class GenericCheck(FSTestCase):
     log = []
