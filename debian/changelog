@@ -1,8 +1,11 @@
-libblockdev (2.27-1) UNRELEASED; urgency=medium
+libblockdev (2.27-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Set Rules-Requires-Root: no
+  * Bump Standards-Version to 4.6.1, no further changes
 
- -- Michael Biebl <biebl@debian.org>  Mon, 06 Jun 2022 00:10:19 +0200
+ -- Michael Biebl <biebl@debian.org>  Mon, 06 Jun 2022 00:21:07 +0200
 
 libblockdev (2.26-1) unstable; urgency=medium
 
