@@ -1,11 +1,12 @@
-libblockdev (2.28-1) UNRELEASED; urgency=medium
+libblockdev (2.28-1) unstable; urgency=medium
 
   * Team upload
   * New upstream release
   * Drop no longer needed override for dh_missing
   * Use execute_before instead of override for dh_install
+  * Drop obsolete alternative util-linux dependency
 
- -- Michael Biebl <biebl@debian.org>  Wed, 14 Sep 2022 20:09:04 +0200
+ -- Michael Biebl <biebl@debian.org>  Wed, 14 Sep 2022 20:37:24 +0200
 
 libblockdev (2.27-1) unstable; urgency=medium
 
