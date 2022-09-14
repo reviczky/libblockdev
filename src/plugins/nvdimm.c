@@ -258,7 +258,7 @@ gchar* bd_nvdimm_namespace_get_devname (const gchar *device, GError **error) {
     if (success != 0) {
         g_set_error (error, BD_NVDIMM_ERROR, BD_NVDIMM_ERROR_NAMESPACE_FAIL,
                      "Failed to create ndctl context");
-        return FALSE;
+        return NULL;
     }
 
     ndctl_bus_foreach (ctx, bus) {
@@ -437,7 +437,7 @@ static BDNVDIMMNamespaceInfo* get_nvdimm_namespace_info (struct ndctl_namespace 
             break;
         default:
             g_set_error (error, BD_NVDIMM_ERROR, BD_NVDIMM_ERROR_NAMESPACE_FAIL,
-                         "Failed to get information about namespaces: Unknow mode.");
+                         "Failed to get information about namespaces: Unknown mode.");
             bd_nvdimm_namespace_info_free (info);
             return NULL;
     }
