@@ -1,3 +1,12 @@
+libblockdev (2.28-2) unstable; urgency=medium
+
+  * Team upload
+  * Disable dmraid support.
+    dmraid has been unmaintained for many years and is scheduled to be
+    removed in trixie. (Closes: #1021487)
+
+ -- Michael Biebl <biebl@debian.org>  Wed, 12 Oct 2022 22:22:59 +0200
+
 libblockdev (2.28-1) unstable; urgency=medium
 
   * Team upload
