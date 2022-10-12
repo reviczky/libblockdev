@@ -28,6 +28,7 @@ override_dh_auto_configure:
 		--without-python2 \
 		--without-tools \
 		--without-vdo \
+		--without-dmraid \
 		$(CONF_FLAGS)
 
 execute_before_dh_install:

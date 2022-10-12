@@ -15,7 +15,6 @@ Build-Depends: debhelper-compat (= 13),
                libdevmapper-dev (>= 1.02.93),
                libudev-dev (>= 216),
                libsystemd-dev,
-               libdmraid-dev,
                libvolume-key-dev,
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
@@ -175,7 +174,6 @@ Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
          dmsetup (>= 1.02.93),
-         dmraid
 Description: Device Mapper plugin for libblockdev
  The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to Device Mapper.
@@ -189,7 +187,6 @@ Depends: libblockdev-dm2 (= ${binary:Version}),
          libglib2.0-dev,
          libdevmapper-dev,
          libsystemd-dev,
-         libdmraid-dev,
          ${misc:Depends}
 Description: Device Mapper plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
