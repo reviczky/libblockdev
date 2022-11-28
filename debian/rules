@@ -1,7 +1,7 @@
 #!/usr/bin/make -f
 
 export DEB_BUILD_MAINT_OPTIONS = hardening=+all
-export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs -Wl,--as-needed
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-z,defs
 
 # Don't build nvdimm binary packages on these architectures.
 # We do it this way since we can't set excluded Architectures
