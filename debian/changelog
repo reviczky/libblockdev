@@ -1,3 +1,12 @@
+libblockdev (2.28-3) UNRELEASED; urgency=medium
+
+  [ Debian Janitor ]
+  * Update lintian override info format in
+    d/libblockdev-part-err2.lintian-overrides on line 4.
+  * Avoid explicitly specifying -Wl,--as-needed linker flag.
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 29 Jun 2023 01:56:31 +0200
+
 libblockdev (2.28-2) unstable; urgency=medium
 
   * Team upload
