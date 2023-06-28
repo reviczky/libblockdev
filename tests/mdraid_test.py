@@ -4,7 +4,6 @@ import re
 import time
 from contextlib import contextmanager
 import overrides_hack
-import six
 
 from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, TestTags, tag_test, run_command
 from gi.repository import BlockDev, GLib
@@ -47,6 +46,10 @@ class MDNoDevTestCase(MDTest):
             BlockDev.reinit(cls.requested_plugins, True, None)
 
     @tag_test(TestTags.NOSTORAGE)
+    def test_plugin_version(self):
+       self.assertEqual(BlockDev.get_plugin_soname(BlockDev.Plugin.MDRAID), "libbd_mdraid.so.3")
+
+    @tag_test(TestTags.NOSTORAGE)
     def test_get_superblock_size(self):
         """Verify that superblock size si calculated properly"""
 
@@ -75,7 +78,7 @@ class MDNoDevTestCase(MDTest):
         self.assertEqual(BlockDev.md_canonicalize_uuid("3386ff85:f5012621:4a435f06:1eb47236"),
                          "3386ff85-f501-2621-4a43-5f061eb47236")
 
-        with six.assertRaisesRegex(self, GLib.GError, r'malformed or invalid'):
+        with self.assertRaisesRegex(GLib.GError, r'malformed or invalid'):
             BlockDev.md_canonicalize_uuid("malformed-uuid-example")
 
     @tag_test(TestTags.NOSTORAGE)
@@ -85,7 +88,7 @@ class MDNoDevTestCase(MDTest):
         self.assertEqual(BlockDev.md_get_md_uuid("3386ff85-f501-2621-4a43-5f061eb47236"),
                          "3386ff85:f5012621:4a435f06:1eb47236")
 
-        with six.assertRaisesRegex(self, GLib.GError, r'malformed or invalid'):
+        with self.assertRaisesRegex(GLib.GError, r'malformed or invalid'):
             BlockDev.md_get_md_uuid("malformed-uuid-example")
 
 class MDTestCase(MDTest):
@@ -174,12 +177,12 @@ class MDTestCreateDeactivateDestroy(MDTestCase):
         with self.assertRaises(GLib.GError):
             BlockDev.md_create("bd_test_md2", "raid1",
                                ["/non/existing/device", self.loop_dev2],
-                               1, None, True)
+                               1, None, None)
 
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         # newly created array should be 'clean'
@@ -204,7 +207,7 @@ class MDTestCreateWithChunkSize(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid0",
                                       [self.loop_dev, self.loop_dev2],
-                                      0, None, False, 512 * 1024)
+                                      0, None, None, 512 * 1024)
             self.assertTrue(succ)
 
         ex_data = BlockDev.md_examine(self.loop_dev)
@@ -228,7 +231,7 @@ class MDTestActivateDeactivate(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         with self.assertRaises(GLib.GError):
@@ -246,6 +249,11 @@ class MDTestActivateDeactivate(MDTestCase):
             succ = BlockDev.md_activate("bd_test_md",
                                         [self.loop_dev, self.loop_dev2, self.loop_dev3], None)
             self.assertTrue(succ)
+
+        # try to activate again, should not fail, just no-op
+        succ = BlockDev.md_activate("bd_test_md",
+                                    [self.loop_dev, self.loop_dev2, self.loop_dev3], None)
+        self.assertTrue(succ)
 
         # try to deactivate using the node instead of name
         with wait_for_action("resync"):
@@ -267,7 +275,7 @@ class MDTestActivateWithUUID(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         with wait_for_action("resync"):
@@ -289,7 +297,7 @@ class MDTestActivateByUUID(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         with wait_for_action("resync"):
@@ -321,7 +329,7 @@ class MDTestNominateDenominate(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, False)
+                                      1, None, None)
             self.assertTrue(succ)
 
         with wait_for_action("resync"):
@@ -344,34 +352,6 @@ class MDTestNominateDenominate(MDTestCase):
             succ = BlockDev.md_deactivate(BlockDev.md_node_from_name("bd_test_md"))
             self.assertTrue(succ)
 
-class MDTestNominateDenominateActive(MDTestCase):
-    # slow and leaking an MD array because with a nominated spare device, it
-    # cannot be deactivated in the end (don't ask me why)
-    @tag_test(TestTags.SLOW, TestTags.UNSAFE, TestTags.UNSTABLE)
-    def test_nominate_denominate_active(self):
-        """Verify that nominate and denominate deivice works as expected on (de)activated MD RAID"""
-
-        with wait_for_action("resync"):
-            succ = BlockDev.md_create("bd_test_md", "raid1",
-                                      [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, False)
-            self.assertTrue(succ)
-
-        # can not re-add in incremental mode because the array is active
-        with self.assertRaises(GLib.GError):
-            BlockDev.md_nominate(self.loop_dev3)
-
-        succ = BlockDev.md_deactivate("bd_test_md");
-        self.assertTrue(succ)
-
-        # once the array is deactivated, can add in incremental mode
-        succ = BlockDev.md_nominate(self.loop_dev3)
-        self.assertTrue(succ)
-
-        # cannot re-add twice
-        with self.assertRaises(GLib.GError):
-            succ = BlockDev.md_nominate(self.loop_dev3)
-            self.assertTrue(succ)
 
 class MDTestAddRemove(MDTestCase):
     @tag_test(TestTags.SLOW)
@@ -385,7 +365,7 @@ class MDTestAddRemove(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2],
-                                      0, None, False)
+                                      0, None, None)
             self.assertTrue(succ)
 
         with self.assertRaises(GLib.GError):
@@ -441,7 +421,7 @@ class MDTestExamineDetail(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         ex_data = BlockDev.md_examine(self.loop_dev)
@@ -454,7 +434,7 @@ class MDTestExamineDetail(MDTestCase):
         self.assertEqual(ex_data.num_devices, 2)
         self.assertTrue(ex_data.name.endswith("bd_test_md"))
         self.assertEqual(len(ex_data.metadata), 3)
-        self.assertTrue(ex_data.size < (10 * 1024**2))
+        self.assertLess(ex_data.size, (10 * 1024**2))
         self.assertTrue(re.match(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', ex_data.uuid))
 
         de_data = BlockDev.md_detail("bd_test_md")
@@ -469,8 +449,8 @@ class MDTestExamineDetail(MDTestCase):
         self.assertEqual(de_data.raid_devices, 2)
         self.assertEqual(de_data.total_devices, 3)
         self.assertEqual(de_data.spare_devices, 1)
-        self.assertTrue(de_data.array_size < (10 * 1024**2))
-        self.assertTrue(de_data.use_dev_size < (10 * 1024**2))
+        self.assertLess(de_data.array_size, (10 * 1024**2))
+        self.assertLess(de_data.use_dev_size, (10 * 1024**2))
         if "JENKINS_HOME" not in os.environ:
             # XXX: for some reason the RAID is in "active sync" when tests run in
             # Jenkins
@@ -497,7 +477,7 @@ class MDTestNameNodeBijection(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         node = BlockDev.md_node_from_name("bd_test_md")
@@ -507,7 +487,7 @@ class MDTestNameNodeBijection(MDTestCase):
         with self.assertRaises(GLib.GError):
             node = BlockDev.md_node_from_name("made_up_md")
 
-        with six.assertRaisesRegex(self, GLib.GError, r'No name'):
+        with self.assertRaisesRegex(GLib.GError, r'No name'):
             BlockDev.md_name_from_node("no_such_node")
 
         succ = BlockDev.md_deactivate("bd_test_md");
@@ -528,8 +508,22 @@ class MDTestSetBitmapLocation(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, "none")
             self.assertTrue(succ)
+
+        loc = BlockDev.md_get_bitmap_location("bd_test_md")
+        self.assertEqual(loc, "none")
+
+        BlockDev.md_deactivate("bd_test_md")
+
+        with wait_for_action("resync"):
+            succ = BlockDev.md_create("bd_test_md", "raid1",
+                                      [self.loop_dev, self.loop_dev2, self.loop_dev3],
+                                      1, None, "internal")
+            self.assertTrue(succ)
+
+        loc = BlockDev.md_get_bitmap_location("bd_test_md")
+        self.assertEqual(loc, "+8")
 
         succ = BlockDev.md_set_bitmap_location("bd_test_md", "none")
         self.assertTrue(succ)
@@ -577,7 +571,7 @@ class MDTestRequestSyncAction(MDTestCase):
         with wait_for_action("resync"):
             succ = BlockDev.md_create("bd_test_md", "raid1",
                                       [self.loop_dev, self.loop_dev2, self.loop_dev3],
-                                      1, None, True)
+                                      1, None, None)
             self.assertTrue(succ)
 
         with wait_for_action("check"):
@@ -608,7 +602,7 @@ class MDTestDDFRAID(MDTestCase):
     def test_examine_ddf_container(self):
         succ = BlockDev.md_create("bd_test_md", "container",
                                   [self.loop_dev, self.loop_dev2],
-                                  0, "ddf", False)
+                                  0, "ddf", None)
         self.assertTrue(succ)
 
         # we cannot create the array with libblockdev because we cannot pass the --raid-devices option
@@ -621,6 +615,7 @@ class MDTestDDFRAID(MDTestCase):
         self.assertEqual(edata.level, "container")
         self.assertEqual(edata.metadata, "ddf")
 
+        # ddf container detail
         ddata = BlockDev.md_detail("bd_test_md")
         self.assertIsNotNone(ddata)
         self.assertIsNotNone(ddata.uuid)
@@ -628,14 +623,28 @@ class MDTestDDFRAID(MDTestCase):
         self.assertEqual(ddata.level, "container")
         self.assertEqual(ddata.metadata, "ddf")
 
+        # array detail
+        ddata = BlockDev.md_detail("bd_test_ddf")
+        self.assertIsNotNone(ddata)
+        self.assertEqual(ddata.level, "raid0")
+        self.assertEqual(ddata.container, "/dev/md/bd_test_md")
+
 
 class FakeMDADMutilTest(MDTest):
+
+    def setUp(self):
+        super().setUp()
+
+        # we need to force the check now to make sure that libblockdev doesn't use
+        # the fake tools below to try to get mdadm version
+        BlockDev.md_is_tech_avail(BlockDev.MDTech.MDRAID, 0)
+
     # no setUp nor tearDown needed, we are gonna use fake utils
     @tag_test(TestTags.NOSTORAGE)
     def test_fw_raid_uppercase_examine(self):
         """Verify that md_examine works with output using "RAID" instead of "Raid" and other quirks """
 
-        with fake_utils("tests/mdadm_fw_RAID_examine"):
+        with fake_utils("tests/fake_utils/mdadm_fw_RAID_examine"):
             ex_data = BlockDev.md_examine("fake_dev")
 
         self.assertEqual(ex_data.level, "container")
@@ -648,7 +657,7 @@ class FakeMDADMutilTest(MDTest):
         """Verify that md_examine works as expected with no metadata spec"""
 
         # shouldn't raise any exception
-        with fake_utils("tests/mdadm_no_metadata_examine"):
+        with fake_utils("tests/fake_utils/mdadm_no_metadata_examine"):
             ex_data = BlockDev.md_examine("fake_dev")
 
         self.assertIs(ex_data.metadata, None)
@@ -657,7 +666,7 @@ class FakeMDADMutilTest(MDTest):
     def test_fw_raid_migrating(self):
         """Verify that md_examine works when array is migrating ("foo <-- bar" values in output) """
 
-        with fake_utils("tests/mdadm_fw_RAID_examine_migrate"):
+        with fake_utils("tests/fake_utils/mdadm_fw_RAID_examine_migrate"):
             ex_data = BlockDev.md_examine("fake_dev")
 
         self.assertEqual(ex_data.chunk_size, 128 * 1024)
@@ -666,7 +675,7 @@ class FakeMDADMutilTest(MDTest):
     def test_mdadm_name_extra_info(self):
         """Verify that md_examine and md_detail work with extra MD RAID name info"""
 
-        with fake_utils("tests/mdadm_extra_name_stuff"):
+        with fake_utils("tests/fake_utils/mdadm_extra_name_stuff"):
             ex_data = BlockDev.md_examine("fake_dev")
             detail_data = BlockDev.md_detail("fake_dev")
 
@@ -674,44 +683,17 @@ class FakeMDADMutilTest(MDTest):
         self.assertEqual(detail_data.name, "localhost:fedora")
 
 
-class MDUnloadTest(MDTestCase):
-    def setUp(self):
-        # make sure the library is initialized with all plugins loaded for other
-        # tests
-        self.addCleanup(BlockDev.reinit, self.requested_plugins, True, None)
-
+class MDDepsTest(MDTest):
     @tag_test(TestTags.NOSTORAGE)
-    def test_check_low_version(self):
-        """Verify that checking the minimum mdsetup version works as expected"""
+    def test_missing_dependencies(self):
+        """Verify that checking for technology support works as expected"""
 
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_utils("tests/mdraid_low_version/"):
-            # too low version of mdsetup available, the MD plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-            self.assertNotIn("mdraid", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("mdraid", BlockDev.get_available_plugin_names())
-
-    @tag_test(TestTags.NOSTORAGE)
-    def test_check_no_md(self):
-        """Verify that checking mdsetup tool availability works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
+        with fake_utils("tests/fake_utils/mdraid_low_version/"):
+            # too low version of mdsetup available
+            with self.assertRaisesRegex(GLib.GError, "Too low version of mdadm"):
+                BlockDev.md_is_tech_avail(BlockDev.MDTech.MDRAID, 0)
 
         with fake_path(all_but="mdadm"):
-            # no mdadm available, the MD plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-            self.assertNotIn("mdraid", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("mdraid", BlockDev.get_available_plugin_names())
+            # no mdadm available
+            with self.assertRaisesRegex(GLib.GError, "The 'mdadm' utility is not available"):
+                BlockDev.md_is_tech_avail(BlockDev.MDTech.MDRAID, 0)

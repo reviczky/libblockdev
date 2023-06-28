@@ -34,6 +34,12 @@
 
 #define MOUNT_ERR_BUF_SIZE 1024
 
+#ifdef __clang__
+#define ZERO_INIT {}
+#else
+#define ZERO_INIT {0}
+#endif
+
 typedef struct MountArgs {
     const gchar *mountpoint;
     const gchar *device;
@@ -145,7 +151,7 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
     if (mnt_context_set_target (cxt, args->spec) != 0) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                      "Failed to set '%s' as target for umount", args->spec);
-        mnt_free_context(cxt);
+        mnt_free_context (cxt);
         return FALSE;
     }
 
@@ -153,7 +159,7 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
         if (mnt_context_enable_lazy (cxt, TRUE) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set lazy unmount for '%s'", args->spec);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -162,7 +168,7 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
         if (mnt_context_enable_force (cxt, TRUE) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set force unmount for '%s'", args->spec);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -174,7 +180,7 @@ static gboolean do_unmount (MountArgs *args, GError **error) {
     success = get_unmount_error_old (cxt, ret, args->spec, error);
 #endif
 
-    mnt_free_context(cxt);
+    mnt_free_context (cxt);
     return success;
 }
 
@@ -247,7 +253,7 @@ static gboolean get_mount_error_old (struct libmnt_context *cxt, int rc, MountAr
                   }
                   /* new versions of libmount do this automatically */
                   else {
-                      MountArgs ro_args;
+                      MountArgs ro_args = ZERO_INIT;
                       gboolean success = FALSE;
 
                       ro_args.device = args->device;
@@ -372,7 +378,7 @@ static gboolean do_mount (MountArgs *args, GError **error) {
     if (!args->mountpoint && !args->device) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                      "You must specify at least one of: mount point, device.");
-        mnt_free_context(cxt);
+        mnt_free_context (cxt);
         return FALSE;
     }
 
@@ -380,7 +386,7 @@ static gboolean do_mount (MountArgs *args, GError **error) {
         if (mnt_context_set_target (cxt, args->mountpoint) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set '%s' as target for mount", args->mountpoint);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -389,7 +395,7 @@ static gboolean do_mount (MountArgs *args, GError **error) {
         if (mnt_context_set_source (cxt, args->device) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set '%s' as source for mount", args->device);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -398,7 +404,7 @@ static gboolean do_mount (MountArgs *args, GError **error) {
         if (mnt_context_set_fstype (cxt, args->fstype) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set '%s' as fstype for mount", args->fstype);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -407,7 +413,7 @@ static gboolean do_mount (MountArgs *args, GError **error) {
         if (mnt_context_set_options (cxt, args->options) != 0) {
             g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
                          "Failed to set '%s' as options for mount", args->options);
-            mnt_free_context(cxt);
+            mnt_free_context (cxt);
             return FALSE;
         }
     }
@@ -430,30 +436,40 @@ static gboolean do_mount (MountArgs *args, GError **error) {
     success = get_mount_error_old (cxt, ret, args, error);
 #endif
 
-    mnt_free_context(cxt);
+    mnt_free_context (cxt);
     return success;
 }
 
-static gboolean set_uid (uid_t uid, GError **error) {
+static gboolean set_ruid (uid_t uid, GError **error) {
     if (setresuid (uid, -1, -1) != 0) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                    "Error setting uid: %m");
+                     "Error setting ruid: %m");
         return FALSE;
     }
 
     return TRUE;
 }
 
-static gboolean set_gid (gid_t gid, GError **error) {
+static gboolean set_rgid (gid_t gid, GError **error) {
     if (setresgid (gid, -1, -1) != 0) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                    "Error setting gid: %m");
+                     "Error setting rgid: %m");
         return FALSE;
     }
 
     return TRUE;
 }
 
+
+/**
+ * run_as_user:
+ *
+ * Runs given @func in a child process with real user and group ID specified by
+ * @run_as_uid and @run_as_gid. The child process is ended after @func is finished.
+ * This is used to run mount and unmount functions in a similar way how the `mount`
+ * command, which is a suid binary, works and is used to set the libmount context
+ * to restricted.
+ */
 static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, gid_t run_as_gid, GError ** error) {
     uid_t current_uid = -1;
     gid_t current_gid = -1;
@@ -468,6 +484,12 @@ static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, 
 
     current_uid = getuid ();
     current_gid = getgid ();
+
+    if (geteuid () != 0) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
+                     "Not running as root, cannot change the UID/GID.");
+        return FALSE;
+    }
 
     if (pipe(pipefd) == -1) {
         g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
@@ -485,7 +507,7 @@ static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, 
         close (pipefd[0]);
 
         if (run_as_gid != current_gid) {
-            if (!set_gid (run_as_gid, error)) {
+            if (!set_rgid (run_as_gid, error)) {
                 if (write(pipefd[1], (*error)->message, strlen((*error)->message)) < 0)
                     _exit (BD_FS_ERROR_PIPE);
                 else
@@ -494,7 +516,7 @@ static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, 
         }
 
         if (run_as_uid != current_uid) {
-            if (!set_uid (run_as_uid, error)) {
+            if (!set_ruid (run_as_uid, error)) {
                 if (write(pipefd[1], (*error)->message, strlen((*error)->message)) < 0)
                     _exit (BD_FS_ERROR_PIPE);
                 else
@@ -541,7 +563,7 @@ static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, 
                           g_clear_error (&local_error);
                       } else
                           g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                                       "Unknoen error while reading error.");
+                                       "Unknown error while reading error.");
                       g_io_channel_unref (channel);
                       close (pipefd[0]);
                       g_free (error_msg);
@@ -593,12 +615,14 @@ static gboolean run_as_user (MountFunc func, MountArgs *args, uid_t run_as_uid, 
  * @spec: mount point or device to unmount
  * @lazy: enable/disable lazy unmount
  * @force: enable/disable force unmount
- * @extra: (allow-none) (array zero-terminated=1): extra options for the unmount
- *                                                 currently only 'run_as_uid'
- *                                                 and 'run_as_gid' are supported
- *                                                 value must be a valid non zero
- *                                                 uid (gid)
- * @error: (out): place to store error (if any)
+ * @extra: (nullable) (array zero-terminated=1): extra options for the unmount;
+ *                                               currently only 'run_as_uid'
+ *                                               and 'run_as_gid' are supported;
+ *                                               value must be a valid non zero
+ *                                               uid (gid), if you specify one of
+ *                                               these, the function will run in
+ *                                               a child process with real user
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether @spec was successfully unmounted or not
  *
@@ -611,7 +635,9 @@ gboolean bd_fs_unmount (const gchar *spec, gboolean lazy, gboolean force, const 
     gid_t current_gid = -1;
     const BDExtraArg **extra_p = NULL;
     gchar *endptr = NULL;
-    MountArgs args;
+    MountArgs args = ZERO_INIT;
+    GError *l_error = NULL;
+    gboolean ret = FALSE;
 
     args.spec = spec;
     args.lazy = lazy;
@@ -652,7 +678,10 @@ gboolean bd_fs_unmount (const gchar *spec, gboolean lazy, gboolean force, const 
     }
 
     if (run_as_uid != current_uid || run_as_gid != current_gid) {
-        return run_as_user ((MountFunc) do_unmount, &args, run_as_uid, run_as_gid, error);
+        ret = run_as_user ((MountFunc) do_unmount, &args, run_as_uid, run_as_gid, &l_error);
+        if (!ret)
+            g_propagate_error (error, l_error);
+        return ret;
     } else
         return do_unmount (&args, error);
 
@@ -661,18 +690,21 @@ gboolean bd_fs_unmount (const gchar *spec, gboolean lazy, gboolean force, const 
 
 /**
  * bd_fs_mount:
- * @device: (allow-none): device to mount, if not specified @mountpoint entry
+ * @device: (nullable): device to mount, if not specified @mountpoint entry
  *                        from fstab will be used
- * @mountpoint: (allow-none): mountpoint for @device, if not specified @device
+ * @mountpoint: (nullable): mountpoint for @device, if not specified @device
  *                            entry from fstab will be used
- * @fstype: (allow-none): filesystem type
- * @options: (allow-none): comma delimited options for mount
- * @extra: (allow-none) (array zero-terminated=1): extra options for the mount
- *                                                 currently only 'run_as_uid'
- *                                                 and 'run_as_gid' are supported
- *                                                 value must be a valid non zero
- *                                                 uid (gid)
- * @error: (out): place to store error (if any)
+ * @fstype: (nullable): filesystem type
+ * @options: (nullable): comma delimited options for mount
+ * @extra: (nullable) (array zero-terminated=1): extra options for the mount;
+ *                                               currently only 'run_as_uid'
+ *                                               and 'run_as_gid' are supported;
+ *                                               value must be a valid non zero
+ *                                               uid (gid), if you specify one of
+ *                                               these, the function will run in
+ *                                               a child process with real user
+ *                                               and/or group ID set to these values.
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether @device (or @mountpoint) was successfully mounted or not
  *
@@ -685,7 +717,9 @@ gboolean bd_fs_mount (const gchar *device, const gchar *mountpoint, const gchar 
     gid_t current_gid = -1;
     const BDExtraArg **extra_p = NULL;
     gchar *endptr = NULL;
-    MountArgs args;
+    MountArgs args = ZERO_INIT;
+    GError *l_error = NULL;
+    gboolean ret = FALSE;
 
     args.device = device;
     args.mountpoint = mountpoint;
@@ -727,7 +761,10 @@ gboolean bd_fs_mount (const gchar *device, const gchar *mountpoint, const gchar 
     }
 
     if (run_as_uid != current_uid || run_as_gid != current_gid) {
-        return run_as_user ((MountFunc) do_mount, &args, run_as_uid, run_as_gid, error);
+        ret = run_as_user ((MountFunc) do_mount, &args, run_as_uid, run_as_gid, &l_error);
+        if (!ret)
+            g_propagate_error (error, l_error);
+        return ret;
     } else
        return do_mount (&args, error);
 
@@ -737,7 +774,7 @@ gboolean bd_fs_mount (const gchar *device, const gchar *mountpoint, const gchar 
 /**
  * bd_fs_get_mountpoint:
  * @device: device to find mountpoint for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Get mountpoint for @device. If @device is mounted multiple times only
  * one mountpoint will be returned.
@@ -801,7 +838,7 @@ gchar* bd_fs_get_mountpoint (const gchar *device, GError **error) {
 /**
  * bd_fs_is_mountpoint:
  * @path: path (folder) to check
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether @path is a mountpoint or not
  *

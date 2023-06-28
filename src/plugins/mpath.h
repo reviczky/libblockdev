@@ -3,16 +3,14 @@
 #ifndef BD_MPATH
 #define BD_MPATH
 
-#define MULTIPATH_MIN_VERSION "0.4.9"
-
 GQuark bd_mpath_error_quark (void);
 #define BD_MPATH_ERROR bd_mpath_error_quark ()
 typedef enum {
+    BD_MPATH_ERROR_TECH_UNAVAIL,
+    BD_MPATH_ERROR_INVAL,
     BD_MPATH_ERROR_FLUSH,
     BD_MPATH_ERROR_NOT_ROOT,
     BD_MPATH_ERROR_DM_ERROR,
-    BD_MPATH_ERROR_INVAL,
-    BD_MPATH_ERROR_TECH_UNAVAIL,
 } BDMpathError;
 
 typedef enum {
@@ -30,12 +28,10 @@ typedef enum {
  * If using the plugin as a standalone library, the following functions should
  * be called to:
  *
- * check_deps() - check plugin's dependencies, returning TRUE if satisfied
  * init()       - initialize the plugin, returning TRUE on success
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_mpath_check_deps (void);
 gboolean bd_mpath_init (void);
 void bd_mpath_close (void);
 

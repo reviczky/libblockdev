@@ -19,16 +19,14 @@
 #include "plugin_apis/dm.c"
 #include "plugin_apis/mdraid.h"
 #include "plugin_apis/mdraid.c"
-#include "plugin_apis/kbd.h"
-#include "plugin_apis/kbd.c"
 #include "plugin_apis/part.h"
 #include "plugin_apis/part.c"
 #include "plugin_apis/fs.h"
 #include "plugin_apis/fs.c"
 #include "plugin_apis/nvdimm.h"
 #include "plugin_apis/nvdimm.c"
-#include "plugin_apis/vdo.h"
-#include "plugin_apis/vdo.c"
+#include "plugin_apis/nvme.h"
+#include "plugin_apis/nvme.c"
 
 #if defined(__s390__) || defined(__s390x__)
 #include "plugin_apis/s390.h"
@@ -47,7 +45,6 @@
 
 static GMutex init_lock;
 static gboolean initialized = FALSE;
-static GMutex env_lock;
 
 typedef struct BDPluginStatus {
     BDPluginSpec spec;
@@ -62,9 +59,9 @@ static gchar * default_plugin_so[BD_PLUGIN_UNDEF] = {
     "libbd_swap.so."@MAJOR_VER@, "libbd_loop.so."@MAJOR_VER@,
     "libbd_crypto.so."@MAJOR_VER@, "libbd_mpath.so."@MAJOR_VER@,
     "libbd_dm.so."@MAJOR_VER@, "libbd_mdraid.so."@MAJOR_VER@,
-    "libbd_kbd.so."@MAJOR_VER@,"libbd_s390.so."@MAJOR_VER@,
-    "libbd_part.so."@MAJOR_VER@, "libbd_fs.so."@MAJOR_VER@,
-    "libbd_nvdimm.so."@MAJOR_VER@, "libbd_vdo.so."@MAJOR_VER@
+    "libbd_s390.so."@MAJOR_VER@, "libbd_part.so."@MAJOR_VER@,
+    "libbd_fs.so."@MAJOR_VER@, "libbd_nvdimm.so."@MAJOR_VER@,
+    "libbd_nvme.so."@MAJOR_VER@
 };
 static BDPluginStatus plugins[BD_PLUGIN_UNDEF] = {
     {{BD_PLUGIN_LVM, NULL}, NULL},
@@ -75,15 +72,14 @@ static BDPluginStatus plugins[BD_PLUGIN_UNDEF] = {
     {{BD_PLUGIN_MPATH, NULL}, NULL},
     {{BD_PLUGIN_DM, NULL}, NULL},
     {{BD_PLUGIN_MDRAID, NULL}, NULL},
-    {{BD_PLUGIN_KBD, NULL}, NULL},
     {{BD_PLUGIN_S390, NULL}, NULL},
     {{BD_PLUGIN_PART, NULL}, NULL},
     {{BD_PLUGIN_FS, NULL}, NULL},
     {{BD_PLUGIN_NVDIMM, NULL}, NULL},
-    {{BD_PLUGIN_VDO, NULL}, NULL},
+    {{BD_PLUGIN_NVME, NULL}, NULL},
 };
 static gchar* plugin_names[BD_PLUGIN_UNDEF] = {
-    "lvm", "btrfs", "swap", "loop", "crypto", "mpath", "dm", "mdraid", "kbd", "s390", "part", "fs", "nvdimm", "vdo"
+    "lvm", "btrfs", "swap", "loop", "crypto", "mpath", "dm", "mdraid", "s390", "part", "fs", "nvdimm", "nvme"
 };
 
 static void set_plugin_so_name (BDPlugin name, const gchar *so_name) {
@@ -174,7 +170,8 @@ static gboolean load_config (GSequence *config_files, GSList **plugins_sonames, 
     while (!g_sequence_iter_is_end (config_file_iter)) {
         config_file = (gchar *) g_sequence_get (config_file_iter);
         if (!process_config_file (config_file, plugins_sonames, error)) {
-            g_warning ("Cannot process the config file '%s': %s. Skipping.", config_file, (*error)->message);
+            bd_utils_log_format (BD_UTILS_LOG_WARNING, "Cannot process the config file '%s': %s. Skipping.",
+                                 config_file, (*error)->message);
             g_clear_error (error);
         }
         config_file_iter = g_sequence_iter_next (config_file_iter);
@@ -185,62 +182,58 @@ static gboolean load_config (GSequence *config_files, GSList **plugins_sonames, 
 
 static void unload_plugins (void) {
     if (plugins[BD_PLUGIN_LVM].handle && !unload_lvm (plugins[BD_PLUGIN_LVM].handle))
-        g_warning ("Failed to close the lvm plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the lvm plugin");
     plugins[BD_PLUGIN_LVM].handle = NULL;
 
     if (plugins[BD_PLUGIN_BTRFS].handle && !unload_btrfs (plugins[BD_PLUGIN_BTRFS].handle))
-        g_warning ("Failed to close the btrfs plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the btrfs plugin");
     plugins[BD_PLUGIN_BTRFS].handle = NULL;
 
     if (plugins[BD_PLUGIN_SWAP].handle && !unload_swap (plugins[BD_PLUGIN_SWAP].handle))
-        g_warning ("Failed to close the swap plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the swap plugin");
     plugins[BD_PLUGIN_SWAP].handle = NULL;
 
     if (plugins[BD_PLUGIN_LOOP].handle && !unload_loop (plugins[BD_PLUGIN_LOOP].handle))
-        g_warning ("Failed to close the loop plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the loop plugin");
     plugins[BD_PLUGIN_LOOP].handle = NULL;
 
     if (plugins[BD_PLUGIN_CRYPTO].handle && !unload_crypto (plugins[BD_PLUGIN_CRYPTO].handle))
-        g_warning ("Failed to close the crypto plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the crypto plugin");
     plugins[BD_PLUGIN_CRYPTO].handle = NULL;
 
     if (plugins[BD_PLUGIN_MPATH].handle && !unload_mpath (plugins[BD_PLUGIN_MPATH].handle))
-        g_warning ("Failed to close the mpath plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the mpath plugin");
     plugins[BD_PLUGIN_MPATH].handle = NULL;
 
     if (plugins[BD_PLUGIN_DM].handle && !unload_dm (plugins[BD_PLUGIN_DM].handle))
-        g_warning ("Failed to close the dm plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the dm plugin");
     plugins[BD_PLUGIN_DM].handle = NULL;
 
     if (plugins[BD_PLUGIN_MDRAID].handle && !unload_mdraid (plugins[BD_PLUGIN_MDRAID].handle))
-        g_warning ("Failed to close the mdraid plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the mdraid plugin");
     plugins[BD_PLUGIN_MDRAID].handle = NULL;
-
-    if (plugins[BD_PLUGIN_KBD].handle && !unload_kbd (plugins[BD_PLUGIN_KBD].handle))
-        g_warning ("Failed to close the kbd plugin");
-    plugins[BD_PLUGIN_KBD].handle = NULL;
 
 #if defined(__s390__) || defined(__s390x__)
     if (plugins[BD_PLUGIN_S390].handle && !unload_s390 (plugins[BD_PLUGIN_S390].handle))
-        g_warning ("Failed to close the s390 plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the s390 plugin");
     plugins[BD_PLUGIN_S390].handle = NULL;
 #endif
 
     if (plugins[BD_PLUGIN_PART].handle && !unload_part (plugins[BD_PLUGIN_PART].handle))
-        g_warning ("Failed to close the part plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the part plugin");
     plugins[BD_PLUGIN_PART].handle = NULL;
 
     if (plugins[BD_PLUGIN_FS].handle && !unload_fs (plugins[BD_PLUGIN_FS].handle))
-        g_warning ("Failed to close the fs plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the fs plugin");
     plugins[BD_PLUGIN_FS].handle = NULL;
 
     if (plugins[BD_PLUGIN_NVDIMM].handle && !unload_nvdimm (plugins[BD_PLUGIN_NVDIMM].handle))
-        g_warning ("Failed to close the nvdimm plugin");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the nvdimm plugin");
     plugins[BD_PLUGIN_NVDIMM].handle = NULL;
 
-    if (plugins[BD_PLUGIN_VDO].handle && !unload_vdo (plugins[BD_PLUGIN_VDO].handle))
-        g_warning ("Failed to close the VDO plugin");
-    plugins[BD_PLUGIN_VDO].handle = NULL;
+    if (plugins[BD_PLUGIN_NVME].handle && !unload_nvme (plugins[BD_PLUGIN_NVME].handle))
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to close the nvme plugin");
+    plugins[BD_PLUGIN_NVME].handle = NULL;
 }
 
 static void load_plugin_from_sonames (BDPlugin plugin, LoadFunc load_fn, void **handle, GSList *sonames) {
@@ -269,8 +262,6 @@ static void do_load (GSList **plugins_sonames) {
         load_plugin_from_sonames (BD_PLUGIN_DM, load_dm_from_plugin, &(plugins[BD_PLUGIN_DM].handle), plugins_sonames[BD_PLUGIN_DM]);
     if (!plugins[BD_PLUGIN_MDRAID].handle && plugins_sonames[BD_PLUGIN_MDRAID])
         load_plugin_from_sonames (BD_PLUGIN_MDRAID, load_mdraid_from_plugin, &(plugins[BD_PLUGIN_MDRAID].handle), plugins_sonames[BD_PLUGIN_MDRAID]);
-    if (!plugins[BD_PLUGIN_KBD].handle && plugins_sonames[BD_PLUGIN_KBD])
-        load_plugin_from_sonames (BD_PLUGIN_KBD, load_kbd_from_plugin, &(plugins[BD_PLUGIN_KBD].handle), plugins_sonames[BD_PLUGIN_KBD]);
 #if defined(__s390__) || defined(__s390x__)
     if (!plugins[BD_PLUGIN_S390].handle && plugins_sonames[BD_PLUGIN_S390])
         load_plugin_from_sonames (BD_PLUGIN_S390, load_s390_from_plugin, &(plugins[BD_PLUGIN_S390].handle), plugins_sonames[BD_PLUGIN_S390]);
@@ -281,8 +272,8 @@ static void do_load (GSList **plugins_sonames) {
         load_plugin_from_sonames (BD_PLUGIN_FS, load_fs_from_plugin, &(plugins[BD_PLUGIN_FS].handle), plugins_sonames[BD_PLUGIN_FS]);
     if (!plugins[BD_PLUGIN_NVDIMM].handle && plugins_sonames[BD_PLUGIN_NVDIMM])
         load_plugin_from_sonames (BD_PLUGIN_NVDIMM, load_nvdimm_from_plugin, &(plugins[BD_PLUGIN_NVDIMM].handle), plugins_sonames[BD_PLUGIN_NVDIMM]);
-    if (!plugins[BD_PLUGIN_VDO].handle && plugins_sonames[BD_PLUGIN_VDO])
-        load_plugin_from_sonames (BD_PLUGIN_VDO, load_vdo_from_plugin, &(plugins[BD_PLUGIN_VDO].handle), plugins_sonames[BD_PLUGIN_VDO]);
+    if (!plugins[BD_PLUGIN_NVME].handle && plugins_sonames[BD_PLUGIN_NVME])
+        load_plugin_from_sonames (BD_PLUGIN_NVME, load_nvme_from_plugin, &(plugins[BD_PLUGIN_NVME].handle), plugins_sonames[BD_PLUGIN_NVME]);
 }
 
 static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, guint64 *num_loaded) {
@@ -291,7 +282,8 @@ static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, g
     GError *error = NULL;
     GSequence *config_files = NULL;
     GSList *plugins_sonames[BD_PLUGIN_UNDEF] = {NULL, NULL, NULL, NULL, NULL,
-                                                NULL, NULL, NULL, NULL, NULL};
+                                                NULL, NULL, NULL, NULL, NULL,
+                                                NULL};
     BDPlugin plugin_name = BD_PLUGIN_UNDEF;
     guint64 required_plugins_mask = 0;
 
@@ -299,11 +291,13 @@ static gboolean load_plugins (BDPluginSpec **require_plugins, gboolean reload, g
     config_files = get_config_files (&error);
     if (config_files) {
         if (!load_config (config_files, plugins_sonames, &error))
-            g_warning ("Failed to load config files: %s. Using the built-in config", error->message);
+            bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to load config files: %s. Using the built-in config",
+                                 error->message);
 
         g_sequence_free (config_files);
     } else
-        g_warning ("Failed to load config files: %s. Using the built-in config", error->message);
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to load config files: %s. Using the built-in config",
+                             error->message);
     g_clear_error (&error);
 
     /* populate missing items with the built-in defaults */
@@ -385,12 +379,12 @@ GQuark bd_init_error_quark (void)
 
 /**
  * bd_init:
- * @require_plugins: (allow-none) (array zero-terminated=1): %NULL-terminated list
+ * @require_plugins: (nullable) (array zero-terminated=1): %NULL-terminated list
  *                 of plugins that should be loaded (if no so_name is specified
  *                 for the plugin, the default is used) or %NULL to load all
  *                 plugins
- * @log_func: (allow-none) (scope notified): logging function to use
- * @error: (out): place to store error (if any)
+ * @log_func: (nullable) (scope notified): logging function to use
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the library was successfully initialized with all the
  *          required or default (see @require_plugins) plugins or not
@@ -402,7 +396,7 @@ GQuark bd_init_error_quark (void)
  * GError *error = NULL;
  * gboolean ret = FALSE;
  * BDPluginSpec fs_plugin = {BD_PLUGIN_FS, NULL};
- * BDPluginSpec lvm_plugin = {BD_PLUGIN_LVM, "libbd_lvm.so.2"};
+ * BDPluginSpec lvm_plugin = {BD_PLUGIN_LVM, "libbd_lvm.so.3"};
  *
  * BDPluginSpec *plugins[] = {&fs_plugin, &lvm_plugin, NULL};
  *
@@ -415,8 +409,8 @@ gboolean bd_init (BDPluginSpec **require_plugins, BDUtilsLogFunc log_func, GErro
 
     g_mutex_lock (&init_lock);
     if (initialized) {
-        g_warning ("bd_init() called more than once! Use bd_reinit() to reinitialize "
-                   "or bd_is_initialized() to get the current state.");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "bd_init() called more than once! Use bd_reinit() to reinitialize "
+                             "or bd_is_initialized() to get the current state.");
         g_mutex_unlock (&init_lock);
         return FALSE;
     }
@@ -450,12 +444,12 @@ gboolean bd_init (BDPluginSpec **require_plugins, BDUtilsLogFunc log_func, GErro
 
 /**
  * bd_ensure_init:
- * @require_plugins: (allow-none) (array zero-terminated=1): %NULL-terminated list
+ * @require_plugins: (nullable) (array zero-terminated=1): %NULL-terminated list
  *                 of plugins that should be loaded (if no so_name is specified
  *                 for the plugin, the default is used) or %NULL to load all
  *                 plugins
- * @log_func: (allow-none) (scope notified): logging function to use
- * @error: (out): place to store error (if any)
+ * @log_func: (nullable) (scope notified): logging function to use
+ * @error: (out) (optional): place to store error (if any)
  *
  * Checks the state of the library and if it is uninitialized or not all the
  * @require_plugins plugins are available, tries to (re)initialize it. Otherwise
@@ -526,14 +520,14 @@ gboolean bd_ensure_init (BDPluginSpec **require_plugins, BDUtilsLogFunc log_func
 
 /**
  * bd_try_init:
- * @request_plugins: (allow-none) (array zero-terminated=1): %NULL-terminated list
+ * @request_plugins: (nullable) (array zero-terminated=1): %NULL-terminated list
  *                   of plugins that should be loaded (if no so_name is specified
  *                   for the plugin, the default is used) or %NULL to load all
  *                   plugins
- * @log_func: (allow-none) (scope notified): logging function to use
- * @loaded_plugin_names: (allow-none) (out) (transfer container) (array zero-terminated=1): names
+ * @log_func: (nullable) (scope notified): logging function to use
+ * @loaded_plugin_names: (optional) (out) (transfer container) (array zero-terminated=1): names
  *                       of the successfully loaded plugins
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the library was successfully initialized with all the
  *          required or default (see @require_plugins) plugins or not
@@ -548,8 +542,8 @@ gboolean bd_try_init(BDPluginSpec **request_plugins, BDUtilsLogFunc log_func,
 
     g_mutex_lock (&init_lock);
     if (initialized) {
-        g_warning ("bd_try_init() called more than once! Use bd_reinit() to reinitialize "
-                   "or bd_is_initialized() to get the current state.");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "bd_try_init() called more than once! Use bd_reinit() "
+                             "to reinitialize or bd_is_initialized() to get the current state.");
         g_mutex_unlock (&init_lock);
         return FALSE;
     }
@@ -582,14 +576,14 @@ gboolean bd_try_init(BDPluginSpec **request_plugins, BDUtilsLogFunc log_func,
 
 /**
  * bd_reinit:
- * @require_plugins: (allow-none) (array zero-terminated=1): %NULL-terminated list
+ * @require_plugins: (nullable) (array zero-terminated=1): %NULL-terminated list
  *                 of plugins that should be loaded (if no so_name is specified
  *                 for the plugin, the default is used) or %NULL to load all
  *                 plugins
  * @reload: whether to reload the already loaded plugins or not
- * @log_func: (allow-none) (scope notified): logging function to use or %NULL
+ * @log_func: (nullable) (scope notified): logging function to use or %NULL
  *                                           to keep the old one
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the library was successfully initialized or not
  *
@@ -632,16 +626,16 @@ gboolean bd_reinit (BDPluginSpec **require_plugins, gboolean reload, BDUtilsLogF
 
 /**
  * bd_try_reinit:
- * @require_plugins: (allow-none) (array zero-terminated=1): %NULL-terminated list
+ * @require_plugins: (nullable) (array zero-terminated=1): %NULL-terminated list
  *                 of plugins that should be loaded (if no so_name is specified
  *                 for the plugin, the default is used) or %NULL to load all
  *                 plugins
  * @reload: whether to reload the already loaded plugins or not
- * @log_func: (allow-none) (scope notified): logging function to use or %NULL
+ * @log_func: (nullable) (scope notified): logging function to use or %NULL
  *                                           to keep the old one
- * @loaded_plugin_names: (allow-none) (out) (transfer container) (array zero-terminated=1): names of the successfully
+ * @loaded_plugin_names: (optional) (out) (transfer container) (array zero-terminated=1): names of the successfully
  *                                                                loaded plugins
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the library was successfully initialized or not
  *
@@ -763,32 +757,4 @@ gchar* bd_get_plugin_soname (BDPlugin plugin) {
  */
 gchar* bd_get_plugin_name (BDPlugin plugin) {
     return plugin_names[plugin];
-}
-
-/**
- * bd_switch_init_checks:
- * @enable: whether to enable init checks (%TRUE) or not (%FALSE)
- * @error: (out): place to store error (if any)
- *
- * Enables or disables plugins' init checks based on @enable.
- *
- * Note: The current implementation (un)sets the LIBBLOCKDEV_SKIP_DEP_CHECKS
- *       environment variable.
- */
-gboolean bd_switch_init_checks (gboolean enable, GError **error) {
-    /* getenv/setenv/unsetenv are not thread-safe, better use a lock here */
-    g_autoptr(GMutexLocker) locker = g_mutex_locker_new (&env_lock);
-
-    if (!enable && !g_getenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS")) {
-        if (!g_setenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS", "", FALSE)) {
-            g_set_error (error, BD_INIT_ERROR, BD_INIT_ERROR_FAILED,
-                         "Failed to set the LIBBLOCKDEV_SKIP_DEP_CHECKS environment variable");
-            return FALSE;
-        }
-        return TRUE;
-    } else if (enable && g_getenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS")) {
-        g_unsetenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS");
-        return TRUE;
-    } else
-        return TRUE;
 }

@@ -18,9 +18,7 @@
  */
 
 #include <blockdev/utils.h>
-#include <blockdev/part_err.h>
-
-#include <parted/parted.h>
+#include <libmount/libmount.h>
 
 #include <check_deps.h>
 #include "fs.h"
@@ -38,6 +36,11 @@ extern gboolean bd_fs_ext_is_tech_avail (BDFSTech tech, guint64 mode, GError **e
 extern gboolean bd_fs_xfs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 extern gboolean bd_fs_vfat_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 extern gboolean bd_fs_ntfs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+extern gboolean bd_fs_f2fs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+extern gboolean bd_fs_nilfs2_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+extern gboolean bd_fs_exfat_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+extern gboolean bd_fs_btrfs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
+extern gboolean bd_fs_udf_is_tech_avail (BDFSTech tech, guint64 mode, GError **error);
 
 /**
  * bd_fs_error_quark: (skip)
@@ -48,44 +51,6 @@ GQuark bd_fs_error_quark (void)
 }
 
 /**
- * bd_fs_check_deps:
- *
- * Returns: whether the plugin's runtime dependencies are satisfied or not
- *
- * Function checking plugin's runtime dependencies.
- *
- */
-gboolean bd_fs_check_deps (void) {
-    gboolean ret = TRUE;
-    guint i = 0;
-    GError *error = NULL;
-
-    for (i = BD_FS_TECH_EXT2; i <= BD_FS_TECH_EXT4; i++) {
-        ret = ret && bd_fs_ext_is_tech_avail (i, 0xffffffff, &error);
-        if (!ret && error) {
-            g_warning ("%s", error->message);
-            g_clear_error (&error);
-        }
-    }
-    ret = ret && bd_fs_xfs_is_tech_avail (BD_FS_TECH_XFS, 0xffffffff, &error);
-    if (!ret && error) {
-        g_warning ("%s", error->message);
-        g_clear_error (&error);
-    }
-    ret = ret && bd_fs_vfat_is_tech_avail (BD_FS_TECH_VFAT, 0xffffffff, &error);
-    if (!ret && error) {
-        g_warning ("%s", error->message);
-        g_clear_error (&error);
-    }
-    ret = ret && bd_fs_ntfs_is_tech_avail (BD_FS_TECH_NTFS, 0xffffffff, &error);
-    if (!ret && error) {
-        g_warning ("%s", error->message);
-        g_clear_error (&error);
-    }
-    return ret;
-}
-
-/**
  * bd_fs_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -93,7 +58,9 @@ gboolean bd_fs_check_deps (void) {
  *
  */
 gboolean bd_fs_init (void) {
-    ped_exception_set_handler ((PedExceptionHandler*) bd_exc_handler);
+    /* tell libmount to honour the LIBMOUNT_DEBUG env var */
+    mnt_init_debug (0);
+
     return TRUE;
 }
 
@@ -112,7 +79,7 @@ void bd_fs_close (void) {
  * bd_fs_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation (#BDFSTechMode) for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
@@ -139,6 +106,16 @@ gboolean bd_fs_is_tech_avail (BDFSTech tech, guint64 mode, GError **error) {
             return bd_fs_vfat_is_tech_avail (tech, mode, error);
         case BD_FS_TECH_NTFS:
             return bd_fs_ntfs_is_tech_avail (tech, mode, error);
+        case BD_FS_TECH_F2FS:
+            return bd_fs_f2fs_is_tech_avail (tech, mode, error);
+        case BD_FS_TECH_NILFS2:
+            return bd_fs_nilfs2_is_tech_avail (tech, mode, error);
+        case BD_FS_TECH_EXFAT:
+            return bd_fs_exfat_is_tech_avail (tech, mode, error);
+        case BD_FS_TECH_BTRFS:
+            return bd_fs_btrfs_is_tech_avail (tech, mode, error);
+        case BD_FS_TECH_UDF:
+            return bd_fs_udf_is_tech_avail (tech, mode, error);
         /* coverity[dead_error_begin] */
         default:
             /* this should never be reached (see the comparison with LAST_FS

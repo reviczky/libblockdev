@@ -27,13 +27,18 @@ no code duplication and it propagates non-callable objects directly.
 
 """
 
-import re
+import inspect
 import os
+import re
+import sys
 from collections import namedtuple, defaultdict
 
+from bytesize import Size
 from gi.importer import modules
+from gi.module import FunctionInfo
 from gi.overrides import override
 from gi.repository import GLib
+from gi.repository import GObject
 
 BlockDev = modules['BlockDev']._introspection_module
 __all__ = []
@@ -46,13 +51,38 @@ bd_plugins = { "lvm": BlockDev.Plugin.LVM,
                "swap": BlockDev.Plugin.SWAP,
                "mdraid": BlockDev.Plugin.MDRAID,
                "mpath": BlockDev.Plugin.MPATH,
-               "kbd": BlockDev.Plugin.KBD,
                "part": BlockDev.Plugin.PART,
                "fs": BlockDev.Plugin.FS,
                "s390": BlockDev.Plugin.S390,
                "nvdimm": BlockDev.Plugin.NVDIMM,
-               "vdo": BlockDev.Plugin.VDO,
+               "nvme": BlockDev.Plugin.NVME,
 }
+
+def _default_str(self):
+    s = "BlockDev.{clname} ({giname}) instance ({id})".format(clname=self.__class__.__name__,
+                                                              giname=self.__gtype__.name,
+                                                              id="%#x" % id(self))
+    return s
+
+
+def _default_repr(self):
+    s = "{str}\n".format(str=str(self))
+    for member in dir(self):
+        if not member.startswith("_") and member not in ("copy", "free") and not isinstance(self.__getattribute__(member), FunctionInfo):
+            value = getattr(self, member)
+            if "size" in member and isinstance(value, int):
+                s += " {member}: {value} ({hvalue})\n".format(member=member, value=value, hvalue=Size(value).human_readable())
+            else:
+                s += " {member}: {value}\n".format(member=member, value=value)
+    return s
+
+
+# get all subclasses of GBoxed in this module
+all_boxed = inspect.getmembers(BlockDev,
+                               lambda member: inspect.isclass(member) and issubclass(member, GObject.GBoxed))
+for _cname, cls in all_boxed:
+    cls.__str__ = _default_str
+    cls.__repr__ = _default_repr
 
 
 class ExtraArg(BlockDev.ExtraArg):
@@ -83,6 +113,23 @@ def _get_extra(extra, kwargs, cmd_extra=True):
     if len(ea) == 0:
         return None
     return ea
+
+
+class FSMkfsOptions(BlockDev.FSMkfsOptions):
+    def __new__(cls, label=None, uuid=None, dry_run=False, no_discard=False, force=False, no_pt=False):
+        ret = BlockDev.FSMkfsOptions()
+        ret.__class__ = cls
+
+        ret.label = label
+        ret.uuid = uuid
+        ret.dry_run = dry_run
+        ret.no_discard = no_discard
+        ret.force = force
+        ret.no_pt = no_pt
+
+        return ret
+FSMkfsOptions = override(FSMkfsOptions)
+__all__.append("FSMkfsOptions")
 
 
 _init = BlockDev.init
@@ -214,38 +261,47 @@ class CryptoLUKSExtra(BlockDev.CryptoLUKSExtra):
 CryptoLUKSExtra = override(CryptoLUKSExtra)
 __all__.append("CryptoLUKSExtra")
 
+class CryptoKeyslotContext(BlockDev.CryptoKeyslotContext):
+    def __new__(cls, passphrase=None, keyfile=None, keyfile_offset=0, key_size=0, keyring=None, volume_key=None):
+        if sum(bool(x) for x in (passphrase, keyfile, keyring, volume_key)) != 1:
+            raise ValueError("Exactly one of 'passphrase', 'keyfile', 'keyring' and 'volume_key' must be specified")
+        if passphrase:
+            if isinstance(passphrase, str):
+                ret = BlockDev.CryptoKeyslotContext.new_passphrase([ord(c) for c in passphrase])
+            else:
+                ret = BlockDev.CryptoKeyslotContext.new_passphrase(passphrase)
+        if keyfile:
+            ret = BlockDev.CryptoKeyslotContext.new_keyfile(keyfile, keyfile_offset, key_size)
+        if keyring:
+            ret = BlockDev.CryptoKeyslotContext.new_keyring(keyring)
+        if volume_key:
+            ret = BlockDev.CryptoKeyslotContext.new_volume_key(volume_key)
+        return ret
+    def __init__(self, *args, **kwargs):   # pylint: disable=unused-argument
+        super(CryptoKeyslotContext, self).__init__()  #pylint: disable=bad-super-call
+CryptoKeyslotContext = override(CryptoKeyslotContext)
+__all__.append("CryptoKeyslotContext")
+
 # calling `crypto_luks_format_luks2` with `luks_version` set to
 # `BlockDev.CryptoLUKSVersion.LUKS1` and `extra` to `None` is the same
 # as using the "original" function `crypto_luks_format`
-_crypto_luks_format = BlockDev.crypto_luks_format_luks2
+_crypto_luks_format = BlockDev.crypto_luks_format
 @override(BlockDev.crypto_luks_format)
-def crypto_luks_format(device, cipher=None, key_size=0, passphrase=None, key_file=None, min_entropy=0, luks_version=BlockDev.CryptoLUKSVersion.LUKS1, extra=None):
-    return _crypto_luks_format(device, cipher, key_size, passphrase, key_file, min_entropy, luks_version, extra)
+def crypto_luks_format(device, cipher=None, key_size=0, context=None, min_entropy=0, luks_version=BlockDev.CryptoLUKSVersion.LUKS1, extra=None):
+    return _crypto_luks_format(device, cipher, key_size, context, min_entropy, luks_version, extra)
 __all__.append("crypto_luks_format")
 
 _crypto_luks_open = BlockDev.crypto_luks_open
 @override(BlockDev.crypto_luks_open)
-def crypto_luks_open(device, name, passphrase=None, key_file=None, read_only=False):
-    return _crypto_luks_open(device, name, passphrase, key_file, read_only)
+def crypto_luks_open(device, name, context, read_only=False):
+    return _crypto_luks_open(device, name, context, read_only)
 __all__.append("crypto_luks_open")
 
-_crypto_luks_resize = BlockDev.crypto_luks_resize_luks2
+_crypto_luks_resize = BlockDev.crypto_luks_resize
 @override(BlockDev.crypto_luks_resize)
-def crypto_luks_resize(luks_device, size=0, passphrase=None, key_file=None):
-    return _crypto_luks_resize(luks_device, size, passphrase, key_file)
+def crypto_luks_resize(luks_device, size=0, context=None):
+    return _crypto_luks_resize(luks_device, size, context)
 __all__.append("crypto_luks_resize")
-
-_crypto_luks_add_key = BlockDev.crypto_luks_add_key
-@override(BlockDev.crypto_luks_add_key)
-def crypto_luks_add_key(device, pass_=None, key_file=None, npass=None, nkey_file=None):
-    return _crypto_luks_add_key(device, pass_, key_file, npass, nkey_file)
-__all__.append("crypto_luks_add_key")
-
-_crypto_luks_remove_key = BlockDev.crypto_luks_remove_key
-@override(BlockDev.crypto_luks_remove_key)
-def crypto_luks_remove_key(device, pass_=None, key_file=None):
-    return _crypto_luks_remove_key(device, pass_, key_file)
-__all__.append("crypto_luks_remove_key")
 
 _crypto_escrow_device = BlockDev.crypto_escrow_device
 @override(BlockDev.crypto_escrow_device)
@@ -253,13 +309,7 @@ def crypto_escrow_device(device, passphrase, cert_data, directory, backup_passph
     return _crypto_escrow_device(device, passphrase, cert_data, directory, backup_passphrase)
 __all__.append("crypto_escrow_device")
 
-_crypto_luks_resume = BlockDev.crypto_luks_resume
-@override(BlockDev.crypto_luks_resume)
-def crypto_luks_resume(device, passphrase=None, key_file=None):
-    return _crypto_luks_resume(device, passphrase, key_file)
-__all__.append("crypto_luks_resume")
-
-_crypto_tc_open = BlockDev.crypto_tc_open_full
+_crypto_tc_open = BlockDev.crypto_tc_open
 @override(BlockDev.crypto_tc_open)
 def crypto_tc_open(device, name, passphrase, read_only=False, keyfiles=None, hidden=False, system=False, veracrypt=False, veracrypt_pim=0):
     if isinstance(passphrase, str):
@@ -275,6 +325,47 @@ def crypto_bitlk_open(device, name, passphrase, read_only=False):
     return _crypto_bitlk_open(device, name, passphrase, read_only)
 __all__.append("crypto_bitlk_open")
 
+_crypto_fvault2_open = BlockDev.crypto_fvault2_open
+@override(BlockDev.crypto_fvault2_open)
+def crypto_fvault2_open(device, name, passphrase, read_only=False):
+    if isinstance(passphrase, str):
+        passphrase = [ord(c) for c in passphrase]
+    return _crypto_fvault2_open(device, name, passphrase, read_only)
+__all__.append("crypto_fvault2_open")
+
+
+_crypto_keyring_add_key = BlockDev.crypto_keyring_add_key
+@override(BlockDev.crypto_keyring_add_key)
+def crypto_keyring_add_key(key_desc, key):
+    if isinstance(key, str):
+        key = [ord(c) for c in key]
+    return _crypto_keyring_add_key(key_desc, key)
+__all__.append("crypto_keyring_add_key")
+
+
+class CryptoIntegrityExtra(BlockDev.CryptoIntegrityExtra):
+    def __new__(cls, sector_size=0, journal_size=0, journal_watermark=0, journal_commit_time=0, interleave_sectors=0, tag_size=0, buffer_sectors=0):
+        ret = BlockDev.CryptoIntegrityExtra.new(sector_size, journal_size, journal_watermark, journal_commit_time, interleave_sectors, tag_size, buffer_sectors)
+        ret.__class__ = cls
+        return ret
+    def __init__(self, *args, **kwargs):   # pylint: disable=unused-argument
+        super(CryptoIntegrityExtra, self).__init__()  #pylint: disable=bad-super-call
+CryptoIntegrityExtra = override(CryptoIntegrityExtra)
+__all__.append("CryptoIntegrityExtra")
+
+
+_crypto_integrity_format = BlockDev.crypto_integrity_format
+@override(BlockDev.crypto_integrity_format)
+def crypto_integrity_format(device, algorithm, wipe=True, context=None, extra=None):
+    return _crypto_integrity_format(device, algorithm, wipe, context, extra)
+__all__.append("crypto_integrity_format")
+
+_crypto_integrity_open = BlockDev.crypto_integrity_open
+@override(BlockDev.crypto_integrity_open)
+def crypto_integrity_open(device, name, algorithm, context=None, flags=0, extra=None):
+    return _crypto_integrity_open(device, name, algorithm, context, flags, extra)
+__all__.append("crypto_integrity_open")
+
 
 _dm_create_linear = BlockDev.dm_create_linear
 @override(BlockDev.dm_create_linear)
@@ -282,19 +373,37 @@ def dm_create_linear(map_name, device, length, uuid=None):
     return _dm_create_linear(map_name, device, length, uuid)
 __all__.append("dm_create_linear")
 
-_dm_get_member_raid_sets = BlockDev.dm_get_member_raid_sets
-@override(BlockDev.dm_get_member_raid_sets)
-def dm_get_member_raid_sets(name=None, uuid=None, major=-1, minor=-1):
-    return _dm_get_member_raid_sets(name, uuid, major, minor)
-__all__.append("dm_get_member_raid_sets")
+
+# XXX enums with just one member are broken with GI
+class DMTech():
+    MAP = BlockDev.DMTech.DM_TECH_MAP
+__all__.append("DMTech")
 
 
 _loop_setup = BlockDev.loop_setup
 @override(BlockDev.loop_setup)
-def loop_setup(file, offset=0, size=0, read_only=False, part_scan=True):
-    return _loop_setup(file, offset, size, read_only, part_scan)
+def loop_setup(file, offset=0, size=0, read_only=False, part_scan=True, sector_size=0):
+    return _loop_setup(file, offset, size, read_only, part_scan, sector_size)
 __all__.append("loop_setup")
 
+
+# XXX enums with just one member are broken with GI
+class LoopTech():
+    LOOP = BlockDev.LoopTech.LOOP_TECH_LOOP
+__all__.append("LoopTech")
+
+
+_fs_wipe = BlockDev.fs_wipe
+@override(BlockDev.fs_wipe)
+def fs_wipe(spec, all=False, force=False):
+    return _fs_wipe(spec, all, force)
+__all__.append("fs_wipe")
+
+_fs_clean = BlockDev.fs_clean
+@override(BlockDev.fs_clean)
+def fs_clean(spec, force=False):
+    return _fs_clean(spec, force)
+__all__.append("fs_clean")
 
 _fs_unmount = BlockDev.fs_unmount
 @override(BlockDev.fs_unmount)
@@ -309,6 +418,15 @@ def fs_mount(device=None, mountpoint=None, fstype=None, options=None, extra=None
     extra = _get_extra(extra, kwargs, False)
     return _fs_mount(device, mountpoint, fstype, options, extra)
 __all__.append("fs_mount")
+
+_fs_mkfs = BlockDev.fs_mkfs
+@override(BlockDev.fs_mkfs)
+def fs_mkfs(device, fstype, options=None, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    if options is None:
+        options = FSMkfsOptions()
+    return _fs_mkfs(device, fstype, options, extra)
+__all__.append("fs_mkfs")
 
 _fs_ext2_mkfs = BlockDev.fs_ext2_mkfs
 @override(BlockDev.fs_ext2_mkfs)
@@ -401,6 +519,13 @@ def fs_xfs_mkfs(device, extra=None, **kwargs):
     return _fs_xfs_mkfs(device, extra)
 __all__.append("fs_xfs_mkfs")
 
+_fs_xfs_check = BlockDev.fs_xfs_check
+@override(BlockDev.fs_xfs_check)
+def fs_xfs_check(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_xfs_check(device, extra)
+__all__.append("fs_xfs_check")
+
 _fs_xfs_repair = BlockDev.fs_xfs_repair
 @override(BlockDev.fs_xfs_repair)
 def fs_xfs_repair(device, extra=None, **kwargs):
@@ -414,6 +539,20 @@ def fs_xfs_resize(device, size, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
     return _fs_xfs_resize(device, size, extra)
 __all__.append("fs_xfs_resize")
+
+_fs_ntfs_check = BlockDev.fs_ntfs_check
+@override(BlockDev.fs_ntfs_check)
+def fs_ntfs_check(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_ntfs_check(device, extra)
+__all__.append("fs_ntfs_check")
+
+_fs_ntfs_repair = BlockDev.fs_ntfs_repair
+@override(BlockDev.fs_ntfs_repair)
+def fs_ntfs_repair(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_ntfs_repair(device, extra)
+__all__.append("fs_ntfs_repair")
 
 _fs_vfat_mkfs = BlockDev.fs_vfat_mkfs
 @override(BlockDev.fs_vfat_mkfs)
@@ -436,18 +575,131 @@ def fs_vfat_repair(device, extra=None, **kwargs):
     return _fs_vfat_repair(device, extra)
 __all__.append("fs_vfat_repair")
 
+_fs_f2fs_mkfs = BlockDev.fs_f2fs_mkfs
+@override(BlockDev.fs_f2fs_mkfs)
+def fs_f2fs_mkfs(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_f2fs_mkfs(device, extra)
+__all__.append("fs_f2fs_mkfs")
 
-try:
-    _kbd_bcache_create = BlockDev.kbd_bcache_create
-    @override(BlockDev.kbd_bcache_create)
-    def kbd_bcache_create(backing_device, cache_device, extra=None, **kwargs):
-        extra = _get_extra(extra, kwargs)
-        return _kbd_bcache_create(backing_device, cache_device, extra)
-    __all__.append("kbd_bcache_create")
-except AttributeError:
-    # the bcache support may not be available
-    # TODO: do this more generically
-    pass
+_fs_f2fs_check = BlockDev.fs_f2fs_check
+@override(BlockDev.fs_f2fs_check)
+def fs_f2fs_check(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_f2fs_check(device, extra)
+__all__.append("fs_f2fs_check")
+
+_fs_f2fs_repair = BlockDev.fs_f2fs_repair
+@override(BlockDev.fs_f2fs_repair)
+def fs_f2fs_repair(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_f2fs_repair(device, extra)
+__all__.append("fs_f2fs_repair")
+
+_fs_nilfs2_mkfs = BlockDev.fs_nilfs2_mkfs
+@override(BlockDev.fs_nilfs2_mkfs)
+def fs_nilfs2_mkfs(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_nilfs2_mkfs(device, extra)
+__all__.append("fs_nilfs2_mkfs")
+
+_fs_exfat_mkfs = BlockDev.fs_exfat_mkfs
+@override(BlockDev.fs_exfat_mkfs)
+def fs_exfat_mkfs(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_exfat_mkfs(device, extra)
+__all__.append("fs_exfat_mkfs")
+
+_fs_exfat_check = BlockDev.fs_exfat_check
+@override(BlockDev.fs_exfat_check)
+def fs_exfat_check(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_exfat_check(device, extra)
+__all__.append("fs_exfat_check")
+
+_fs_exfat_repair = BlockDev.fs_exfat_repair
+@override(BlockDev.fs_exfat_repair)
+def fs_exfat_repair(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_exfat_repair(device, extra)
+__all__.append("fs_exfat_repair")
+
+_fs_btrfs_mkfs = BlockDev.fs_btrfs_mkfs
+@override(BlockDev.fs_btrfs_mkfs)
+def fs_btrfs_mkfs(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_btrfs_mkfs(device, extra)
+__all__.append("fs_btrfs_mkfs")
+
+_fs_btrfs_check = BlockDev.fs_btrfs_check
+@override(BlockDev.fs_btrfs_check)
+def fs_btrfs_check(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_btrfs_check(device, extra)
+__all__.append("fs_btrfs_check")
+
+_fs_btrfs_repair = BlockDev.fs_btrfs_repair
+@override(BlockDev.fs_btrfs_repair)
+def fs_btrfs_repair(device, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_btrfs_repair(device, extra)
+__all__.append("fs_btrfs_repair")
+
+_fs_btrfs_resize = BlockDev.fs_btrfs_resize
+@override(BlockDev.fs_btrfs_resize)
+def fs_btrfs_resize(mpoint, new_size, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_btrfs_resize(mpoint, new_size, extra)
+__all__.append("fs_btrfs_resize")
+_fs_udf_mkfs = BlockDev.fs_udf_mkfs
+
+@override(BlockDev.fs_udf_mkfs)
+def fs_udf_mkfs(device, media_type=None, revision=None, block_size=0, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _fs_udf_mkfs(device, media_type, revision, block_size, extra)
+__all__.append("fs_udf_mkfs")
+
+_fs_resize = BlockDev.fs_resize
+@override(BlockDev.fs_resize)
+def fs_resize(device, new_size, fstype=None):
+    return _fs_resize(device, new_size, fstype)
+__all__.append("fs_resize")
+
+_fs_repair = BlockDev.fs_repair
+@override(BlockDev.fs_repair)
+def fs_repair(device, fstype=None):
+    return _fs_repair(device, fstype)
+__all__.append("fs_repair")
+
+_fs_check = BlockDev.fs_check
+@override(BlockDev.fs_check)
+def fs_check(device, fstype=None):
+    return _fs_check(device, fstype)
+__all__.append("fs_check")
+
+_fs_set_label = BlockDev.fs_set_label
+@override(BlockDev.fs_set_label)
+def fs_set_label(device, label, fstype=None):
+    return _fs_set_label(device, label, fstype)
+__all__.append("fs_set_label")
+
+_fs_set_uuid = BlockDev.fs_set_uuid
+@override(BlockDev.fs_set_uuid)
+def fs_set_uuid(device, uuid, fstype=None):
+    return _fs_set_uuid(device, uuid, fstype)
+__all__.append("fs_set_uuid")
+
+_fs_get_size = BlockDev.fs_get_size
+@override(BlockDev.fs_get_size)
+def fs_get_size(device, fstype=None):
+    return _fs_get_size(device, fstype)
+__all__.append("fs_get_size")
+
+_fs_get_free_space = BlockDev.fs_get_free_space
+@override(BlockDev.fs_get_free_space)
+def fs_get_free_space(device, fstype=None):
+    return _fs_get_free_space(device, fstype)
+__all__.append("fs_get_free_space")
 
 
 _lvm_round_size_to_pe = BlockDev.lvm_round_size_to_pe
@@ -582,9 +834,9 @@ __all__.append("lvm_lvresize")
 
 _lvm_lvactivate = BlockDev.lvm_lvactivate
 @override(BlockDev.lvm_lvactivate)
-def lvm_lvactivate(vg_name, lv_name, ignore_skip=False, extra=None, **kwargs):
+def lvm_lvactivate(vg_name, lv_name, ignore_skip=False, shared=False, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
-    return _lvm_lvactivate(vg_name, lv_name, ignore_skip, extra)
+    return _lvm_lvactivate(vg_name, lv_name, ignore_skip, shared, extra)
 __all__.append("lvm_lvactivate")
 
 _lvm_lvdeactivate = BlockDev.lvm_lvdeactivate
@@ -724,6 +976,21 @@ def lvm_vdo_pool_convert(vg_name, lv_name, pool_name, virtual_size, index_memory
     return _lvm_vdo_pool_convert(vg_name, lv_name, pool_name, virtual_size, index_memory, compression, deduplication, write_policy, extra)
 __all__.append("lvm_vdo_pool_convert")
 
+_lvm_devices_add = BlockDev.lvm_devices_add
+@override(BlockDev.lvm_devices_add)
+def lvm_devices_add(device, devices_file=None, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _lvm_devices_add(device, devices_file, extra)
+__all__.append("lvm_devices_add")
+
+_lvm_devices_delete = BlockDev.lvm_devices_delete
+@override(BlockDev.lvm_devices_delete)
+def lvm_devices_delete(device, devices_file=None, extra=None, **kwargs):
+    extra = _get_extra(extra, kwargs)
+    return _lvm_devices_delete(device, devices_file, extra)
+__all__.append("lvm_devices_delete")
+
+
 _md_get_superblock_size = BlockDev.md_get_superblock_size
 @override(BlockDev.md_get_superblock_size)
 def md_get_superblock_size(size, version=None):
@@ -759,6 +1026,12 @@ def md_activate(raid_spec=None, members=None, uuid=None, start_degraded=True, ex
 __all__.append("md_activate")
 
 
+# XXX enums with just one member are broken with GI
+class MDTech():
+    MDRAID = BlockDev.MDTech.MD_TECH_MDRAID
+__all__.append("MDTech")
+
+
 if os.uname()[4].startswith('s390'):
     _s390_dasd_format = BlockDev.s390_dasd_format
     @override(BlockDev.s390_dasd_format)
@@ -770,9 +1043,9 @@ if os.uname()[4].startswith('s390'):
 
 _swap_mkswap = BlockDev.swap_mkswap
 @override(BlockDev.swap_mkswap)
-def swap_mkswap(device, label=None, extra=None, **kwargs):
+def swap_mkswap(device, label=None, uuid=None, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
-    return _swap_mkswap(device, label, extra)
+    return _swap_mkswap(device, label, uuid, extra)
 __all__.append("swap_mkswap")
 
 _swap_swapon = BlockDev.swap_swapon
@@ -782,17 +1055,10 @@ def swap_swapon(device, priority=-1):
 __all__.append("swap_swapon")
 
 
-_kbd_zram_create_devices = BlockDev.kbd_zram_create_devices
-@override(BlockDev.kbd_zram_create_devices)
-def kbd_zram_create_devices(num_devices, sizes, nstreams=None):
-    return _kbd_zram_create_devices(num_devices, sizes, nstreams)
-__all__.append("kbd_zram_create_devices")
-
-_kbd_zram_add_device = BlockDev.kbd_zram_add_device
-@override(BlockDev.kbd_zram_add_device)
-def kbd_zram_add_device(size, nstreams=0):
-    return _kbd_zram_add_device(size, nstreams)
-__all__.append("kbd_zram_add_device")
+# XXX enums with just one member are broken with GI
+class SwapTech():
+    SWAP = BlockDev.SwapTech.SWAP_TECH_SWAP
+__all__.append("SwapTech")
 
 
 _part_create_table = BlockDev.part_create_table
@@ -838,96 +1104,18 @@ def nvdimm_namespace_disable(namespace, extra=None, **kwargs):
 __all__.append("nvdimm_namespace_disable")
 
 
-_vdo_create = BlockDev.vdo_create
-@override(BlockDev.vdo_create)
-def vdo_create(name, backing_device, logical_size=0, index_memory=0, compression=True, deduplication=True, write_policy=BlockDev.VDOWritePolicy.AUTO, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_create(name, backing_device, logical_size, index_memory, compression, deduplication, write_policy, extra)
-__all__.append("vdo_create")
+# XXX enums with just one member are broken with GI
+class NVDIMMTech():
+    NAMESPACE = BlockDev.NVDIMMTech.NVDIMM_TECH_NAMESPACE
+__all__.append("NVDIMMTech")
 
-_vdo_remove = BlockDev.vdo_remove
-@override(BlockDev.vdo_remove)
-def vdo_remove(name, force=False, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_remove(name, force, extra)
-__all__.append("vdo_remove")
 
-_vdo_change_write_policy = BlockDev.vdo_change_write_policy
-@override(BlockDev.vdo_change_write_policy)
-def vdo_change_write_policy(name, write_policy, extra=None, **kwargs):
+_nvme_connect = BlockDev.nvme_connect
+@override(BlockDev.nvme_connect)
+def nvme_connect(subsysnqn, transport, transport_addr, transport_svcid, host_traddr, host_iface, host_nqn, host_id, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
-    return _vdo_change_write_policy(name, write_policy, extra)
-__all__.append("vdo_change_write_policy")
-
-_vdo_enable_compression = BlockDev.vdo_enable_compression
-@override(BlockDev.vdo_enable_compression)
-def vdo_enable_compression(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_enable_compression(name, extra)
-__all__.append("vdo_enable_compression")
-
-_vdo_disable_compression = BlockDev.vdo_disable_compression
-@override(BlockDev.vdo_disable_compression)
-def vdo_disable_compression(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_disable_compression(name, extra)
-__all__.append("vdo_disable_compression")
-
-_vdo_enable_deduplication = BlockDev.vdo_enable_deduplication
-@override(BlockDev.vdo_enable_deduplication)
-def vdo_enable_deduplication(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_enable_deduplication(name, extra)
-__all__.append("vdo_enable_deduplication")
-
-_vdo_disable_deduplication = BlockDev.vdo_disable_deduplication
-@override(BlockDev.vdo_disable_deduplication)
-def vdo_disable_deduplication(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_disable_deduplication(name, extra)
-__all__.append("vdo_disable_deduplication")
-
-_vdo_activate = BlockDev.vdo_activate
-@override(BlockDev.vdo_activate)
-def vdo_activate(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_activate(name, extra)
-__all__.append("vdo_activate")
-
-_vdo_deactivate = BlockDev.vdo_deactivate
-@override(BlockDev.vdo_deactivate)
-def vdo_deactivate(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_deactivate(name, extra)
-__all__.append("vdo_deactivate")
-
-_vdo_start = BlockDev.vdo_start
-@override(BlockDev.vdo_start)
-def vdo_start(name, rebuild=False, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_start(name, rebuild, extra)
-__all__.append("vdo_start")
-
-_vdo_stop = BlockDev.vdo_stop
-@override(BlockDev.vdo_stop)
-def vdo_stop(name, force=False, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_stop(name, force, extra)
-__all__.append("vdo_stop")
-
-_vdo_grow_logical = BlockDev.vdo_grow_logical
-@override(BlockDev.vdo_grow_logical)
-def vdo_grow_logical(name, size, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_grow_logical(name, size, extra)
-__all__.append("vdo_grow_logical")
-
-_vdo_grow_physical = BlockDev.vdo_grow_physical
-@override(BlockDev.vdo_grow_physical)
-def vdo_grow_physical(name, extra=None, **kwargs):
-    extra = _get_extra(extra, kwargs)
-    return _vdo_grow_physical(name, extra)
-__all__.append("vdo_grow_physical")
+    return _nvme_connect(subsysnqn, transport, transport_addr, transport_svcid, host_traddr, host_iface, host_nqn, host_id, extra)
+__all__.append("nvme_connect")
 
 
 ## defined in this overrides only!
@@ -1110,10 +1298,6 @@ class SwapPagesizeError(SwapActivateError):
     pass
 __all__.extend(("SwapError", "SwapActivateError", "SwapOldError", "SwapSuspendError", "SwapUnknownError", "SwapPagesizeError"))
 
-class KbdError(BlockDevError):
-    pass
-__all__.append("KbdError")
-
 class PartError(BlockDevError):
     pass
 __all__.append("PartError")
@@ -1136,9 +1320,9 @@ class NVDIMMError(BlockDevError):
     pass
 __all__.append("NVDIMMError")
 
-class VDOError(BlockDevError):
+class NVMEError(BlockDevError):
     pass
-__all__.append("VDOError")
+__all__.append("NVMEError")
 
 class BlockDevNotImplementedError(NotImplementedError, BlockDevError):
     pass
@@ -1146,8 +1330,8 @@ __all__.append("BlockDevNotImplementedError")
 
 not_implemented_rule = XRule(GLib.Error, re.compile(r".*The function '.*' called, but not implemented!"), None, BlockDevNotImplementedError)
 
-fs_nofs_rule = XRule(GLib.Error, None, 3, FSNoFSError)
-swap_activate_rule = XRule(GLib.Error, None, 1, SwapActivateError)
+fs_nofs_rule = XRule(GLib.Error, None, 4, FSNoFSError)
+swap_activate_rule = XRule(GLib.Error, None, 2, SwapActivateError)
 swap_old_rule = XRule(GLib.Error, None, 3, SwapOldError)
 swap_suspend_rule = XRule(GLib.Error, None, 4, SwapSuspendError)
 swap_unknown_rule = XRule(GLib.Error, None, 5, SwapUnknownError)
@@ -1177,9 +1361,6 @@ __all__.append("mpath")
 swap = ErrorProxy("swap", BlockDev, [(GLib.Error, SwapError)], [not_implemented_rule, swap_activate_rule, swap_old_rule, swap_suspend_rule, swap_unknown_rule, swap_pagesize_rule])
 __all__.append("swap")
 
-kbd = ErrorProxy("kbd", BlockDev, [(GLib.Error, KbdError)], [not_implemented_rule])
-__all__.append("kbd")
-
 part = ErrorProxy("part", BlockDev, [(GLib.Error, PartError)], [not_implemented_rule])
 __all__.append("part")
 
@@ -1189,11 +1370,11 @@ __all__.append("fs")
 nvdimm = ErrorProxy("nvdimm", BlockDev, [(GLib.Error, NVDIMMError)], [not_implemented_rule])
 __all__.append("nvdimm")
 
+nvme = ErrorProxy("nvme", BlockDev, [(GLib.Error, NVMEError)], [not_implemented_rule])
+__all__.append("nvme")
+
 s390 = ErrorProxy("s390", BlockDev, [(GLib.Error, S390Error)], [not_implemented_rule])
 __all__.append("s390")
 
 utils = ErrorProxy("utils", BlockDev, [(GLib.Error, UtilsError)])
 __all__.append("utils")
-
-vdo = ErrorProxy("vdo", BlockDev, [(GLib.Error, VDOError)])
-__all__.append("vdo")

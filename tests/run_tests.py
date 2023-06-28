@@ -5,16 +5,19 @@ from __future__ import print_function
 import argparse
 import datetime
 import os
+import pdb
 import re
-import six
+import shutil
 import subprocess
 import sys
+import traceback
 import unittest
 import yaml
 
-from distutils.spawn import find_executable
 
-LIBDIRS = 'src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/lib/.libs'
+from utils import TestTags, get_version
+
+LIBDIRS = 'src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/lib/.libs:src/plugins/nvme/.libs'
 GIDIR = 'src/lib'
 
 SKIP_CONFIG = 'skip.yml'
@@ -24,13 +27,13 @@ def _get_tests_from_suite(suite, tests):
     """ Extract tests from the test suite """
     # 'tests' we get from 'unittest.defaultTestLoader.discover' are "wrapped"
     # in multiple 'unittest.suite.TestSuite' classes/lists so we need to "unpack"
-    # the indivudual test cases
+    # the individual test cases
     for test in suite:
         if isinstance(test, unittest.suite.TestSuite):
             _get_tests_from_suite(test, tests)
 
         if isinstance(test, unittest.TestCase):
-            tests.append(test)
+            tests.add(test)
 
     return tests
 
@@ -38,37 +41,64 @@ def _get_tests_from_suite(suite, tests):
 def _get_test_tags(test):
     """ Get test tags for single test case """
 
-    tags = []
+    tags = set()
+    tags.add(TestTags.ALL)
 
     # test failed to load, usually some ImportError or something really broken
     # in the test file, just return empty list and let it fail
-    # with python2 the loader will raise an exception directly without returning
-    # a "fake" FailedTest test case
-    if six.PY3 and isinstance(test, unittest.loader._FailedTest):
+    if isinstance(test, unittest.loader._FailedTest):
         return tags
 
     test_fn = getattr(test, test._testMethodName)
 
-    # it is possible to either tag a test funcion or the class so we need to
+    # it is possible to either tag a test function or the class so we need to
     # check both for the tag
     if getattr(test_fn, "slow", False) or getattr(test_fn.__self__, "slow", False):
-        tags.append(TestTags.SLOW)
+        tags.add(TestTags.SLOW)
     if getattr(test_fn, "unstable", False) or getattr(test_fn.__self__, "unstable", False):
-        tags.append(TestTags.UNSTABLE)
+        tags.add(TestTags.UNSTABLE)
     if getattr(test_fn, "unsafe", False) or getattr(test_fn.__self__, "unsafe", False):
-        tags.append(TestTags.UNSAFE)
+        tags.add(TestTags.UNSAFE)
     if getattr(test_fn, "core", False) or getattr(test_fn.__self__, "core", False):
-        tags.append(TestTags.CORE)
+        tags.add(TestTags.CORE)
     if getattr(test_fn, "nostorage", False) or getattr(test_fn.__self__, "nostorage", False):
-        tags.append(TestTags.NOSTORAGE)
+        tags.add(TestTags.NOSTORAGE)
     if getattr(test_fn, "extradeps", False) or getattr(test_fn.__self__, "extradeps", False):
-        tags.append(TestTags.EXTRADEPS)
+        tags.add(TestTags.EXTRADEPS)
     if getattr(test_fn, "regression", False) or getattr(test_fn.__self__, "regression", False):
-        tags.append(TestTags.REGRESSION)
+        tags.add(TestTags.REGRESSION)
     if getattr(test_fn, "sourceonly", False) or getattr(test_fn.__self__, "sourceonly", False):
-        tags.append(TestTags.SOURCEONLY)
+        tags.add(TestTags.SOURCEONLY)
 
     return tags
+
+
+def _check_arguments_compatibility(args):
+    if args.include_tags & args.exclude_tags:
+        print('Providing same tag in both "--include-tags" and "--exclude-tags" does not make sense.', file=sys.stderr)
+        return False
+
+    if args.fast and TestTags.SLOW.value in args.include_tags:
+        print('Incompatible arguments: "--fast" and "--include-tags slow".', file=sys.stderr)
+        return False
+
+    if args.lucky and TestTags.UNSTABLE.value in args.exclude_tags:
+        print('Incompatible arguments: "--lucky" and "--exclude-tags unstable".', file=sys.stderr)
+        return False
+
+    if args.jenkins and TestTags.UNSAFE.value in args.exclude_tags:
+        print('Incompatible arguments: "--jenkins" and "--exclude-tags unsafe".', file=sys.stderr)
+        return False
+
+    if args.core and TestTags.CORE.value in args.exclude_tags:
+        print('Incompatible arguments: "--core" and "--exclude-tags core".', file=sys.stderr)
+        return False
+
+    if args.installed and TestTags.SOURCEONLY.value in args.include_tags:
+        print('Incompatible arguments: "--installed" and "--include-tags sourceonly".', file=sys.stderr)
+        return False
+
+    return True
 
 
 def parse_args():
@@ -92,10 +122,40 @@ def parse_args():
     argparser.add_argument('-s', '--stop', dest='stop',
                            help='stop executing after first failed test',
                            action='store_true')
+    argparser.add_argument('-p', '--pdb', dest='pdb',
+                           help='run pdb after a failed test',
+                           action='store_true')
     argparser.add_argument('-i', '--installed', dest='installed',
                            help='run tests against installed version of libblockdev',
                            action='store_true')
+    argparser.add_argument('--exclude-tags', nargs='+', dest='exclude_tags',
+                           help='skip tests tagged with (at least one of) the provided tags')
+    argparser.add_argument('--include-tags', nargs='+', dest='include_tags',
+                           help='run only tests tagged with (at least one of) the provided tags')
+    argparser.add_argument('--list-tags', dest='list_tags', help='print available tags and exit',
+                           action='store_true')
     args = argparser.parse_args()
+
+    all_tags = set(TestTags.get_tags())
+
+    if args.list_tags:
+        print('Available tags:', ', '.join(all_tags))
+        sys.exit(0)
+
+    # lets convert these to sets now to make argument checks easier
+    args.include_tags = set(args.include_tags) if args.include_tags else set()
+    args.exclude_tags = set(args.exclude_tags) if args.exclude_tags else set()
+
+    # make sure user provided only valid tags
+    if not all_tags.issuperset(args.include_tags):
+        print('Unknown tag(s) specified:', ', '.join(args.include_tags - all_tags), file=sys.stderr)
+        sys.exit(1)
+    if not all_tags.issuperset(args.exclude_tags):
+        print('Unknown tag(s) specified:', ', '.join(args.exclude_tags - all_tags), file=sys.stderr)
+        sys.exit(1)
+
+    if not _check_arguments_compatibility(args):
+        sys.exit(1)
 
     if args.fast:
         os.environ['SKIP_SLOW'] = ''
@@ -112,6 +172,23 @@ def parse_args():
     if 'FEELINGLUCKY' in os.environ:
         args.lucky = True
 
+    # we want to use only the include/exclude sets, not other properties
+    if args.fast:
+        args.exclude_tags.add(TestTags.SLOW.value)
+    if args.installed:
+        args.exclude_tags.add(TestTags.SOURCEONLY.value)
+    if args.core:
+        args.include_tags.add(TestTags.CORE.value)
+        args.include_tags.add(TestTags.REGRESSION.value)
+
+    # for backwards compatibility we want to exclude unsafe and unstable by default
+    if not args.jenkins and not (TestTags.UNSAFE.value in args.include_tags or
+                                 TestTags.ALL.value in args.include_tags):
+        args.exclude_tags.add(TestTags.UNSAFE.value)
+    if not args.lucky and not (TestTags.UNSTABLE.value in args.include_tags or
+                               TestTags.ALL.value in args.include_tags):
+        args.exclude_tags.add(TestTags.UNSTABLE.value)
+
     return args
 
 def _split_test_id(test_id):
@@ -124,24 +201,14 @@ def _split_test_id(test_id):
     return test_name, test_module
 
 
-def _print_skip_message(test, skip_tag):
+def _print_skip_message(test, skip_tags, missing):
     test_id = test.id()
     test_module, test_name = _split_test_id(test_id)
 
-    if skip_tag == TestTags.SLOW:
-        reason = "skipping slow tests"
-    elif skip_tag == TestTags.UNSTABLE:
-        reason = "skipping unstable tests"
-    elif skip_tag == TestTags.UNSAFE:
-        reason = "skipping test that modifies system configuration"
-    elif skip_tag == TestTags.EXTRADEPS:
-        reason = "skipping test that requires special configuration"
-    elif skip_tag == TestTags.CORE:
-        reason = "skipping non-core test"
-    elif skip_tag == TestTags.SOURCEONLY:
-        reason = "skipping test that can run only against library compiled from source"
+    if missing:
+        reason = 'skipping test because it is not tagged as one of: ' + ', '.join((t.value for t in skip_tags))
     else:
-        reason = "unknown reason"  # just to be sure there is some default value
+        reason = 'skipping test because it is tagged as: ' + ', '.join((t.value for t in skip_tags))
 
     if test._testMethodDoc:
         print("%s (%s)\n%s ... skipped '%s'" % (test_name, test_module, test._testMethodDoc, reason),
@@ -151,8 +218,21 @@ def _print_skip_message(test, skip_tag):
               file=sys.stderr)
 
 
+class DebugTestResult(unittest.TextTestResult):
+
+    def addError(self, test, err):
+        traceback.print_exception(*err)
+        pdb.post_mortem(err[2])
+        super(DebugTestResult, self).addError(test, err)
+
+    def addFailure(self, test, err):
+        traceback.print_exception(*err)
+        pdb.post_mortem(err[2])
+        super(DebugTestResult, self).addFailure(test, err)
+
+
 def _should_skip(distro=None, version=None, arch=None, reason=None):
-    # all these can be lists or a single value, so covert everything to list
+    # all these can be lists or a single value, so convert everything to list
     if distro is not None and type(distro) is not list:
         distro = [distro]
     if version is not None and type(version) is not list:
@@ -188,6 +268,7 @@ if __name__ == '__main__':
 
     testdir = os.path.abspath(os.path.dirname(__file__))
     projdir = os.path.abspath(os.path.normpath(os.path.join(testdir, '..')))
+    os.environ['LIBBLOCKDEV_PROJ_DIR'] = projdir
 
     args = parse_args()
     if args.installed:
@@ -197,11 +278,11 @@ if __name__ == '__main__':
         if 'LD_LIBRARY_PATH' not in os.environ and 'GI_TYPELIB_PATH' not in os.environ:
             os.environ['LD_LIBRARY_PATH'] = LIBDIRS
             os.environ['GI_TYPELIB_PATH'] = GIDIR
-            os.environ['LIBBLOCKDEV_CONFIG_DIR'] = os.path.join(testdir, 'default_config')
+            os.environ['LIBBLOCKDEV_CONFIG_DIR'] = os.path.join(testdir, 'test_configs/default_config')
+            os.environ['PATH'] += ':' + os.path.join(projdir, 'tools')
 
             try:
-                pyver = 'python3' if six.PY3 else 'python'
-                os.execv(sys.executable, [pyver] + sys.argv)
+                os.execv(sys.executable, ['python3'] + sys.argv)
             except OSError as e:
                 print('Failed re-exec with a new LD_LIBRARY_PATH and GI_TYPELIB_PATH: %s' % str(e))
                 sys.exit(1)
@@ -209,6 +290,10 @@ if __name__ == '__main__':
         sys.path.append(testdir)
         sys.path.append(projdir)
         sys.path.append(os.path.join(projdir, 'src/python'))
+
+    if not args.installed:
+        import gi.overrides
+        gi.overrides.__path__.insert(0, os.path.join(projdir, 'src/python/gi/overrides'))
 
     start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -221,20 +306,20 @@ if __name__ == '__main__':
         test_cases = loader.discover(start_dir=testdir, pattern='*_test*.py')
 
     # extract list of test classes so we can check/run them manually one by one
-    tests = []
+    tests = set()
     tests = _get_tests_from_suite(test_cases, tests)
+    tests = sorted(tests, key=lambda test: test.id())
 
     # get distro and arch here so we don't have to do this for every test
-    from utils import get_version
     DISTRO, VERSION = get_version()
     ARCH = os.uname()[-1]
 
     # get list of tests to skip from the config file
     skipping = _parse_skip_config(os.path.join(testdir, SKIP_CONFIG))
 
-    # for some reason overrides_hack will fail if we import this at the start
-    # of the file
-    from utils import TestTags
+    # get sets of include/exclude tags as tags not strings from arguments
+    include_tags = set(TestTags.get_tag_by_value(t) for t in args.include_tags)
+    exclude_tags = set(TestTags.get_tag_by_value(t) for t in args.exclude_tags)
 
     for test in tests:
         test_id = test.id()
@@ -242,24 +327,14 @@ if __name__ == '__main__':
         # get tags and (possibly) skip the test
         tags = _get_test_tags(test)
 
-        if TestTags.SLOW in tags and args.fast:
-            _print_skip_message(test, TestTags.SLOW)
-            continue
-        if TestTags.UNSTABLE in tags and not args.lucky:
-            _print_skip_message(test, TestTags.UNSTABLE)
-            continue
-        if TestTags.UNSAFE in tags or TestTags.EXTRADEPS in tags and not args.jenkins:
-            _print_skip_message(test, TestTags.UNSAFE)
-            continue
-        if TestTags.EXTRADEPS in tags and not args.jenkins:
-            _print_skip_message(test, TestTags.EXTRADEPS)
-            continue
-        if TestTags.SOURCEONLY in tags and args.installed:
-            _print_skip_message(test, TestTags.SOURCEONLY)
+        # if user specified include_tags, test must have at least one of these to run
+        if include_tags and not (include_tags & tags):
+            _print_skip_message(test, include_tags - tags, missing=True)
             continue
 
-        if args.core and TestTags.CORE not in tags and TestTags.REGRESSION not in tags:
-            _print_skip_message(test, TestTags.CORE)
+        # if user specified exclude_tags, test can't have any of these
+        if exclude_tags and (exclude_tags & tags):
+            _print_skip_message(test, exclude_tags & tags, missing=False)
             continue
 
         # check if the test is in the list of tests to skip
@@ -275,10 +350,15 @@ if __name__ == '__main__':
         # finally add the test to the suite
         suite.addTest(test)
 
-    result = unittest.TextTestRunner(verbosity=2, failfast=args.stop).run(suite)
+    if args.pdb:
+        runner = unittest.TextTestRunner(verbosity=2, failfast=args.stop, resultclass=DebugTestResult)
+    else:
+        runner = unittest.TextTestRunner(verbosity=2, failfast=args.stop)
+
+    result = runner.run(suite)
 
     # dump cropped journal to log file
-    if find_executable('journalctl'):
+    if shutil.which('journalctl'):
         with open('journaldump.log', 'w') as outfile:
             subprocess.call(['journalctl', '-S', start_time], stdout=outfile)
 

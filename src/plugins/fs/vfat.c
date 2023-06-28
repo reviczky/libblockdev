@@ -18,11 +18,11 @@
  */
 
 #include <blockdev/utils.h>
-#include <blockdev/part_err.h>
 #include <check_deps.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <stdio.h>
 
 #include "vfat.h"
 #include "fs.h"
@@ -37,18 +37,30 @@ static GMutex deps_check_lock;
 #define DEPS_FATLABEL_MASK (1 << DEPS_FATLABEL)
 #define DEPS_FSCKVFAT 2
 #define DEPS_FSCKVFAT_MASK (1 << DEPS_FSCKVFAT)
+#define DEPS_RESIZEVFAT 3
+#define DEPS_RESIZEVFAT_MASK (1 << DEPS_RESIZEVFAT)
+#define DEPS_FATLABELUUID 4
+#define DEPS_FATLABELUUID_MASK (1 << DEPS_FATLABELUUID)
 
-#define DEPS_LAST 3
+#define DEPS_LAST 5
 
 static const UtilDep deps[DEPS_LAST] = {
     {"mkfs.vfat", NULL, NULL, NULL},
     {"fatlabel", NULL, NULL, NULL},
     {"fsck.vfat", NULL, NULL, NULL},
+    {"vfat-resize", NULL, NULL, NULL},
+    {"fatlabel", "4.2", "--version", "fatlabel\\s+([\\d\\.]+).+"},
 };
 
 static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
-    /*   mkfs          wipe     check               repair                set-label            query          resize */
-    DEPS_MKFSVFAT_MASK, 0, DEPS_FSCKVFAT_MASK, DEPS_FSCKVFAT_MASK,   DEPS_FATLABEL_MASK,  DEPS_FSCKVFAT_MASK,  0
+    DEPS_MKFSVFAT_MASK,     /* mkfs */
+    0,                      /* wipe */
+    DEPS_FSCKVFAT_MASK,     /* check */
+    DEPS_FSCKVFAT_MASK,     /* repair */
+    DEPS_FATLABEL_MASK,     /* set-label */
+    DEPS_FSCKVFAT_MASK,     /* query */
+    DEPS_RESIZEVFAT_MASK,   /* resize */
+    DEPS_FATLABELUUID_MASK, /* set-uuid */
 };
 
 #define UNUSED __attribute__((unused))
@@ -63,7 +75,7 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
  * bd_fs_vfat_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation (#BDFSTechMode) for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
@@ -72,6 +84,7 @@ gboolean __attribute__ ((visibility ("hidden")))
 bd_fs_vfat_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **error) {
     guint32 required = 0;
     guint i = 0;
+
     for (i = 0; i <= BD_FS_MODE_LAST; i++)
         if (mode & (1 << i))
             required |= fs_mode_util[i];
@@ -113,43 +126,61 @@ void bd_fs_vfat_info_free (BDFSVfatInfo *data) {
     g_free (data);
 }
 
-/**
- * set_parted_error: (skip)
- *
- * Set error from the parted error stored in 'error_msg'. In case there is none,
- * the error is set up with an empty string. Otherwise it is set up with the
- * parted's error message and is a subject to later g_prefix_error() call.
- *
- * Returns: whether there was some message from parted or not
- */
-static gboolean set_parted_error (GError **error, BDFsError type) {
-    gchar *error_msg = NULL;
-    error_msg = bd_get_error_msg ();
-    if (error_msg) {
-        g_set_error (error, BD_FS_ERROR, type,
-                     " (%s)", error_msg);
-        g_free (error_msg);
-        error_msg = NULL;
-        return TRUE;
-    } else {
-        g_set_error_literal (error, BD_FS_ERROR, type, "");
-        return FALSE;
+BDExtraArg __attribute__ ((visibility ("hidden")))
+**bd_fs_vfat_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+    GPtrArray *options_array = g_ptr_array_new ();
+    const BDExtraArg **extra_p = NULL;
+    gchar *label;
+    UtilDep dep = {"mkfs.vfat", "4.2", "--help", "mkfs.fat\\s+([\\d\\.]+).+"};
+    gboolean new_vfat = FALSE;
+
+    if (options->label && g_strcmp0 (options->label, "") != 0) {
+        /* convert the label uppercase */
+        label = g_ascii_strup (options->label, -1);
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-n", label));
+        g_free (label);
     }
+
+    if (options->uuid && g_strcmp0 (options->uuid, "") != 0)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-i", options->uuid));
+
+    if (options->force)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-I", ""));
+
+    if (options->no_pt) {
+        /* only mkfs.vfat >= 4.2 (sometimes) creates the partition table */
+        new_vfat = bd_utils_check_util_version (dep.name, dep.version,
+                                                dep.ver_arg, dep.ver_regexp,
+                                                NULL);
+        if (new_vfat)
+            g_ptr_array_add (options_array, bd_extra_arg_new ("--mbr=no", ""));
+    }
+
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++)
+            g_ptr_array_add (options_array, bd_extra_arg_copy ((BDExtraArg *) *extra_p));
+    }
+
+    g_ptr_array_add (options_array, NULL);
+
+    return (BDExtraArg **) g_ptr_array_free (options_array, FALSE);
 }
 
 /**
  * bd_fs_vfat_mkfs:
  * @device: the device to create a new vfat fs on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the creation (right now
  *                                                 passed to the 'mkfs.vfat' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Please remember that FAT labels should always be uppercase.
  *
  * Returns: whether a new vfat fs was successfully created on @device or not
  *
  * Tech category: %BD_FS_TECH_VFAT-%BD_FS_TECH_MODE_MKFS
  */
 gboolean bd_fs_vfat_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
-    const gchar *args[4] = {"mkfs.vfat", "-I", device, NULL};
+    const gchar *args[3] = {"mkfs.vfat", device, NULL};
 
     if (!check_deps (&avail_deps, DEPS_MKFSVFAT_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -158,25 +189,11 @@ gboolean bd_fs_vfat_mkfs (const gchar *device, const BDExtraArg **extra, GError 
 }
 
 /**
- * bd_fs_vfat_wipe:
- * @device: the device to wipe an vfat signature from
- * @error: (out): place to store error (if any)
- *
- * Returns: whether an vfat signature was successfully wiped from the @device or
- *          not
- *
- * Tech category: %BD_FS_TECH_VFAT-%BD_FS_TECH_MODE_WIPE
- */
-gboolean bd_fs_vfat_wipe (const gchar *device, GError **error) {
-    return wipe_fs (device, "vfat", TRUE, error);
-}
-
-/**
  * bd_fs_vfat_check:
  * @device: the device containing the file system to check
- * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the repair (right now
  *                                                 passed to the 'fsck.vfat' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an vfat file system on the @device is clean or not
  *
@@ -201,9 +218,9 @@ gboolean bd_fs_vfat_check (const gchar *device, const BDExtraArg **extra, GError
 /**
  * bd_fs_vfat_repair:
  * @device: the device containing the file system to repair
- * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the repair (right now
  *                                                 passed to the 'fsck.vfat' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an vfat file system on the @device was successfully repaired
  *          (if needed) or not (error is set in that case)
@@ -212,18 +229,32 @@ gboolean bd_fs_vfat_check (const gchar *device, const BDExtraArg **extra, GError
  */
 gboolean bd_fs_vfat_repair (const gchar *device, const BDExtraArg **extra, GError **error) {
     const gchar *args[4] = {"fsck.vfat", "-a", device, NULL};
+    gint status = 0;
+    gboolean ret = FALSE;
 
     if (!check_deps (&avail_deps, DEPS_FSCKVFAT_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
 
-    return bd_utils_exec_and_report_error (args, extra, error);
+    ret = bd_utils_exec_and_report_status_error (args, extra, &status, error);
+    if (!ret) {
+        if (status == 1) {
+            /* exit code 1 can also mean "errors have been detected and corrected" so we need
+               to run fsck again to make sure the filesystem is now clean */
+            g_clear_error (error);
+            ret = bd_utils_exec_and_report_status_error (args, extra, &status, error);
+        } else
+            /* FALSE and exit code other than 1 always means error  */
+            ret = FALSE;
+    }
+
+    return ret;
 }
 
 /**
  * bd_fs_vfat_set_label:
  * @device: the device containing the file system to set label for
  * @label: label to set
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the label of vfat file system on the @device was
  *          successfully set or not
@@ -231,10 +262,11 @@ gboolean bd_fs_vfat_repair (const gchar *device, const BDExtraArg **extra, GErro
  * Tech category: %BD_FS_TECH_VFAT-%BD_FS_TECH_MODE_SET_LABEL
  */
 gboolean bd_fs_vfat_set_label (const gchar *device, const gchar *label, GError **error) {
-    const gchar *args[4] = {"fatlabel", device, label, NULL};
+    const gchar *args[4] = {"fatlabel", device, NULL, NULL};
     UtilDep dep = {"fatlabel", "4.2", "--version", "fatlabel\\s+([\\d\\.]+).+"};
+    gchar *label_up = NULL;
     gboolean new_vfat = FALSE;
-    GError *loc_error = NULL;
+    gboolean ret;
 
     if (!check_deps (&avail_deps, DEPS_FATLABEL_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -243,20 +275,143 @@ gboolean bd_fs_vfat_set_label (const gchar *device, const gchar *label, GError *
         /* fatlabel >= 4.2 refuses to set empty label */
         new_vfat = bd_utils_check_util_version (dep.name, dep.version,
                                                 dep.ver_arg, dep.ver_regexp,
-                                                &loc_error);
+                                                NULL);
         if (new_vfat)
             args[2] = "--reset";
-        else
-            g_clear_error (&loc_error);
+    }
+
+    /* forcefully convert the label uppercase in case no reset was requested */
+    if (label && args[2] == NULL) {
+        label_up = g_ascii_strup (label, -1);
+        args[2] = label_up;
+    }
+    ret = bd_utils_exec_and_report_error (args, NULL, error);
+    g_free (label_up);
+
+    return ret;
+}
+
+/**
+ * bd_fs_vfat_check_label:
+ * @label: label to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @label is a valid label for the vfat file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_vfat_check_label (const gchar *label, GError **error) {
+    const gchar *forbidden = "\"*/:<>?\\|";
+    guint n;
+
+    if (strlen (label) > 11) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
+                     "Label for VFAT filesystem must be at most 11 characters long.");
+        return FALSE;
+    }
+
+    /* VFAT does not allow some characters; as dosfslabel does not enforce this,
+     * check in advance; also, VFAT only knows upper-case characters, dosfslabel
+     * enforces this */
+    for (n = 0; forbidden[n] != 0; n++)
+        if (strchr (label, forbidden[n]) != NULL) {
+            g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
+                         "Invalid label: character '%c' not supported in VFAT labels.",
+                         forbidden[n]);
+            return FALSE;
+        }
+
+    return TRUE;
+}
+
+/**
+ * bd_fs_vfat_set_uuid:
+ * @device: the device containing the file system to set uuid for
+ * @uuid: (nullable): volume ID to set or %NULL to generate a new one
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the volume ID of vfat file system on the @device was
+ *          successfully set or not
+ *
+ * Tech category: %BD_FS_TECH_VFAT-%BD_FS_TECH_MODE_SET_UUID
+ */
+gboolean bd_fs_vfat_set_uuid (const gchar *device, const gchar *uuid, GError **error) {
+    const gchar *args[5] = {"fatlabel", "-i", device, NULL, NULL};
+    g_autofree gchar *new_uuid = NULL;
+    size_t len = 0;
+
+    if (!check_deps (&avail_deps, DEPS_FATLABELUUID_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
+
+    if (!uuid || g_strcmp0 (uuid, "") == 0)
+        args[3] = "--reset";
+    else {
+        len = strlen (uuid);
+        /* we want to support vol ID in the "udev format", e.g. "2E24-EC82" */
+        if (len == 9 && uuid[4] == '-') {
+            new_uuid = g_new0 (gchar, 9);
+            memcpy (new_uuid, uuid, 4);
+            memcpy (new_uuid + 4, uuid + 5, 4);
+        } else
+            new_uuid = g_strdup (uuid);
+
+        args[3] = new_uuid;
     }
 
     return bd_utils_exec_and_report_error (args, NULL, error);
 }
 
 /**
+ * bd_fs_vfat_check_uuid:
+ * @uuid: UUID to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @uuid is a valid UUID for the vfat file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_vfat_check_uuid (const gchar *uuid, GError **error) {
+    guint64 vol_id;
+    gchar *new_uuid = NULL;
+    gchar *endptr = NULL;
+    size_t len = 0;
+
+    if (!uuid)
+        return TRUE;
+
+    len = strlen (uuid);
+    if (len == 9 && uuid[4] == '-') {
+        new_uuid = g_new0 (gchar, 9);
+        memcpy (new_uuid, uuid, 4);
+        memcpy (new_uuid + 4, uuid + 5, 4);
+    } else
+        new_uuid = g_strdup (uuid);
+
+    vol_id = g_ascii_strtoull (new_uuid, &endptr, 16);
+    if ((vol_id == 0 && endptr == new_uuid) || (endptr && *endptr)) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_UUID_INVALID,
+                     "UUID for VFAT filesystem must be a hexadecimal number.");
+        g_free (new_uuid);
+        return FALSE;
+    }
+
+    if (vol_id > G_MAXUINT32) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_UUID_INVALID,
+                     "UUID for VFAT filesystem must fit into 32 bits.");
+        g_free (new_uuid);
+        return FALSE;
+    }
+
+    g_free (new_uuid);
+    return TRUE;
+}
+
+/**
  * bd_fs_vfat_get_info:
  * @device: the device containing the file system to get info for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the file system on @device or
  *                           %NULL in case of error
@@ -330,90 +485,23 @@ BDFSVfatInfo* bd_fs_vfat_get_info (const gchar *device, GError **error) {
  * @device: the device the file system of which to resize
  * @new_size: new requested size for the file system (if 0, the file system is
  *            adapted to the underlying block device)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the file system on @device was successfully resized or not
  *
  * Tech category: %BD_FS_TECH_VFAT-%BD_FS_TECH_MODE_RESIZE
  */
 gboolean bd_fs_vfat_resize (const gchar *device, guint64 new_size, GError **error) {
-    PedDevice *ped_dev = NULL;
-    PedGeometry geom = ZERO_INIT;
-    PedGeometry new_geom = ZERO_INIT;
-    PedFileSystem *fs = NULL;
-    PedSector start = 0;
-    PedSector length = 0;
-    gint status = 0;
-    guint64 progress_id = 0;
-    gchar *msg = NULL;
+    g_autofree gchar *size_str = NULL;
+    const gchar *args[4] = {"vfat-resize", device, NULL, NULL};
 
-    msg = g_strdup_printf ("Started resizing vfat filesystem on the device '%s'", device);
-    progress_id = bd_utils_report_started (msg);
-    g_free (msg);
-
-    ped_dev = ped_device_get (device);
-    if (!ped_dev) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to get ped device for the device '%s'", device);
-        bd_utils_report_finished (progress_id, (*error)->message);
+    if (!check_deps (&avail_deps, DEPS_RESIZEVFAT_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    if (new_size != 0) {
+        size_str = g_strdup_printf ("%"G_GUINT64_FORMAT, new_size);
+        args[2] = size_str;
     }
 
-    status = ped_device_open (ped_dev);
-    if (status == 0) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to get open the device '%s'", device);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    status = ped_geometry_init (&geom, ped_dev, start, ped_dev->length);
-    if (status == 0) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to initialize geometry for the device '%s'", device);
-        ped_device_close (ped_dev);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    fs = ped_file_system_open(&geom);
-    if (!fs) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to read the filesystem on the device '%s'", device);
-        ped_device_close (ped_dev);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    if (new_size == 0)
-        length = ped_dev->length;
-    else
-        length = (PedSector) ((PedSector) new_size / ped_dev->sector_size);
-
-    status = ped_geometry_init(&new_geom, ped_dev, start, length);
-    if (status == 0) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL,
-                     "Failed to initialize new geometry for the filesystem on '%s'", device);
-        ped_file_system_close (fs);
-        ped_device_close (ped_dev);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    status = ped_file_system_resize(fs, &new_geom, NULL);
-    if (status == 0) {
-        set_parted_error (error, BD_FS_ERROR_FAIL);
-        g_prefix_error (error, "Failed to resize the filesystem on '%s'", device);
-        ped_file_system_close (fs);
-        ped_device_close (ped_dev);
-        bd_utils_report_finished (progress_id, (*error)->message);
-        return FALSE;
-    }
-
-    ped_file_system_close (fs);
-    ped_device_close (ped_dev);
-    bd_utils_report_finished (progress_id, "Completed");
-
-    return TRUE;
-
+    return bd_utils_exec_and_report_error (args, NULL, error);
 }

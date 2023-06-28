@@ -27,6 +27,8 @@
 #include "mpath.h"
 #include "check_deps.h"
 
+#define MULTIPATH_MIN_VERSION "0.4.9"
+
 /**
  * SECTION: mpath
  * @short_description: plugin for basic operations with multipath devices
@@ -60,37 +62,6 @@ static const UtilDep deps[DEPS_LAST] = {
 
 
 /**
- * bd_mpath_check_deps:
- *
- * Returns: whether the plugin's runtime dependencies are satisfied or not
- *
- * Function checking plugin's runtime dependencies.
- *
- */
-gboolean bd_mpath_check_deps (void) {
-    GError *error = NULL;
-    guint i = 0;
-    gboolean status = FALSE;
-    gboolean ret = TRUE;
-
-    for (i=0; i < DEPS_LAST; i++) {
-        status = bd_utils_check_util_version (deps[i].name, deps[i].version,
-                                              deps[i].ver_arg, deps[i].ver_regexp, &error);
-        if (!status)
-            g_warning ("%s", error->message);
-        else
-            g_atomic_int_or (&avail_deps, 1 << i);
-        g_clear_error (&error);
-        ret = ret && status;
-    }
-
-    if (!ret)
-        g_warning("Cannot load the mpath plugin");
-
-    return ret;
-}
-
-/**
  * bd_mpath_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -117,9 +88,9 @@ void bd_mpath_close (void) {
  * bd_mpath_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
- * Returns: whether the @tech-@mode combination is avaible -- supported by the
+ * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
  */
 gboolean bd_mpath_is_tech_avail (BDMpathTech tech, guint64 mode, GError **error) {
@@ -147,7 +118,7 @@ gboolean bd_mpath_is_tech_avail (BDMpathTech tech, guint64 mode, GError **error)
 
 /**
  * bd_mpath_flush_mpaths:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether multipath device maps were successfully flushed or not
  *
@@ -170,7 +141,7 @@ gboolean bd_mpath_flush_mpaths (GError **error) {
 
     /* list devices (there should be none) */
     argv[1] = "-ll";
-    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, NULL);
     if (success && output && (g_strcmp0 (output, "") != 0)) {
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_FLUSH,
                      "Some device cannot be flushed: %s", output);
@@ -233,7 +204,7 @@ static gboolean map_is_multipath (const gchar *map_name, GError **error) {
 
     task = dm_task_create (DM_DEVICE_STATUS);
     if (!task) {
-        g_warning ("Failed to create DM task");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to create DM task");
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
                      "Failed to create DM task");
         return FALSE;
@@ -260,7 +231,7 @@ static gboolean map_is_multipath (const gchar *map_name, GError **error) {
         return FALSE;
     }
 
-    dm_get_next_target(task, NULL, &start, &length, &type, &params);
+    dm_get_next_target (task, NULL, &start, &length, &type, &params);
     if (g_strcmp0 (type, "multipath") == 0)
         ret = TRUE;
     else
@@ -278,6 +249,7 @@ static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **er
     guint64 i = 0;
     gchar **dep_devs = NULL;
     gchar *major_minor = NULL;
+    GError *l_error = NULL;
 
     if (geteuid () != 0) {
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
@@ -287,7 +259,7 @@ static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **er
 
     task = dm_task_create (DM_DEVICE_DEPS);
     if (!task) {
-        g_warning ("Failed to create DM task");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to create DM task");
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
                      "Failed to create DM task");
         return NULL;
@@ -322,10 +294,10 @@ static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **er
         dev_major = (guint64) major (deps->device[i]);
         dev_minor = (guint64) minor (deps->device[i]);
         major_minor = g_strdup_printf ("%"G_GUINT64_FORMAT":%"G_GUINT64_FORMAT, dev_major, dev_minor);
-        dep_devs[i] = get_device_name (major_minor, error);
-        if (*error) {
-            g_prefix_error (error, "Failed to resolve '%s' to device name",
-                            major_minor);
+        dep_devs[i] = get_device_name (major_minor, &l_error);
+        if (l_error) {
+            g_propagate_prefixed_error (error, l_error, "Failed to resolve '%s' to device name",
+                                        major_minor);
             g_free (dep_devs);
             g_free (major_minor);
             return NULL;
@@ -343,7 +315,7 @@ static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **er
 /**
  * bd_mpath_is_mpath_member:
  * @device: device to test
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: %TRUE if the device is a multipath member, %FALSE if not or an error
  * appeared when queried (@error is set in those cases)
@@ -352,12 +324,13 @@ static gchar** get_map_deps (const gchar *map_name, guint64 *n_deps, GError **er
  */
 gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
     struct dm_task *task_names = NULL;
-	struct dm_names *names = NULL;
+    struct dm_names *names = NULL;
     gchar *dev_path = NULL;
     guint64 next = 0;
     gchar **deps = NULL;
     gchar **dev_name = NULL;
     gboolean ret = FALSE;
+    GError *l_error = NULL;
 
     if (geteuid () != 0) {
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
@@ -367,16 +340,16 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
 
     /* we check if the 'device' is a dependency of any multipath map  */
     /* get maps */
-    task_names = dm_task_create(DM_DEVICE_LIST);
+    task_names = dm_task_create (DM_DEVICE_LIST);
     if (!task_names) {
-        g_warning ("Failed to create DM task");
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to create DM task");
         g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
                      "Failed to create DM task");
         return FALSE;
     }
 
-    dm_task_run(task_names);
-    names = dm_task_get_names(task_names);
+    dm_task_run (task_names);
+    names = dm_task_get_names (task_names);
 
     if (!names || !names->dev)
         return FALSE;
@@ -384,10 +357,9 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
     /* in case the device is dev_path, we need to resolve it because maps's deps
        are devices and not their dev_paths */
     if (g_str_has_prefix (device, "/dev/mapper/") || g_str_has_prefix (device, "/dev/md/")) {
-        dev_path = bd_utils_resolve_device (device, error);
+        dev_path = bd_utils_resolve_device (device, NULL);
         if (!dev_path) {
             /* the device doesn't exist and thus is not an mpath member */
-            g_clear_error (error);
             dm_task_destroy (task_names);
             return FALSE;
         }
@@ -405,11 +377,12 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
         next = names->next;
 
         /* we are only interested in multipath maps */
-        if (map_is_multipath (names->name, error)) {
-            deps = get_map_deps (names->name, NULL, error);
+        if (map_is_multipath (names->name, &l_error)) {
+            deps = get_map_deps (names->name, NULL, &l_error);
             if (!deps) {
-                if (*error)
-                    g_prefix_error (error, "Failed to determine deps for '%s'", names->name);
+                if (l_error)
+                    g_propagate_prefixed_error (error, l_error, "Failed to determine deps for '%s'",
+                                                names->name);
                 else
                     g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
                                  "No deps found for '%s'", names->name);
@@ -421,8 +394,9 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
             for (dev_name = deps; !ret && *dev_name; dev_name++)
                 ret = (g_strcmp0 (*dev_name, device) == 0);
             g_strfreev (deps);
-        } else if (*error) {
-            g_prefix_error (error, "Failed to determine map's target for '%s'", names->name);
+        } else if (l_error) {
+            g_propagate_prefixed_error (error, l_error, "Failed to determine map's target for '%s'",
+                                        names->name);
             g_free (dev_path);
             dm_task_destroy (task_names);
             return FALSE;
@@ -436,7 +410,7 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
 
 /**
  * bd_mpath_get_mpath_members:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full) (array zero-terminated=1): list of names of all devices that are
  *                                                     members of the mpath mappings
@@ -446,7 +420,7 @@ gboolean bd_mpath_is_mpath_member (const gchar *device, GError **error) {
  */
 gchar** bd_mpath_get_mpath_members (GError **error) {
     struct dm_task *task_names = NULL;
-	struct dm_names *names = NULL;
+    struct dm_names *names = NULL;
     guint64 next = 0;
     gchar **deps = NULL;
     gchar **dev_name = NULL;
@@ -455,29 +429,32 @@ gchar** bd_mpath_get_mpath_members (GError **error) {
     guint64 top_dev = 0;
     gchar **ret = NULL;
     guint64 progress_id = 0;
+    GError *l_error = NULL;
 
     progress_id = bd_utils_report_started ("Started getting mpath members");
 
     if (geteuid () != 0) {
-        g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
+        g_set_error (&l_error, BD_MPATH_ERROR, BD_MPATH_ERROR_NOT_ROOT,
                      "Not running as root, cannot query DM maps");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return NULL;
     }
 
     /* we check if the 'device' is a dependency of any multipath map  */
     /* get maps */
-    task_names = dm_task_create(DM_DEVICE_LIST);
-	if (!task_names) {
-        g_warning ("Failed to create DM task");
-        g_set_error (error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
+    task_names = dm_task_create (DM_DEVICE_LIST);
+    if (!task_names) {
+        bd_utils_log_format (BD_UTILS_LOG_WARNING, "Failed to create DM task");
+        g_set_error (&l_error, BD_MPATH_ERROR, BD_MPATH_ERROR_DM_ERROR,
                      "Failed to create DM task");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return NULL;
     }
 
-    dm_task_run(task_names);
-	names = dm_task_get_names(task_names);
+    dm_task_run (task_names);
+    names = dm_task_get_names (task_names);
 
     if (!names || !names->dev) {
         bd_utils_report_finished (progress_id, "Completed");
@@ -493,12 +470,13 @@ gchar** bd_mpath_get_mpath_members (GError **error) {
         next = names->next;
 
         /* we are only interested in multipath maps */
-        if (map_is_multipath (names->name, error)) {
-            deps = get_map_deps (names->name, &n_deps, error);
-            if (*error) {
-                g_prefix_error (error, "Failed to determine deps for '%s'", names->name);
+        if (map_is_multipath (names->name, NULL)) {
+            deps = get_map_deps (names->name, &n_deps, &l_error);
+            if (l_error) {
+                g_prefix_error (&l_error, "Failed to determine deps for '%s'", names->name);
                 dm_task_destroy (task_names);
-                bd_utils_report_finished (progress_id, (*error)->message);
+                bd_utils_report_finished (progress_id, l_error->message);
+                g_propagate_error (error, l_error);
                 g_free (deps);
                 g_free (ret);
                 return NULL;
@@ -525,7 +503,7 @@ gchar** bd_mpath_get_mpath_members (GError **error) {
 /**
  * bd_mpath_set_friendly_names:
  * @enabled: whether friendly names should be enabled or not
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: if successfully set or not
  *
