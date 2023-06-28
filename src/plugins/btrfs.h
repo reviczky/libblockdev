@@ -5,17 +5,15 @@
 #ifndef BD_BTRFS
 #define BD_BTRFS
 
-#define BTRFS_MIN_VERSION "3.18.2"
-
 #define BD_BTRFS_MAIN_VOLUME_ID 5
 #define BD_BTRFS_MIN_MEMBER_SIZE (128 MiB)
 
 GQuark bd_btrfs_error_quark (void);
 #define BD_BTRFS_ERROR bd_btrfs_error_quark ()
 typedef enum {
+    BD_BTRFS_ERROR_TECH_UNAVAIL,
     BD_BTRFS_ERROR_DEVICE,
     BD_BTRFS_ERROR_PARSE,
-    BD_BTRFS_ERROR_TECH_UNAVAIL,
 } BDBtrfsError;
 
 typedef struct BDBtrfsDeviceInfo {
@@ -66,12 +64,10 @@ typedef enum {
  * If using the plugin as a standalone library, the following functions should
  * be called to:
  *
- * check_deps() - check plugin's dependencies, returning TRUE if satisfied
  * init()       - initialize the plugin, returning TRUE on success
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_btrfs_check_deps (void);
 gboolean bd_btrfs_init (void);
 void bd_btrfs_close (void);
 

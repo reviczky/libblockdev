@@ -17,6 +17,9 @@
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
 
+#include <ext2fs.h>
+#include <e2p.h>
+
 #include <blockdev/utils.h>
 #include <check_deps.h>
 
@@ -37,24 +40,27 @@ static GMutex deps_check_lock;
 #define DEPS_E2FSCK_MASK (1 << DEPS_E2FSCK)
 #define DEPS_TUNE2FS 2
 #define DEPS_TUNE2FS_MASK (1 << DEPS_TUNE2FS)
-#define DEPS_DUMPE2FS 3
-#define DEPS_DUMPE2FS_MASK (1 << DEPS_DUMPE2FS)
-#define DEPS_RESIZE2FS 4
+#define DEPS_RESIZE2FS 3
 #define DEPS_RESIZE2FS_MASK (1 << DEPS_RESIZE2FS)
 
-#define DEPS_LAST 5
+#define DEPS_LAST 4
 
 static const UtilDep deps[DEPS_LAST] = {
     {"mke2fs", NULL, NULL, NULL},
     {"e2fsck", NULL, NULL, NULL},
     {"tune2fs", NULL, NULL, NULL},
-    {"dumpe2fs", NULL, NULL, NULL},
     {"resize2fs", NULL, NULL, NULL},
 };
 
 static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
-    /*   mkfs          wipe     check               repair                set-label            query                resize */
-    DEPS_MKE2FS_MASK,   0, DEPS_E2FSCK_MASK,   DEPS_E2FSCK_MASK,     DEPS_TUNE2FS_MASK,   DEPS_DUMPE2FS_MASK,  DEPS_RESIZE2FS_MASK
+    DEPS_MKE2FS_MASK,       /* mkfs */
+    0,                      /* wipe */
+    DEPS_E2FSCK_MASK,       /* check */
+    DEPS_E2FSCK_MASK,       /* repair */
+    DEPS_TUNE2FS_MASK,      /* set-label */
+    0,                      /* query */
+    DEPS_RESIZE2FS_MASK,    /* resize */
+    DEPS_TUNE2FS_MASK       /* set-uuid */
 };
 
 #define UNUSED __attribute__((unused))
@@ -143,7 +149,7 @@ static gboolean extract_e2fsck_progress (const gchar *line, guint8 *completion) 
  * bd_fs_ext_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation (#BDFSTechMode) for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
@@ -231,8 +237,52 @@ void bd_fs_ext4_info_free (BDFSExt4Info *data) {
     bd_fs_ext2_info_free ((BDFSExt2Info*) data);
 }
 
+static BDExtraArg **ext_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+    GPtrArray *options_array = g_ptr_array_new ();
+    const BDExtraArg **extra_p = NULL;
+
+    if (options->label && g_strcmp0 (options->label, "") != 0)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-L", options->label));
+
+    if (options->uuid && g_strcmp0 (options->uuid, "") != 0)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-U", options->uuid));
+
+    if (options->dry_run)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-n", ""));
+
+    if (options->no_discard)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-E", "nodiscard"));
+
+    if (options->force)
+        g_ptr_array_add (options_array, bd_extra_arg_new ("-F", ""));
+
+    if (extra) {
+        for (extra_p = extra; *extra_p; extra_p++)
+            g_ptr_array_add (options_array, bd_extra_arg_copy ((BDExtraArg *) *extra_p));
+    }
+
+    g_ptr_array_add (options_array, NULL);
+
+    return (BDExtraArg **) g_ptr_array_free (options_array, FALSE);
+}
+
+BDExtraArg __attribute__ ((visibility ("hidden")))
+**bd_fs_ext2_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+    return ext_mkfs_options (options, extra);
+}
+
+BDExtraArg __attribute__ ((visibility ("hidden")))
+**bd_fs_ext3_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+    return ext_mkfs_options (options, extra);
+}
+
+BDExtraArg __attribute__ ((visibility ("hidden")))
+**bd_fs_ext4_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+    return ext_mkfs_options (options, extra);
+}
+
 static gboolean ext_mkfs (const gchar *device, const BDExtraArg **extra, const gchar *ext_version, GError **error) {
-    const gchar *args[6] = {"mke2fs", "-t", ext_version, "-F", device, NULL};
+    const gchar *args[5] = {"mke2fs", "-t", ext_version, device, NULL};
 
     if (!check_deps (&avail_deps, DEPS_MKE2FS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -243,9 +293,9 @@ static gboolean ext_mkfs (const gchar *device, const BDExtraArg **extra, const g
 /**
  * bd_fs_ext2_mkfs:
  * @device: the device to create a new ext2 fs on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the creation (right now
  *                                                 passed to the 'mke2fs' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether a new ext2 fs was successfully created on @device or not
  *
@@ -258,9 +308,9 @@ gboolean bd_fs_ext2_mkfs (const gchar *device, const BDExtraArg **extra, GError 
 /**
  * bd_fs_ext3_mkfs:
  * @device: the device to create a new ext3 fs on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the creation (right now
  *                                                 passed to the 'mke2fs' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether a new ext3 fs was successfully created on @device or not
  *
@@ -273,9 +323,9 @@ gboolean bd_fs_ext3_mkfs (const gchar *device, const BDExtraArg **extra, GError 
 /**
  * bd_fs_ext4_mkfs:
  * @device: the device to create a new ext4 fs on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the creation (right now
  *                                                 passed to the 'mkfs.ext4' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether a new ext4 fs was successfully created on @device or not
  *
@@ -283,48 +333,6 @@ gboolean bd_fs_ext3_mkfs (const gchar *device, const BDExtraArg **extra, GError 
  */
 gboolean bd_fs_ext4_mkfs (const gchar *device, const BDExtraArg **extra, GError **error) {
     return ext_mkfs (device, extra, EXT4, error);
-}
-
-/**
- * bd_fs_ext2_wipe:
- * @device: the device to wipe an ext2 signature from
- * @error: (out): place to store error (if any)
- *
- * Returns: whether an ext2 signature was successfully wiped from the @device or
- *          not
- *
- * Tech category: %BD_FS_TECH_EXT2-%BD_FS_TECH_MODE_WIPE
- */
-gboolean bd_fs_ext2_wipe (const gchar *device, GError **error) {
-    return wipe_fs (device, EXT2, FALSE, error);
-}
-
-/**
- * bd_fs_ext3_wipe:
- * @device: the device to wipe an ext3 signature from
- * @error: (out): place to store error (if any)
- *
- * Returns: whether an ext3 signature was successfully wiped from the @device or
- *          not
- *
- * Tech category: %BD_FS_TECH_EXT3-%BD_FS_TECH_MODE_WIPE
- */
-gboolean bd_fs_ext3_wipe (const gchar *device, GError **error) {
-    return wipe_fs (device, EXT3, FALSE, error);
-}
-
-/**
- * bd_fs_ext4_wipe:
- * @device: the device to wipe an ext4 signature from
- * @error: (out): place to store error (if any)
- *
- * Returns: whether an ext4 signature was successfully wiped from the @device or
- *          not
- *
- * Tech category: %BD_FS_TECH_EXT4-%BD_FS_TECH_MODE_WIPE
- */
-gboolean bd_fs_ext4_wipe (const gchar *device, GError **error) {
-    return wipe_fs (device, EXT4, FALSE, error);
 }
 
 static gboolean ext_check (const gchar *device, const BDExtraArg **extra, GError **error) {
@@ -355,9 +363,9 @@ static gboolean ext_check (const gchar *device, const BDExtraArg **extra, GError
 /**
  * bd_fs_ext2_check:
  * @device: the device the file system on which to check
- * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the check (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext2 file system on the @device is clean or not
  *
@@ -370,9 +378,9 @@ gboolean bd_fs_ext2_check (const gchar *device, const BDExtraArg **extra, GError
 /**
  * bd_fs_ext3_check:
  * @device: the device the file system on which to check
- * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the check (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext3 file system on the @device is clean or not
  *
@@ -385,9 +393,9 @@ gboolean bd_fs_ext3_check (const gchar *device, const BDExtraArg **extra, GError
 /**
  * bd_fs_ext4_check:
  * @device: the device the file system on which to check
- * @extra: (allow-none) (array zero-terminated=1): extra options for the check (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the check (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext4 file system on the @device is clean or not
  *
@@ -422,7 +430,9 @@ static gboolean ext_repair (const gchar *device, gboolean unsafe, const BDExtraA
             ret = TRUE;
         } else if (status == 2) {
             /* no error should be reported for exit code 2 - File system errors corrected, system should be rebooted */
-            g_warning ("File system errors on %s were successfully corrected, but system reboot is advised.", device);
+            bd_utils_log_format (BD_UTILS_LOG_WARNING,
+                                 "File system errors on %s were successfully corrected, but system reboot is advised.",
+                                 device);
             g_clear_error (error);
             ret = TRUE;
         }
@@ -434,9 +444,9 @@ static gboolean ext_repair (const gchar *device, gboolean unsafe, const BDExtraA
  * bd_fs_ext2_repair:
  * @device: the device the file system on which to repair
  * @unsafe: whether to do unsafe operations too
- * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the repair (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext2 file system on the @device was successfully repaired
  *          (if needed) or not (error is set in that case)
@@ -451,9 +461,9 @@ gboolean bd_fs_ext2_repair (const gchar *device, gboolean unsafe, const BDExtraA
  * bd_fs_ext3_repair:
  * @device: the device the file system on which to repair
  * @unsafe: whether to do unsafe operations too
- * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the repair (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext3 file system on the @device was successfully repaired
  *          (if needed) or not (error is set in that case)
@@ -468,9 +478,9 @@ gboolean bd_fs_ext3_repair (const gchar *device, gboolean unsafe, const BDExtraA
  * bd_fs_ext4_repair:
  * @device: the device the file system on which to repair
  * @unsafe: whether to do unsafe operations too
- * @extra: (allow-none) (array zero-terminated=1): extra options for the repair (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the repair (right now
  *                                                 passed to the 'e2fsck' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an ext4 file system on the @device was successfully repaired
  *          (if needed) or not (error is set in that case)
@@ -494,7 +504,7 @@ static gboolean ext_set_label (const gchar *device, const gchar *label, GError *
  * bd_fs_ext2_set_label:
  * @device: the device the file system on which to set label for
  * @label: label to set
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the label of ext2 file system on the @device was
  *          successfully set or not
@@ -509,7 +519,7 @@ gboolean bd_fs_ext2_set_label (const gchar *device, const gchar *label, GError *
  * bd_fs_ext3_set_label:
  * @device: the device the file system on which to set label for
  * @label: label to set
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the label of ext3 file system on the @device was
  *          successfully set or not
@@ -524,7 +534,7 @@ gboolean bd_fs_ext3_set_label (const gchar *device, const gchar *label, GError *
  * bd_fs_ext4_set_label:
  * @device: the device the file system on which to set label for
  * @label: label to set
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the label of ext4 file system on the @device was
  *          successfully set or not
@@ -536,121 +546,216 @@ gboolean bd_fs_ext4_set_label (const gchar *device, const gchar *label, GError *
 }
 
 /**
- * parse_output_vars: (skip)
- * @str: string to parse
- * @item_sep: item separator(s) (key-value pairs separator)
- * @key_val_sep: key-value separator(s) (typically ":" or "=")
- * @num_items: (out): number of parsed items (key-value pairs)
+ * bd_fs_ext2_check_label:
+ * @label: label to check
+ * @error: (out) (optional): place to store error
  *
- * Returns: (transfer full): GHashTable containing the key-value pairs parsed
- * from the @str.
+ * Returns: whether @label is a valid label for the ext2 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
  */
-static GHashTable* parse_output_vars (const gchar *str, const gchar *item_sep, const gchar *key_val_sep, guint *num_items) {
-    GHashTable *table = NULL;
-    gchar **items = NULL;
-    gchar **item_p = NULL;
-    gchar **key_val = NULL;
-
-    table = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
-    *num_items = 0;
-
-    items = g_strsplit_set (str, item_sep, 0);
-    for (item_p=items; *item_p; item_p++) {
-        key_val = g_strsplit (*item_p, key_val_sep, 2);
-        if (g_strv_length (key_val) == 2) {
-            /* we only want to process valid lines (with the separator) */
-            g_hash_table_insert (table, g_strstrip (key_val[0]), g_strstrip (key_val[1]));
-            g_free (key_val);
-            (*num_items)++;
-        } else
-            /* invalid line, just free key_val */
-            g_strfreev (key_val);
+gboolean bd_fs_ext2_check_label (const gchar *label, GError **error) {
+    if (strlen (label) > 16) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_LABEL_INVALID,
+                     "Label for ext filesystem must be at most 16 characters long.");
+        return FALSE;
     }
 
-    g_strfreev (items);
-    return table;
+    return TRUE;
 }
 
-static BDFSExtInfo* get_ext_info_from_table (GHashTable *table, gboolean free_table) {
-    BDFSExtInfo *ret = g_new0 (BDFSExtInfo, 1);
-    gchar *value = NULL;
+/**
+ * bd_fs_ext3_check_label:
+ * @label: label to check
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether @label is a valid label for the ext3 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_ext3_check_label (const gchar *label, GError **error) {
+    return bd_fs_ext2_check_label (label, error);
+}
 
-    ret->label = g_strdup ((gchar*) g_hash_table_lookup (table, "Filesystem volume name"));
-    if (!ret->label || g_strcmp0 (ret->label, "<none>") == 0) {
-        g_free (ret->label);
-        ret->label = g_strdup ("");
-    }
+/**
+ * bd_fs_ext4_check_label:
+ * @label: label to check
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether @label is a valid label for the ext4 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_ext4_check_label (const gchar *label, GError **error) {
+    return bd_fs_ext2_check_label (label, error);
+}
 
-    ret->uuid = g_strdup ((gchar*) g_hash_table_lookup (table, "Filesystem UUID"));
-    if (!ret->uuid || g_strcmp0 (ret->uuid, "<none>") == 0) {
-        g_free (ret->uuid);
-        ret->uuid = g_strdup ("");
-    }
+static gboolean ext_set_uuid (const gchar *device, const gchar *uuid, GError **error) {
+    const gchar *args[5] = {"tune2fs", "-U", NULL, device, NULL};
 
-    ret->state = g_strdup ((gchar*) g_hash_table_lookup (table, "Filesystem state"));
+    if (!check_deps (&avail_deps, DEPS_TUNE2FS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
+        return FALSE;
 
-    value = (gchar*) g_hash_table_lookup (table, "Block size");
-    if (value)
-        ret->block_size = g_ascii_strtoull (value, NULL, 0);
+    if (!uuid)
+        args[2] = "random";
     else
-        ret->block_size = 0;
-    value = (gchar*) g_hash_table_lookup (table, "Block count");
-    if (value)
-        ret->block_count = g_ascii_strtoull (value, NULL, 0);
-    else
-        ret->block_count = 0;
-    value = (gchar*) g_hash_table_lookup (table, "Free blocks");
-    if (value)
-        ret->free_blocks = g_ascii_strtoull (value, NULL, 0);
-    else
-        ret->free_blocks = 0;
+        args[2] = uuid;
 
-    if (free_table)
-        g_hash_table_destroy (table);
+    return bd_utils_exec_and_report_error (args, NULL, error);
+}
 
-    return ret;
+/**
+ * bd_fs_ext2_set_uuid:
+ * @device: the device the file system on which to set UUID for
+ * @uuid: (nullable): UUID to set %NULL to generate a new one
+ *                      UUID can also be one of "clear", "random" and "time" to clear,
+ *                      generate a new random/time-based UUID
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the UUID of ext2 file system on the @device was
+ *          successfully set or not
+ *
+ * Tech category: %BD_FS_TECH_EXT2-%BD_FS_TECH_MODE_SET_UUID
+ */
+gboolean bd_fs_ext2_set_uuid (const gchar *device, const gchar *uuid, GError **error) {
+    return ext_set_uuid (device, uuid, error);
+}
+
+/**
+ * bd_fs_ext3_set_uuid:
+ * @device: the device the file system on which to set UUID for
+ * @uuid: (nullable): UUID to set %NULL to generate a new one
+ *                      UUID can also be one of "clear", "random" and "time" to clear,
+ *                      generate a new random/time-based UUID
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the UUID of ext3 file system on the @device was
+ *          successfully set or not
+ *
+ * Tech category: %BD_FS_TECH_EXT3-%BD_FS_TECH_MODE_SET_UUID
+ */
+gboolean bd_fs_ext3_set_uuid (const gchar *device, const gchar *uuid, GError **error) {
+    return ext_set_uuid (device, uuid, error);
+}
+
+/**
+ * bd_fs_ext4_set_uuid:
+ * @device: the device the file system on which to set UUID for
+ * @uuid: (nullable): UUID to set %NULL to generate a new one
+ *                      UUID can also be one of "clear", "random" and "time" to clear,
+ *                      generate a new random/time-based UUID
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the UUID of ext4 file system on the @device was
+ *          successfully set or not
+ *
+ * Tech category: %BD_FS_TECH_EXT4-%BD_FS_TECH_MODE_SET_UUID
+ */
+gboolean bd_fs_ext4_set_uuid (const gchar *device, const gchar *uuid, GError **error) {
+    return ext_set_uuid (device, uuid, error);
+}
+
+/**
+ * bd_fs_ext2_check_uuid:
+ * @uuid: UUID to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @uuid is a valid UUID for the ext2 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_ext2_check_uuid (const gchar *uuid, GError **error) {
+    return check_uuid (uuid, error);
+}
+
+/**
+ * bd_fs_ext3_check_uuid:
+ * @uuid: UUID to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @uuid is a valid UUID for the ext3 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_ext3_check_uuid (const gchar *uuid, GError **error) {
+    return check_uuid (uuid, error);
+}
+
+/**
+ * bd_fs_ext4_check_uuid:
+ * @uuid: UUID to check
+ * @error: (out) (optional): place to store error
+ *
+ * Returns: whether @uuid is a valid UUID for the ext4 file system or not
+ *          (reason is provided in @error)
+ *
+ * Tech category: always available
+ */
+gboolean bd_fs_ext4_check_uuid (const gchar *uuid, GError **error) {
+    return check_uuid (uuid, error);
+}
+
+static gchar *decode_fs_state (unsigned short state) {
+    return g_strdup_printf ("%s%s",
+                            (state & EXT2_VALID_FS) ? "clean" : "not clean",
+                            (state & EXT2_ERROR_FS) ? " with errors" : "");
+}
+
+static gchar *decode_uuid (void *uuid) {
+    const char *str = e2p_uuid2str (uuid);
+    if (g_strcmp0 (str, "<none>") == 0)
+        str = "";
+    return g_strdup (str);
 }
 
 static BDFSExtInfo* ext_get_info (const gchar *device, GError **error) {
-    const gchar *args[4] = {"dumpe2fs", "-h", device, NULL};
-    gboolean success = FALSE;
-    gchar *output = NULL;
-    GHashTable *table = NULL;
-    guint num_items = 0;
+    errcode_t retval;
+    ext2_filsys fs;
+    struct ext2_super_block *sb;
     BDFSExtInfo *ret = NULL;
 
-    if (!check_deps (&avail_deps, DEPS_DUMPE2FS_MASK, deps, DEPS_LAST, &deps_check_lock, error))
-        return FALSE;
+    int flags = (EXT2_FLAG_JOURNAL_DEV_OK | EXT2_FLAG_SOFTSUPP_FEATURES |
+                 EXT2_FLAG_64BITS | EXT2_FLAG_SUPER_ONLY |
+                 EXT2_FLAG_IGNORE_CSUM_ERRORS);
 
-    success = bd_utils_exec_and_capture_output (args, NULL, &output, error);
-    if (!success) {
-        /* error is already populated */
-        return FALSE;
-    }
+#ifdef EXT2_FLAG_THREADS
+    flags |= EXT2_FLAG_THREADS;
+#endif
 
-    table = parse_output_vars (output, "\n", ":", &num_items);
-    g_free (output);
-    if (!table || (num_items == 0)) {
-        /* something bad happened or some expected items were missing  */
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_PARSE, "Failed to parse ext4 file system information");
-        if (table)
-            g_hash_table_destroy (table);
+    retval = ext2fs_open (device,
+                          flags,
+                          0, /* use_superblock */
+                          0, /* use_blocksize */
+                          unix_io_manager,
+                          &fs);
+    if (retval) {
+        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_FAIL, "Failed to open ext4 file system");
         return NULL;
     }
 
-    ret = get_ext_info_from_table (table, TRUE);
-    if (!ret) {
-        g_set_error (error, BD_FS_ERROR, BD_FS_ERROR_PARSE, "Failed to parse ext4 file system information");
-        return NULL;
-    }
+    sb = fs->super;
+    ret = g_new0 (BDFSExtInfo, 1);
 
+    ret->label = g_strndup ((gchar *)sb->s_volume_name, sizeof (sb->s_volume_name));
+    ret->uuid = decode_uuid (sb->s_uuid);
+    ret->state = decode_fs_state (sb->s_state);
+    ret->block_size = EXT2_BLOCK_SIZE (sb);
+    ret->block_count = ext2fs_blocks_count (sb);
+    ret->free_blocks = ext2fs_free_blocks_count (sb);
+
+    ext2fs_close_free (&fs);
     return ret;
 }
 
 /**
  * bd_fs_ext2_get_info:
  * @device: the device the file system of which to get info for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the file system on @device or
  *                           %NULL in case of error
@@ -664,7 +769,7 @@ BDFSExt2Info* bd_fs_ext2_get_info (const gchar *device, GError **error) {
 /**
  * bd_fs_ext3_get_info:
  * @device: the device the file system of which to get info for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the file system on @device or
  *                           %NULL in case of error
@@ -678,7 +783,7 @@ BDFSExt3Info* bd_fs_ext3_get_info (const gchar *device, GError **error) {
 /**
  * bd_fs_ext4_get_info:
  * @device: the device the file system of which to get info for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the file system on @device or
  *                           %NULL in case of error
@@ -710,9 +815,9 @@ static gboolean ext_resize (const gchar *device, guint64 new_size, const BDExtra
  * @device: the device the file system of which to resize
  * @new_size: new requested size for the file system (if 0, the file system is
  *            adapted to the underlying block device)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the resize (right now
  *                                                 passed to the 'resize2fs' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the file system on @device was successfully resized or not
  *
@@ -727,9 +832,9 @@ gboolean bd_fs_ext2_resize (const gchar *device, guint64 new_size, const BDExtra
  * @device: the device the file system of which to resize
  * @new_size: new requested size for the file system (if 0, the file system is
  *            adapted to the underlying block device)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the resize (right now
  *                                                 passed to the 'resize2fs' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the file system on @device was successfully resized or not
  *
@@ -744,9 +849,9 @@ gboolean bd_fs_ext3_resize (const gchar *device, guint64 new_size, const BDExtra
  * @device: the device the file system of which to resize
  * @new_size: new requested size for the file system (if 0, the file system is
  *            adapted to the underlying block device)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the resize (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the resize (right now
  *                                                 passed to the 'resize2fs' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the file system on @device was successfully resized or not
  *

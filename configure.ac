@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [2.28], [vpodzime@redhat.com])
+AC_INIT([libblockdev], [3.0], [], [], [https://github.com/storaged-project/libblockdev])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -21,6 +21,7 @@ LT_INIT
 AC_CONFIG_FILES([Makefile src/Makefile \
                           src/plugins/Makefile \
                           src/plugins/fs/Makefile \
+                          src/plugins/nvme/Makefile \
                           src/utils/Makefile \
                           src/utils/blockdev-utils.pc \
                           src/lib/Makefile \
@@ -55,8 +56,6 @@ case $host_cpu in
   *) on_s390=no ;;
 esac
 
-skip_patterns=""
-
 AC_ARG_WITH([s390],
     AS_HELP_STRING([--with-s390], [support s390 @<:@default=check@:>@]),
     [],
@@ -77,22 +76,6 @@ if test "x$with_s390" != "xno"; then
 else
   AM_CONDITIONAL(WITH_S390, false)
 fi
-
-AC_ARG_WITH([python2],
-    AS_HELP_STRING([--with-python2], [support python2 @<:@default=check@:>@]),
-    [],
-    [with_python2=check])
-
-AC_SUBST(WITH_PYTHON2, 0)
-if test "x$with_python2" != "xno"; then
-    AC_PATH_PROG([python2], [python2], [no])
-    AS_IF([test "x$python2" = "xno"],
-    [if test "x$with_python2" = "xyes"; then
-      LIBBLOCKDEV_SOFT_FAILURE([Python2 support requested, but python2 is not available])
-      fi],
-    [AC_SUBST(WITH_PYTHON2, 1)])
-fi
-AM_CONDITIONAL(WITH_PYTHON2, test "x$with_python2" != "xno" -a "x$python2" != "xno")
 
 AC_ARG_WITH([python3],
     AS_HELP_STRING([--with-python3], [support python3 @<:@default=check@:>@]),
@@ -137,17 +120,6 @@ AC_CHECK_HEADERS([dlfcn.h string.h unistd.h sys/fcntl.h sys/ioctl.h linux/random
                  [LIBBLOCKDEV_SOFT_FAILURE([Header file $ac_header not found.])],
                  [])
 
-AC_ARG_WITH([bcache],
-    AS_HELP_STRING([--with-bcache], [support bcache @<:@default=yes@:>@]),
-    [],
-    [with_bcache=yes])
-
-AC_SUBST([WITH_BCACHE], [0])
-AM_CONDITIONAL(WITH_BCACHE, test "x$with_bcache" != "xno")
-AS_IF([test "x$with_bcache" != "xno"],
-      [AC_DEFINE([WITH_BD_BCACHE], [], [Define if bcache is supported]) AC_SUBST([WITH_BCACHE], [1])],
-      [])
-
 AC_ARG_WITH([escrow],
     AS_HELP_STRING([--with-escrow], [support escrow @<:@default=yes@:>@]),
     [],
@@ -157,17 +129,6 @@ AC_SUBST([WITH_ESCROW], [0])
 AM_CONDITIONAL(WITH_ESCROW, test "x$with_escrow" != "xno")
 AS_IF([test "x$with_escrow" != "xno"],
       [AC_DEFINE([WITH_BD_ESCROW], [], [Define if escrow is supported]) AC_SUBST([WITH_ESCROW], [1])],
-      [])
-
-AC_ARG_WITH([dmraid],
-    AS_HELP_STRING([--with-dmraid], [support dmraid @<:@default=yes@:>@]),
-    [],
-    [with_dmraid=yes])
-
-AC_SUBST([WITH_DMRAID], [0])
-AM_CONDITIONAL(WITH_DMRAID, test "x$with_dmraid" != "xno")
-AS_IF([test "x$with_dmraid" != "xno"],
-      [AC_DEFINE([WITH_BD_DMRAID], [], [Define if dmraid is supported]) AC_SUBST([WITH_DMRAID], [1])],
       [])
 
 AC_ARG_WITH([tools],
@@ -181,6 +142,17 @@ AS_IF([test "x$with_tools" != "xno"],
       [AC_SUBST([WITH_TOOLS], [1])],
       [])
 
+AC_ARG_WITH([nvme],
+    AS_HELP_STRING([--with-nvme], [support nvme @<:@default=yes@:>@]),
+    [],
+    [with_nvme=yes])
+
+AC_SUBST([WITH_NVME], [0])
+AM_CONDITIONAL(WITH_NVME, test "x$with_nvme" != "xno")
+AS_IF([test "x$with_nvme" != "xno"],
+      [AC_DEFINE([WITH_BD_NVME], [], [Define if nvme is supported]) AC_SUBST([WITH_NVME], [1])],
+      [])
+
 LIBBLOCKDEV_PLUGIN([BTRFS], [btrfs])
 LIBBLOCKDEV_PLUGIN([CRYPTO], [crypto])
 LIBBLOCKDEV_PLUGIN([DM], [dm])
@@ -190,15 +162,12 @@ LIBBLOCKDEV_PLUGIN([LVM_DBUS], [lvm_dbus])
 LIBBLOCKDEV_PLUGIN([MDRAID], [mdraid])
 LIBBLOCKDEV_PLUGIN([MPATH], [mpath])
 LIBBLOCKDEV_PLUGIN([SWAP], [swap])
-LIBBLOCKDEV_PLUGIN([KBD], [kbd])
 LIBBLOCKDEV_PLUGIN([PART], [part])
 LIBBLOCKDEV_PLUGIN([FS], [fs])
 LIBBLOCKDEV_PLUGIN([NVDIMM], [nvdimm])
-LIBBLOCKDEV_PLUGIN([VDO], [vdo])
+LIBBLOCKDEV_PLUGIN([NVME], [nvme])
 
-AM_CONDITIONAL(WITH_PART_O_WITH_FS, test "x$with_part" != "xno" -o "x$with_fs" != "xno")
-
-dnl these two modules are always needed
+dnl these packages/modules are always needed
 LIBBLOCKDEV_PKG_CHECK_MODULES([GLIB], [glib-2.0 >= 2.42.2])
 LIBBLOCKDEV_PKG_CHECK_MODULES([GOBJECT], [gobject-2.0 >= 2.42.2])
 LIBBLOCKDEV_PKG_CHECK_MODULES([GIO], [gio-2.0 >= 2.42.2])
@@ -206,18 +175,17 @@ LIBBLOCKDEV_PKG_CHECK_MODULES([UDEV], [libudev >= 216])
 LIBBLOCKDEV_PKG_CHECK_MODULES([KMOD], [libkmod >= 19])
 
 AS_IF([test "x$with_crypto" != "xno"],
-      [LIBBLOCKDEV_PKG_CHECK_MODULES([CRYPTSETUP], [libcryptsetup >= 1.6.7])
-      AS_IF([$PKG_CONFIG --atleast-version=2.0.3 libcryptsetup],
-            [AC_DEFINE([LIBCRYPTSETUP_2])], [])
-      AS_IF([$PKG_CONFIG --atleast-version=2.3.0 libcryptsetup],
-            [AC_DEFINE([LIBCRYPTSETUP_BITLK])], [])
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([CRYPTSETUP], [libcryptsetup >= 2.3.0])
       AS_IF([$PKG_CONFIG --atleast-version=2.4.0 libcryptsetup],
             [AC_DEFINE([LIBCRYPTSETUP_24])], [])
+      AS_IF([$PKG_CONFIG --atleast-version=2.6.0 libcryptsetup],
+            [AC_DEFINE([LIBCRYPTSETUP_26])], [])
       AS_IF([test "x$with_escrow" != "xno"],
             [LIBBLOCKDEV_PKG_CHECK_MODULES([NSS], [nss >= 3.18.0])
              LIBBLOCKDEV_CHECK_HEADER([volume_key/libvolume_key.h], [$GLIB_CFLAGS $NSS_CFLAGS], [libvolume_key.h not available])],
             [])
-      AC_CHECK_FUNCS([explicit_bzero])
+      dnl pkg-config support was added in keyutils 1.6 but CentOS/RHEL 8 has only 1.5
+      LIBBLOCKDEV_CHECK_HEADER([keyutils.h], [], [keyutils.h not available])
       ],
       [])
 
@@ -225,19 +193,21 @@ AS_IF([test "x$with_dm" != "xno" -o "x$with_lvm" != "xno" -o "x$with_lvm_dbus" !
       [LIBBLOCKDEV_PKG_CHECK_MODULES([DEVMAPPER], [devmapper >= 1.02.93])],
       [])
 
-AS_IF([test "x$with_dm" != "xno" -a "x$with_dmraid" != "xno"],
-      [LIBBLOCKDEV_CHECK_HEADER([dmraid/dmraid.h], [], [dmraid.h not available])],
-      [])
-
-AS_IF([test "x$with_part" != "xno" -o "x$with_fs" != "xno"],
-      [LIBBLOCKDEV_PKG_CHECK_MODULES([PARTED], [libparted >= 3.1])]
+AS_IF([test "x$with_part" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([FDISK], [fdisk >= 2.31.0])],
       [])
 
 AS_IF([test "x$with_fs" != "xno"],
-      [LIBBLOCKDEV_PKG_CHECK_MODULES([MOUNT], [mount >= 2.23.0])
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([UUID], [uuid])
+       LIBBLOCKDEV_PKG_CHECK_MODULES([MOUNT], [mount >= 2.23.0])
        # new versions of libmount has some new functions we can use
        AS_IF([$PKG_CONFIG --atleast-version=2.30.0 mount],
              [AC_DEFINE([LIBMOUNT_NEW_ERR_API])], [])
+       LIBBLOCKDEV_PKG_CHECK_MODULES([EXT2FS], [ext2fs e2p])]
+      [])
+
+AS_IF([test "x$with_tools" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([PARTED], [libparted >= 3.1])
 
        # older versions of parted don't provide the libparted-fs-resize.pc file
        AS_IF([$PKG_CONFIG libparted-fs-resize],
@@ -246,7 +216,7 @@ AS_IF([test "x$with_fs" != "xno"],
               AC_SUBST([PARTED_FS_CFLAGS], [])])],
       [])
 
-AS_IF([test "x$with_fs" != "xno" -o "x$with_crypto" != "xno" -o "x$with_swap" != "xno"],
+AS_IF([test "x$with_fs" != "xno" -o "x$with_crypto" != "xno" -o "x$with_swap" != "xno" -o "x$with_part" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([BLKID], [blkid >= 2.23.0])
       # older versions of libblkid don't support BLKID_SUBLKS_BADCSUM so let's just
       # define it as 0 (neutral value for bit combinations of flags)
@@ -255,7 +225,7 @@ AS_IF([test "x$with_fs" != "xno" -o "x$with_crypto" != "xno" -o "x$with_swap" !=
              [Define as neutral value if libblkid doesn't provide the definition])])]
       [])
 
-AS_IF([test "x$with_btrfs" != "xno" -o "x$with_mdraid" != "xno" -o "x$with_kbd" != "xno" -o "x$with_vdo" != "xno" -o "x$with_tools" != "xno"],
+AS_IF([test "x$with_btrfs" != "xno" -o "x$with_mdraid" != "xno" -o "x$with_tools" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([BYTESIZE], [bytesize >= 0.1])],
       [])
 
@@ -267,11 +237,13 @@ AS_IF([test "x$with_nvdimm" != "xno"],
              [AC_DEFINE([LIBNDCTL_NEW_MODES])], [])]
       [])
 
-AS_IF([test "x$with_vdo" != "xno"],
-      [LIBBLOCKDEV_PKG_CHECK_MODULES([YAML], [yaml-0.1])]
+AS_IF([test "x$with_nvme" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([NVME], [libnvme >= 1.3])
+      AS_IF([$PKG_CONFIG --atleast-version=1.4 libnvme],
+            [AC_DEFINE([HAVE_LIBNVME_1_4])], [])
+      ],
       [])
 
-AC_SUBST([skip_patterns], [$skip_patterns])
 AC_SUBST([MAJOR_VER], [\"2\"])
 
 CFLAGS="$CFLAGS -std=gnu99"
@@ -279,12 +251,6 @@ CFLAGS="$CFLAGS -std=gnu99"
 AC_OUTPUT
 LIBBLOCKDEV_FAILURES
 
-
-if test "x$with_python2" != "xno" -a "x$python2" != "xno"; then
-  python2_info=yes
-else
-  python2_info=no
-fi
 
 if test "x$with_python3" != "xno" -a "x$python3" != "xno"; then
   python3_info=yes
@@ -322,23 +288,19 @@ echo "
         Crypto plugin:              ${with_crypto}
             escrow support:         ${with_escrow}
         DM plugin:                  ${with_dm}
-            dmraid support:         ${with_dmraid}
         FS plugin:                  ${with_fs}
-        KBD plugin:                 ${with_kbd}
-            Bcache support:         ${with_bcache}
         Loop plugin:                ${with_loop}
         LVM plugin:                 ${with_lvm}
         LVM DBus plugin:            ${with_lvm_dbus}
         MDRAID plugin:              ${with_mdraid}
         MPath plugin                ${with_mpath}
         NVDIMM plugin:              ${with_nvdimm}
+        NVMe plugin:                ${with_nvme}
         Part plugin:                ${with_part}
         S390 plugin:                ${s390_info}
         Swap plugin:                ${with_swap}
-        VDO plugin (deprecated):    ${with_vdo}
 
         GObject introspection:      ${found_introspection}
-        Python 2 bindings:          ${python2_info}
         Python 3 bindings:          ${python3_info}
         tools:                      ${with_tools}
 "

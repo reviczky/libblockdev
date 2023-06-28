@@ -1,68 +1,33 @@
 #include <glib.h>
 #include <blockdev/utils.h>
-#include <libdevmapper.h>
 
 #ifndef BD_LVM
 #define BD_LVM
 
-#define LVM_MIN_VERSION "2.02.116"
-
-#ifdef __LP64__
-// 64bit system
-#define BD_LVM_MAX_LV_SIZE (8 EiB)
-#else
-// 32bit system
-#define BD_LVM_MAX_LV_SIZE (16 TiB)
-#endif
-
-#define BD_LVM_DEFAULT_PE_START (1 MiB)
-#define BD_LVM_DEFAULT_PE_SIZE (4 MiB)
-#define BD_LVM_MIN_PE_SIZE (1 KiB)
-#define BD_LVM_MAX_PE_SIZE (16 GiB)
-#define USE_DEFAULT_PE_SIZE 0
-#define RESOLVE_PE_SIZE(size) ((size) == USE_DEFAULT_PE_SIZE ? BD_LVM_DEFAULT_PE_SIZE : (size))
-
-/* lvm constant for thin pool metadata size is actually half of this
-   but when they calculate the actual metadata size they double the limit
-   so lets just double the limit here too */
-#define BD_LVM_MIN_THPOOL_MD_SIZE (4 MiB)
-
-/* DM_THIN_MAX_METADATA_SIZE is in 512 sectors */
-#define BD_LVM_MAX_THPOOL_MD_SIZE (DM_THIN_MAX_METADATA_SIZE * 512)
-
-#define BD_LVM_MIN_THPOOL_CHUNK_SIZE (64 KiB)
-#define BD_LVM_MAX_THPOOL_CHUNK_SIZE (1 GiB)
-#define BD_LVM_DEFAULT_CHUNK_SIZE (64 KiB)
-
-#define THPOOL_MD_FACTOR_NEW (0.2)
-#define THPOOL_MD_FACTOR_EXISTS (1 / 6.0)
-
-/* according to lvmcache (7) */
-#define BD_LVM_MIN_CACHE_MD_SIZE (8 MiB)
-
 GQuark bd_lvm_error_quark (void);
 #define BD_LVM_ERROR bd_lvm_error_quark ()
 typedef enum {
+    BD_LVM_ERROR_TECH_UNAVAIL,
+    BD_LVM_ERROR_FAIL,
     BD_LVM_ERROR_PARSE,
     BD_LVM_ERROR_NOEXIST,
     BD_LVM_ERROR_DM_ERROR,
     BD_LVM_ERROR_NOT_ROOT,
     BD_LVM_ERROR_CACHE_INVAL,
     BD_LVM_ERROR_CACHE_NOCACHE,
-    BD_LVM_ERROR_TECH_UNAVAIL,
-    BD_LVM_ERROR_FAIL,
     BD_LVM_ERROR_NOT_SUPPORTED,
     BD_LVM_ERROR_VDO_POLICY_INVAL,
+    BD_LVM_ERROR_DEVICES_DISABLED,
 } BDLVMError;
 
 typedef enum {
-    BD_LVM_CACHE_POOL_STRIPED = 1 << 0,
+    BD_LVM_CACHE_POOL_STRIPED =  1 << 0,
     BD_LVM_CACHE_POOL_RAID1 =    1 << 1,
     BD_LVM_CACHE_POOL_RAID5 =    1 << 2,
     BD_LVM_CACHE_POOL_RAID6 =    1 << 3,
     BD_LVM_CACHE_POOL_RAID10 =   1 << 4,
 
-    BD_LVM_CACHE_POOL_META_STRIPED = 1 << 10,
+    BD_LVM_CACHE_POOL_META_STRIPED =  1 << 10,
     BD_LVM_CACHE_POOL_META_RAID1 =    1 << 11,
     BD_LVM_CACHE_POOL_META_RAID5 =    1 << 12,
     BD_LVM_CACHE_POOL_META_RAID6 =    1 << 13,
@@ -70,39 +35,39 @@ typedef enum {
 } BDLVMCachePoolFlags;
 
 typedef enum {
+    BD_LVM_CACHE_MODE_UNKNOWN,
     BD_LVM_CACHE_MODE_WRITETHROUGH,
     BD_LVM_CACHE_MODE_WRITEBACK,
-    BD_LVM_CACHE_MODE_UNKNOWN,
 } BDLVMCacheMode;
 
 typedef enum {
-    BD_LVM_VDO_MODE_RECOVERING = 0,
+    BD_LVM_VDO_MODE_UNKNOWN,
+    BD_LVM_VDO_MODE_RECOVERING,
     BD_LVM_VDO_MODE_READ_ONLY,
     BD_LVM_VDO_MODE_NORMAL,
-    BD_LVM_VDO_MODE_UNKNOWN = 255,
 } BDLVMVDOOperatingMode;
 
 typedef enum {
-    BD_LVM_VDO_COMPRESSION_ONLINE = 0,
+    BD_LVM_VDO_COMPRESSION_UNKNOWN,
+    BD_LVM_VDO_COMPRESSION_ONLINE,
     BD_LVM_VDO_COMPRESSION_OFFLINE,
-    BD_LVM_VDO_COMPRESSION_UNKNOWN = 255,
 } BDLVMVDOCompressionState;
 
 typedef enum {
-    BD_LVM_VDO_INDEX_ERROR = 0,
+    BD_LVM_VDO_INDEX_UNKNOWN,
+    BD_LVM_VDO_INDEX_ERROR,
     BD_LVM_VDO_INDEX_CLOSED,
     BD_LVM_VDO_INDEX_OPENING,
     BD_LVM_VDO_INDEX_CLOSING,
     BD_LVM_VDO_INDEX_OFFLINE,
     BD_LVM_VDO_INDEX_ONLINE,
-    BD_LVM_VDO_INDEX_UNKNOWN = 255,
 } BDLVMVDOIndexState;
 
 typedef enum {
-    BD_LVM_VDO_WRITE_POLICY_AUTO = 0,
+    BD_LVM_VDO_WRITE_POLICY_UNKNOWN,
+    BD_LVM_VDO_WRITE_POLICY_AUTO,
     BD_LVM_VDO_WRITE_POLICY_SYNC,
     BD_LVM_VDO_WRITE_POLICY_ASYNC,
-    BD_LVM_VDO_WRITE_POLICY_UNKNOWN = 255
 } BDLVMVDOWritePolicy;
 
 typedef struct BDLVMPVdata {
@@ -119,6 +84,8 @@ typedef struct BDLVMPVdata {
     guint64 vg_extent_count;
     guint64 vg_free_count;
     guint64 vg_pv_count;
+    gchar **pv_tags;
+    gboolean missing;
 } BDLVMPVdata;
 
 void bd_lvm_pvdata_free (BDLVMPVdata *data);
@@ -133,10 +100,18 @@ typedef struct BDLVMVGdata {
     guint64 extent_count;
     guint64 free_count;
     guint64 pv_count;
+    gboolean exported;
+    gchar **vg_tags;
 } BDLVMVGdata;
 
 void bd_lvm_vgdata_free (BDLVMVGdata *data);
 BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data);
+
+typedef struct BDLVMSEGdata {
+    guint64 size_pe;
+    guint64 pv_start_pe;
+    gchar *pvdev;
+} BDLVMSEGdata;
 
 typedef struct BDLVMLVdata {
     gchar *lv_name;
@@ -154,6 +129,10 @@ typedef struct BDLVMLVdata {
     guint64 data_percent;
     guint64 metadata_percent;
     guint64 copy_percent;
+    gchar **lv_tags;
+    gchar **data_lvs;
+    gchar **metadata_lvs;
+    BDLVMSEGdata **segs;
 } BDLVMLVdata;
 
 void bd_lvm_lvdata_free (BDLVMLVdata *data);
@@ -216,6 +195,9 @@ typedef enum {
     BD_LVM_TECH_CACHE_CALCS,
     BD_LVM_TECH_GLOB_CONF,
     BD_LVM_TECH_VDO,
+    BD_LVM_TECH_WRITECACHE,
+    BD_LVM_TECH_DEVICES,
+    BD_LVM_TECH_SHARED,
 } BDLVMTech;
 
 typedef enum {
@@ -230,12 +212,10 @@ typedef enum {
  * If using the plugin as a standalone library, the following functions should
  * be called to:
  *
- * check_deps() - check plugin's dependencies, returning TRUE if satisfied
  * init()       - initialize the plugin, returning TRUE on success
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_lvm_check_deps (void);
 gboolean bd_lvm_init (void);
 void bd_lvm_close (void);
 
@@ -256,6 +236,8 @@ gboolean bd_lvm_pvresize (const gchar *device, guint64 size, const BDExtraArg **
 gboolean bd_lvm_pvremove (const gchar *device, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_pvmove (const gchar *src, const gchar *dest, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_pvscan (const gchar *device, gboolean update_cache, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_add_pv_tags (const gchar *device, const gchar **tags, GError **error);
+gboolean bd_lvm_delete_pv_tags (const gchar *device, const gchar **tags, GError **error);
 BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error);
 BDLVMPVdata** bd_lvm_pvs (GError **error);
 
@@ -266,6 +248,10 @@ gboolean bd_lvm_vgactivate (const gchar *vg_name, const BDExtraArg **extra, GErr
 gboolean bd_lvm_vgdeactivate (const gchar *vg_name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_vgextend (const gchar *vg_name, const gchar *device, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_vgreduce (const gchar *vg_name, const gchar *device, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_add_vg_tags (const gchar *vg_name, const gchar **tags, GError **error);
+gboolean bd_lvm_delete_vg_tags (const gchar *vg_name, const gchar **tags, GError **error);
+gboolean bd_lvm_vglock_start (const gchar *vg_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_vglock_stop (const gchar *vg_name, const BDExtraArg **extra, GError **error);
 BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error);
 BDLVMVGdata** bd_lvm_vgs (GError **error);
 
@@ -274,12 +260,17 @@ gboolean bd_lvm_lvcreate (const gchar *vg_name, const gchar *lv_name, guint64 si
 gboolean bd_lvm_lvremove (const gchar *vg_name, const gchar *lv_name, gboolean force, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_lvrename (const gchar *vg_name, const gchar *lv_name, const gchar *new_name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_lvresize (const gchar *vg_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error);
-gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean ignore_skip, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvrepair (const gchar *vg_name, const gchar *lv_name, const gchar **pv_list, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean ignore_skip, gboolean shared, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_lvdeactivate (const gchar *vg_name, const gchar *lv_name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_lvsnapshotcreate (const gchar *vg_name, const gchar *origin_name, const gchar *snapshot_name, guint64 size, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_lvsnapshotmerge (const gchar *vg_name, const gchar *snapshot_name, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_add_lv_tags (const gchar *vg_name, const gchar *lv_name, const gchar **tags, GError **error);
+gboolean bd_lvm_delete_lv_tags (const gchar *vg_name, const gchar *lv_name, const gchar **tags, GError **error);
 BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError **error);
+BDLVMLVdata* bd_lvm_lvinfo_tree (const gchar *vg_name, const gchar *lv_name, GError **error);
 BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error);
+BDLVMLVdata** bd_lvm_lvs_tree (const gchar *vg_name, GError **error);
 
 gboolean bd_lvm_thpoolcreate (const gchar *vg_name, const gchar *lv_name, guint64 size, guint64 md_size, guint64 chunk_size, const gchar *profile, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_thlvcreate (const gchar *vg_name, const gchar *pool_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error);
@@ -288,6 +279,9 @@ gboolean bd_lvm_thsnapshotcreate (const gchar *vg_name, const gchar *origin_name
 
 gboolean bd_lvm_set_global_config (const gchar *new_config, GError **error);
 gchar* bd_lvm_get_global_config (GError **error);
+
+gboolean bd_lvm_set_devices_filter (const gchar **devices, GError **error);
+gchar** bd_lvm_get_devices_filter (GError **error);
 
 guint64 bd_lvm_cache_get_default_md_size (guint64 cache_size, GError **error);
 const gchar* bd_lvm_cache_get_mode_str (BDLVMCacheMode mode, GError **error);
@@ -300,8 +294,12 @@ gboolean bd_lvm_cache_create_cached_lv (const gchar *vg_name, const gchar *lv_na
 gchar* bd_lvm_cache_pool_name (const gchar *vg_name, const gchar *cached_lv, GError **error);
 BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_lv, GError **error);
 
+gboolean bd_lvm_writecache_attach (const gchar *vg_name, const gchar *data_lv, const gchar *cache_lv, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_writecache_detach (const gchar *vg_name, const gchar *cached_lv, gboolean destroy, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_writecache_create_cached_lv (const gchar *vg_name, const gchar *lv_name, guint64 data_size, guint64 cache_size, const gchar **slow_pvs, const gchar **fast_pvs, GError **error);
+
 gboolean bd_lvm_vdo_pool_create (const gchar *vg_name, const gchar *lv_name, const gchar *pool_name, guint64 data_size, guint64 virtual_size, guint64 index_memory, gboolean compression, gboolean deduplication, BDLVMVDOWritePolicy write_policy, const BDExtraArg **extra, GError **error);
-BDLVMVDOPooldata *bd_lvm_vdo_info (const gchar *vg_name, const gchar *pool_name, GError **error);
+BDLVMVDOPooldata *bd_lvm_vdo_info (const gchar *vg_name, const gchar *lv_name, GError **error);
 
 gboolean bd_lvm_vdo_resize (const gchar *vg_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_vdo_pool_resize (const gchar *vg_name, const gchar *pool_name, guint64 size, const BDExtraArg **extra, GError **error);
@@ -310,9 +308,6 @@ gboolean bd_lvm_vdo_enable_compression (const gchar *vg_name, const gchar *pool_
 gboolean bd_lvm_vdo_disable_compression (const gchar *vg_name, const gchar *pool_name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_vdo_enable_deduplication (const gchar *vg_name, const gchar *pool_name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_vdo_disable_deduplication (const gchar *vg_name, const gchar *pool_name, const BDExtraArg **extra, GError **error);
-
-gchar* bd_lvm_data_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error);
-gchar* bd_lvm_metadata_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error);
 
 gboolean bd_lvm_thpool_convert (const gchar *vg_name, const gchar *data_lv, const gchar *metadata_lv, const gchar *name, const BDExtraArg **extra, GError **error);
 gboolean bd_lvm_cache_pool_convert (const gchar *vg_name, const gchar *data_lv, const gchar *metadata_lv, const gchar *name, const BDExtraArg **extra, GError **error);
@@ -328,5 +323,8 @@ BDLVMVDOWritePolicy bd_lvm_get_vdo_write_policy_from_str (const gchar *policy_st
 
 BDLVMVDOStats* bd_lvm_vdo_get_stats (const gchar *vg_name, const gchar *pool_name, GError **error);
 GHashTable* bd_lvm_vdo_get_stats_full (const gchar *vg_name, const gchar *pool_name, GError **error);
+
+gboolean bd_lvm_devices_add (const gchar *device, const gchar *devices_file, const BDExtraArg **extra, GError **error);
+gboolean bd_lvm_devices_delete (const gchar *device, const gchar *devices_file, const BDExtraArg **extra, GError **error);
 
 #endif /* BD_LVM */

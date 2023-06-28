@@ -7,6 +7,8 @@
 ---
 - hosts: all
   become: true
+  vars:
+    test_dependencies: true  # whether to install test dependencies or not
 
   tasks:
 ####### Fedora
@@ -26,35 +28,46 @@
 
   - name: Install build dependencies (Fedora)
     command: "dnf -y builddep libblockdev --nogpgcheck"
-    args:
-      warn: false
+    when: ansible_distribution == 'Fedora'
+
+  - name: Install build dependencies not covered by dnf builddep (Fedora)
+    package: name={{item}} state=present
+    with_items:
+      - libfdisk-devel
+      - keyutils-libs-devel
+      - libnvme-devel
+      - e2fsprogs-devel
     when: ansible_distribution == 'Fedora'
 
   - name: Install test dependencies (Fedora)
     package: name={{item}} state=present
     with_items:
       - btrfs-progs
-      - bcache-tools
       - cryptsetup
       - device-mapper-multipath
       - dosfstools
       - e2fsprogs
-      - e2fsprogs-devel
+      - exfatprogs
+      - f2fs-tools
       - glibc-all-langpacks
       - lvm2-dbusd
       - mdadm
       - ndctl
+      - nilfs-utils
       - nss-tools
       - ntfsprogs
+      - nvme-cli
+      - nvmetcli
       - python3-bytesize
       - python3-dbus
       - python3-packaging
       - python3-pylint
       - python3-yaml
       - targetcli
+      - udftools
       - volume_key
       - xfsprogs
-    when: ansible_distribution == 'Fedora'
+    when: ansible_distribution == 'Fedora' and test_dependencies|bool
 
 ####### CentOS 8
   - name: Install basic build tools (CentOS 8)
@@ -81,8 +94,14 @@
 
   - name: Install build dependencies (CentOS 8)
     command: "dnf -y builddep libblockdev --nogpgcheck"
-    args:
-      warn: false
+    when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '8'
+
+  - name: Install build dependencies not covered by dnf builddep (CentOS 8)
+    package: name={{item}} state=present
+    with_items:
+      - libfdisk-devel
+      - keyutils-libs-devel
+      - e2fsprogs-devel
     when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '8'
 
   - name: Install test dependencies (CentOS 8)
@@ -92,7 +111,6 @@
       - device-mapper-multipath
       - dosfstools
       - e2fsprogs
-      - e2fsprogs-devel
       - glibc-all-langpacks
       - kmod-kvdo
       - lvm2-dbusd
@@ -100,6 +118,8 @@
       - ndctl
       - nss-tools
       - ntfsprogs
+      - nvme-cli
+      - nvmetcli
       - python3-bytesize
       - python3-dbus
       - python3-packaging
@@ -109,7 +129,7 @@
       - vdo
       - volume_key
       - xfsprogs
-    when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '8'
+    when: ansible_distribution == 'CentOS' and ansible_distribution_major_version == '8' and test_dependencies|bool
 
 ####### Debian/Ubuntu
   - name: Update apt cache (Debian/Ubuntu)
@@ -139,33 +159,44 @@
       state: build-dep
     when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
 
+  - name: Install build dependencies not covered by apt build-dep (Debian/Ubuntu)
+    package: name={{item}} state=present
+    with_items:
+      - libfdisk-dev
+      - libkeyutils-dev
+      - libext2fs-dev
+    when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
   - name: Install test dependencies (Debian/Ubuntu)
     package: name={{item}} state=present
     with_items:
-      - bcache-tools
       - btrfs-progs
       - cryptsetup
       - dosfstools
       - e2fsprogs
-      - libext2fs-dev
+      - exfatprogs
+      - f2fs-tools
       - libnss3-tools
       - locales-all
       - lvm2-dbusd
       - mdadm
       - ndctl
+      - nilfs-tools
       - ntfs-3g
-      - pylint3
+      - pylint
       - python3-bytesize
       - python3-packaging
       - python3-pydbus
       - python3-yaml
       - targetcli-fb
+      - udftools
       - volume-key
       - xfsprogs
-    when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+    when: ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu' and test_dependencies|bool
 
 ####### Common actions
 
   - name: Start LVM DBus service
     service: name=lvm2-lvmdbusd state=started
     ignore_errors: yes
+    when: test_dependencies|bool

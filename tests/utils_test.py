@@ -1,7 +1,6 @@
 import unittest
 import re
 import os
-import six
 import overrides_hack
 from utils import fake_utils, create_sparse_tempfile, create_lio_device, delete_lio_device, run_command, TestTags, tag_test, read_file
 
@@ -56,6 +55,13 @@ class UtilsExecLoggingTest(UtilsTestCase):
 
         self.log += msg + "\n"
 
+    def setUp(self):
+        self.addCleanup(self._clean_up)
+
+    def _clean_up(self):
+        self.log = ""
+        BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_WARNING)
+
     @tag_test(TestTags.NOSTORAGE, TestTags.CORE)
     def test_logging(self):
         """Verify that setting up and using exec logging works as expected"""
@@ -63,10 +69,13 @@ class UtilsExecLoggingTest(UtilsTestCase):
         succ = BlockDev.utils_init_logging(self.my_log_func)
         self.assertTrue(succ)
 
+        # set default log level to info which is used for exec calls
+        BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_INFO)
+
         succ = BlockDev.utils_exec_and_report_error(["true"])
         self.assertTrue(succ)
 
-        with six.assertRaisesRegex(self, GLib.GError, r"Process reported exit code 1"):
+        with self.assertRaisesRegex(GLib.GError, r"Process reported exit code 1"):
             succ = BlockDev.utils_exec_and_report_error(["/bin/false"])
 
         succ, out = BlockDev.utils_exec_and_capture_output(["echo", "hi"])
@@ -96,6 +105,23 @@ class UtilsExecLoggingTest(UtilsTestCase):
         succ = BlockDev.utils_exec_and_report_error(["true"])
         self.assertTrue(succ)
         self.assertEqual(old_log, self.log)
+
+    @tag_test(TestTags.NOSTORAGE, TestTags.CORE)
+    def test_logging_level(self):
+        succ = BlockDev.utils_init_logging(self.my_log_func)
+        self.assertTrue(succ)
+
+        # default log level should be warning, info should be ignored
+        BlockDev.utils_log(BlockDev.UTILS_LOG_INFO, "info message")
+        self.assertFalse(self.log)
+
+        BlockDev.utils_log(BlockDev.UTILS_LOG_WARNING, "warning message")
+        self.assertIn("warning message", self.log)
+
+        # switch default to info
+        BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_INFO)
+        BlockDev.utils_log(BlockDev.UTILS_LOG_INFO, "info message")
+        self.assertIn("info message", self.log)
 
     @tag_test(TestTags.NOSTORAGE, TestTags.CORE)
     def test_version_cmp(self):
@@ -138,7 +164,7 @@ class UtilsExecLoggingTest(UtilsTestCase):
         with self.assertRaises(GLib.GError):
             BlockDev.utils_check_util_version("libblockdev-fake-util", None, None, None)
 
-        with fake_utils("tests/utils_fake_util/"):
+        with fake_utils("tests/fake_utils/utils_fake_util/"):
             with self.assertRaises(GLib.GError):
                 # with no argument, the output is "Version: 1.2" which is not a
                 # valid version without regexp
@@ -272,7 +298,7 @@ class UtilsExecLoggingTest(UtilsTestCase):
 
         # stdout and stderr output, non-zero return from the command and very long exception message
         self.num_matches = 0
-        with six.assertRaisesRegex(self, GLib.GError, r"Process reported exit code 66"):
+        with self.assertRaisesRegex(GLib.GError, r"Process reported exit code 66"):
             status = BlockDev.utils_exec_and_report_progress(["bash", "-c", "for i in {1..%d}; do echo \"%s\"; echo \"%s\" >&2; done; exit 66" % (cnt, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG)], None, self.my_exec_progress_func)
         self.assertEqual(self.num_matches, cnt * 2)
 
@@ -287,10 +313,10 @@ class UtilsExecLoggingTest(UtilsTestCase):
 
         status, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "echo -e \"%s\\0%s\\n%s\"" % (TEST_DATA[0], TEST_DATA[1], TEST_DATA[2])])
         self.assertTrue(status)
-        self.assertTrue(TEST_DATA[0] in out)
-        self.assertTrue(TEST_DATA[1] in out)
-        self.assertTrue(TEST_DATA[2] in out)
-        self.assertFalse("kuku!" in out)
+        self.assertIn(TEST_DATA[0], out)
+        self.assertIn(TEST_DATA[1], out)
+        self.assertIn(TEST_DATA[2], out)
+        self.assertNotIn("kuku!", out)
 
         # ten matches
         cnt = 10
@@ -320,12 +346,34 @@ class UtilsExecLoggingTest(UtilsTestCase):
 
         # stdout and stderr output, non-zero return from the command and very long exception message
         self.num_matches = 0
-        with six.assertRaisesRegex(self, GLib.GError, r"Process reported exit code 66"):
+        with self.assertRaisesRegex(GLib.GError, r"Process reported exit code 66"):
             status = BlockDev.utils_exec_and_report_progress(["bash", "-c", "for i in {1..%d}; do echo -e \"%s\\0%s\"; echo -e \"%s\\0%s\" >&2; done; exit 66" % (cnt, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG)], None, self.my_exec_progress_func)
         self.assertEqual(self.num_matches, cnt * 4)
 
         # no progress reporting callback given, tests slightly different code path
         status = BlockDev.utils_exec_and_report_progress(["bash", "-c", "for i in {1..%d}; do echo -e \"%s\\0%s\"; echo -e \"%s\\0%s\" >&2; done" % (cnt, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG, self.EXEC_PROGRESS_MSG)], None, None)
+        self.assertTrue(status)
+
+    def test_exec_large_input(self):
+        """Verify that large input is passed to the process properly"""
+
+        DATA_MATCH = "==END=="
+
+        data = "Begin data =="
+        for i in range(6666666):
+            data += "bloat"
+        data += DATA_MATCH
+
+        # command is not accepting stdin, write() will return an error
+        with self.assertRaisesRegex(GLib.GError, r"Failed to write to stdin of the process: Broken pipe"):
+            BlockDev.utils_exec_with_input(["false"], data, None)
+
+        # test that `grep` returns error on non-match
+        with self.assertRaisesRegex(GLib.GError, r"Process reported exit code 1"):
+            BlockDev.utils_exec_with_input(["grep", "unmatched"], data, None)
+
+        # expecting that `grep` will find the string at the end
+        status = BlockDev.utils_exec_with_input(["grep", DATA_MATCH], data, None)
         self.assertTrue(status)
 
 

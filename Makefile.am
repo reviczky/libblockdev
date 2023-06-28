@@ -40,12 +40,12 @@ if !WITH_NVDIMM
 DISTCHECK_CONFIGURE_FLAGS += --without-nvdimm
 endif
 
-if !WITH_SWAP
-DISTCHECK_CONFIGURE_FLAGS += --without-swap
+if !WITH_NVME
+DISTCHECK_CONFIGURE_FLAGS += --without-nvme
 endif
 
-if !WITH_KBD
-DISTCHECK_CONFIGURE_FLAGS += --without-kbd
+if !WITH_SWAP
+DISTCHECK_CONFIGURE_FLAGS += --without-swap
 endif
 
 if !WITH_PART
@@ -62,13 +62,13 @@ if WITH_GTK_DOC
 SUBDIRS += docs
 endif
 
-dist_noinst_DATA = features.rst specs.rst LICENSE tests
+dist_noinst_DATA = LICENSE tests
 
 MAINTAINERCLEANFILES = Makefile.in aclocal.m4 config.guess config.sub \
     configure depcomp install-sh ltmain.sh missing py-compile compile ar-lib \
     m4/*.m4
 
-LIBDIRS = src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/lib/.libs
+LIBDIRS = src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/plugins/nvme/.libs:src/lib/.libs
 GIDIR = src/lib
 
 if WITH_PYTHON3
@@ -87,16 +87,15 @@ PLUGINS = btrfs \
 	crypto \
 	dm \
 	fs \
-	kbd \
 	loop \
 	lvm \
 	mdraid \
 	mpath \
 	nvdimm \
+	nvme \
 	part \
 	s390 \
-	swap \
-	vdo
+	swap
 
 ALT_PLUGINS = lvm-dbus
 
@@ -119,7 +118,7 @@ pylint:
 
 if TESTS_ENABLED
 test: all pylint
-	sudo $(TEST_PYTHON) tests/run_tests.py
+	sudo $(TEST_PYTHON) tests/run_tests.py $(TEST_ARGS)
 
 fast-test: all pylint
 	sudo $(TEST_PYTHON) tests/run_tests.py --fast
@@ -142,7 +141,7 @@ endif # TESTS_ENABLED
 
 coverage: all
 	@rm -f $(TEST_SUITE_LOG)
-	@sudo env GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/default_config \
+	@sudo env GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/test_configs/default_config \
 		$(COVERAGE) run --branch -m unittest discover -v -s tests/ -p '*_test.py' 2>&1 | tee -a $(TEST_SUITE_LOG)
 	@sudo env GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/lvm_dbus_config \
 		$(COVERAGE) run --branch -m unittest discover -v -s tests/ -p 'lvm_dbus_tests.py' 2>&1 | tee -a $(TEST_SUITE_LOG)
@@ -150,7 +149,7 @@ coverage: all
 		$(COVERAGE) report --include="src/*" > coverage-report.log
 
 coverage-all: all
-	@sudo env FEELING_LUCKY= GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/default_config \
+	@sudo env FEELING_LUCKY= GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/test_configs/default_config \
 		$(COVERAGE) run --branch -m unittest discover -v -s tests/ -p '*_test.py'
 	@sudo env GI_TYPELIB_PATH=${GIDIR} LD_LIBRARY_PATH=${LIBDIRS} PYTHONPATH=.:tests/:src/python LIBBLOCKDEV_CONFIG_DIR=tests/lvm_dbus_config \
 		$(COVERAGE) run --branch -m unittest discover -v -s tests/ -p 'lvm_dbus_tests.py'

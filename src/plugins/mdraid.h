@@ -4,22 +4,19 @@
 #ifndef BD_MD
 #define BD_MD
 
-#define MDADM_MIN_VERSION "3.3.2"
-
-/* taken from blivet */
-// these defaults were determined empirically
+/* these defaults were determined empirically (taken from blivet) */
 #define BD_MD_SUPERBLOCK_SIZE (2 MiB)
 #define BD_MD_CHUNK_SIZE (512 KiB)
 
 GQuark bd_md_error_quark (void);
 #define BD_MD_ERROR bd_md_error_quark ()
 typedef enum {
+    BD_MD_ERROR_TECH_UNAVAIL,
+    BD_MD_ERROR_FAIL,
     BD_MD_ERROR_PARSE,
     BD_MD_ERROR_BAD_FORMAT,
     BD_MD_ERROR_NO_MATCH,
     BD_MD_ERROR_INVAL,
-    BD_MD_ERROR_FAIL,
-    BD_MD_ERROR_TECH_UNAVAIL,
 } BDMDError;
 
 typedef struct BDMDExamineData {
@@ -55,6 +52,7 @@ typedef struct BDMDDetailData {
     guint64 spare_devices;
     gboolean clean;
     gchar *uuid;
+    gchar *container;
 } BDMDDetailData;
 
 void bd_md_detail_data_free (BDMDDetailData *data);
@@ -76,19 +74,17 @@ typedef enum {
  * If using the plugin as a standalone library, the following functions should
  * be called to:
  *
- * check_deps() - check plugin's dependencies, returning TRUE if satisfied
  * init()       - initialize the plugin, returning TRUE on success
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_md_check_deps (void);
 gboolean bd_md_init (void);
 void bd_md_close (void);
 
 gboolean bd_md_is_tech_avail (BDMDTech tech, guint64 mode, GError **error);
 
 guint64 bd_md_get_superblock_size (guint64 member_size, const gchar *version, GError **error);
-gboolean bd_md_create (const gchar *raid_spec, const gchar *level, const gchar **disks, guint64 spares, const gchar *version, gboolean bitmap, guint64 chunk_size, const BDExtraArg **extra, GError **error);
+gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar **disks, guint64 spares, const gchar *version, const gchar *bitmap, guint64 chunk_size, const BDExtraArg **extra, GError **error);
 gboolean bd_md_destroy (const gchar *device, GError **error);
 gboolean bd_md_deactivate (const gchar *raid_spec, GError **error);
 gboolean bd_md_activate (const gchar *raid_spec, const gchar **members, const gchar *uuid, gboolean start_degraded, const BDExtraArg **extra, GError **error);

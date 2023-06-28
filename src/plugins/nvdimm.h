@@ -7,11 +7,11 @@
 GQuark bd_nvdimm_error_quark (void);
 #define BD_NVDIMM_ERROR bd_nvdimm_error_quark ()
 typedef enum {
-    BD_NVDIMM_ERROR_NAMESPACE_PARSE,
+    BD_NVDIMM_ERROR_TECH_UNAVAIL,
     BD_NVDIMM_ERROR_NAMESPACE_FAIL,
+    BD_NVDIMM_ERROR_NAMESPACE_PARSE,
     BD_NVDIMM_ERROR_NAMESPACE_NOEXIST,
     BD_NVDIMM_ERROR_NAMESPACE_MODE_INVAL,
-    BD_NVDIMM_ERROR_TECH_UNAVAIL,
 } BDNVDIMMError;
 
 typedef enum {
@@ -21,7 +21,7 @@ typedef enum {
     BD_NVDIMM_NAMESPACE_MODE_DAX,
     BD_NVDIMM_NAMESPACE_MODE_FSDAX,
     BD_NVDIMM_NAMESPACE_MODE_DEVDAX,
-    BD_NVDIMM_NAMESPACE_MODE_UNKNOWN
+    BD_NVDIMM_NAMESPACE_MODE_UNKNOWN,
 } BDNVDIMMNamespaceMode;
 
 typedef struct BDNVDIMMNamespaceInfo {
@@ -53,12 +53,10 @@ typedef enum {
  * If using the plugin as a standalone library, the following functions should
  * be called to:
  *
- * check_deps() - check plugin's dependencies, returning TRUE if satisfied
  * init()       - initialize the plugin, returning TRUE on success
  * close()      - clean after the plugin at the end or if no longer used
  *
  */
-gboolean bd_nvdimm_check_deps (void);
 gboolean bd_nvdimm_init (void);
 void bd_nvdimm_close (void);
 
@@ -77,6 +75,6 @@ BDNVDIMMNamespaceInfo** bd_nvdimm_list_namespaces (const gchar *bus, const gchar
 
 gboolean bd_nvdimm_namespace_reconfigure (const gchar* namespace, BDNVDIMMNamespaceMode mode, gboolean force, const BDExtraArg **extra, GError** error);
 
-const guint64 *bd_nvdimm_namepace_get_supported_sector_sizes (BDNVDIMMNamespaceMode mode, GError **error);
+const guint64 *bd_nvdimm_namespace_get_supported_sector_sizes (BDNVDIMMNamespaceMode mode, GError **error);
 
-#endif  /* BD_CRYPTO */
+#endif  /* BD_NVDIMM */

@@ -22,17 +22,51 @@
 #include <string.h>
 #include <unistd.h>
 #include <blockdev/utils.h>
+#include <libdevmapper.h>
 
 #include "lvm.h"
 #include "check_deps.h"
+#include "dm_logging.h"
 #include "vdo_stats.h"
 
 #define INT_FLOAT_EPS 1e-5
 #define SECTOR_SIZE 512
 #define VDO_POOL_SUFFIX "vpool"
+#define DEFAULT_PE_SIZE (4 MiB)
+#define USE_DEFAULT_PE_SIZE 0
+#define RESOLVE_PE_SIZE(size) ((size) == USE_DEFAULT_PE_SIZE ? DEFAULT_PE_SIZE : (size))
+#define THPOOL_MD_FACTOR_NEW (0.2)
+#define THPOOL_MD_FACTOR_EXISTS (1 / 6.0)
+
+#define MIN_PE_SIZE (1 KiB)
+#define MAX_PE_SIZE (16 GiB)
+
+#define MIN_THPOOL_MD_SIZE (4 MiB)
+/* DM_THIN_MAX_METADATA_SIZE is in 512 sectors */
+#define MAX_THPOOL_MD_SIZE (DM_THIN_MAX_METADATA_SIZE * 512)
+
+#define MIN_THPOOL_CHUNK_SIZE (64 KiB)
+#define MAX_THPOOL_CHUNK_SIZE (1 GiB)
+#define DEFAULT_CHUNK_SIZE (64 KiB)
+
+/* according to lvmcache (7) */
+#define MIN_CACHE_MD_SIZE (8 MiB)
+
+#ifdef __LP64__
+/* 64bit system */
+#define MAX_LV_SIZE (8 EiB)
+#else
+/* 32bit system */
+#define MAX_LV_SIZE (16 TiB)
+#endif
+
+#define LVM_MIN_VERSION "2.02.116"
+#define LVM_VERSION_FSRESIZE "2.03.19"
 
 static GMutex global_config_lock;
 static gchar *global_config_str = NULL;
+
+static gchar *global_devices_str = NULL;
 
 /**
  * SECTION: lvm
@@ -71,6 +105,8 @@ BDLVMPVdata* bd_lvm_pvdata_copy (BDLVMPVdata *data) {
     new_data->vg_extent_count = data->vg_extent_count;
     new_data->vg_free_count = data->vg_free_count;
     new_data->vg_pv_count = data->vg_pv_count;
+    new_data->pv_tags = g_strdupv (data->pv_tags);
+    new_data->missing = data->missing;
 
     return new_data;
 }
@@ -83,6 +119,7 @@ void bd_lvm_pvdata_free (BDLVMPVdata *data) {
     g_free (data->pv_uuid);
     g_free (data->vg_name);
     g_free (data->vg_uuid);
+    g_strfreev (data->pv_tags);
     g_free (data);
 }
 
@@ -100,6 +137,7 @@ BDLVMVGdata* bd_lvm_vgdata_copy (BDLVMVGdata *data) {
     new_data->extent_count = data->extent_count;
     new_data->free_count = data->free_count;
     new_data->pv_count = data->pv_count;
+    new_data->vg_tags = g_strdupv (data->vg_tags);
     return new_data;
 }
 
@@ -109,7 +147,54 @@ void bd_lvm_vgdata_free (BDLVMVGdata *data) {
 
     g_free (data->name);
     g_free (data->uuid);
+    g_strfreev (data->vg_tags);
     g_free (data);
+}
+
+BDLVMSEGdata* bd_lvm_segdata_copy (BDLVMSEGdata *data) {
+    if (data == NULL)
+        return NULL;
+
+    BDLVMSEGdata *new_data = g_new0 (BDLVMSEGdata, 1);
+
+    new_data->size_pe = data->size_pe;
+    new_data->pv_start_pe = data->pv_start_pe;
+    new_data->pvdev = g_strdup (data->pvdev);
+    return new_data;
+}
+
+void bd_lvm_segdata_free (BDLVMSEGdata *data) {
+    if (data == NULL)
+        return;
+
+    g_free (data->pvdev);
+    g_free (data);
+}
+
+static BDLVMSEGdata **copy_segs (BDLVMSEGdata **segs) {
+    int len;
+    BDLVMSEGdata **new_segs;
+
+    if (segs == NULL)
+       return NULL;
+
+    for (len = 0; segs[len]; len++)
+        ;
+
+    new_segs = g_new0 (BDLVMSEGdata *, len+1);
+    for (int i = 0; i < len; i++)
+        new_segs[i] = bd_lvm_segdata_copy (segs[i]);
+
+    return new_segs;
+}
+
+static void free_segs (BDLVMSEGdata **segs) {
+    if (segs == NULL)
+       return;
+
+    for (int i = 0; segs[i]; i++)
+        bd_lvm_segdata_free (segs[i]);
+    (g_free) (segs);
 }
 
 BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
@@ -133,6 +218,10 @@ BDLVMLVdata* bd_lvm_lvdata_copy (BDLVMLVdata *data) {
     new_data->data_percent = data->data_percent;
     new_data->metadata_percent = data->metadata_percent;
     new_data->copy_percent = data->copy_percent;
+    new_data->lv_tags = g_strdupv (data->lv_tags);
+    new_data->data_lvs = g_strdupv (data->data_lvs);
+    new_data->metadata_lvs = g_strdupv (data->metadata_lvs);
+    new_data->segs = copy_segs (data->segs);
     return new_data;
 }
 
@@ -151,6 +240,10 @@ void bd_lvm_lvdata_free (BDLVMLVdata *data) {
     g_free (data->metadata_lv);
     g_free (data->roles);
     g_free (data->move_pv);
+    g_strfreev (data->lv_tags);
+    g_strfreev (data->data_lvs);
+    g_strfreev (data->metadata_lvs);
+    free_segs (data->segs);
     g_free (data);
 }
 
@@ -212,18 +305,24 @@ static GMutex deps_check_lock;
 
 #define DEPS_LVM 0
 #define DEPS_LVM_MASK (1 << DEPS_LVM)
-#define DEPS_LAST 1
+#define DEPS_LVMDEVICES 1
+#define DEPS_LVMDEVICES_MASK (1 << DEPS_LVMDEVICES)
+#define DEPS_LAST 2
 
 static const UtilDep deps[DEPS_LAST] = {
     {"lvm", LVM_MIN_VERSION, "version", "LVM version:\\s+([\\d\\.]+)"},
+    {"lvmdevices", NULL, NULL, NULL},
 };
 
 #define FEATURES_VDO 0
 #define FEATURES_VDO_MASK (1 << FEATURES_VDO)
-#define FEATURES_LAST 1
+#define FEATURES_WRITECACHE 0
+#define FEATURES_WRITECACHE_MASK (1 << FEATURES_WRITECACHE)
+#define FEATURES_LAST 2
 
 static const UtilFeatureDep features[FEATURES_LAST] = {
     {"lvm", "vdo", "segtypes", NULL},
+    {"lvm", "writecache", "segtypes", NULL},
 };
 
 #define MODULE_DEPS_VDO 0
@@ -235,45 +334,6 @@ static const gchar*const module_deps[MODULE_DEPS_LAST] = { "kvdo" };
 #define UNUSED __attribute__((unused))
 
 /**
- * bd_lvm_check_deps:
- *
- * Returns: whether the plugin's runtime dependencies are satisfied or not
- *
- * Function checking plugin's runtime dependencies.
- *
- */
-gboolean bd_lvm_check_deps (void) {
-    GError *error = NULL;
-    guint i = 0;
-    gboolean status = FALSE;
-    gboolean ret = TRUE;
-
-    for (i=0; i < DEPS_LAST; i++) {
-        status = bd_utils_check_util_version (deps[i].name, deps[i].version,
-                                              deps[i].ver_arg, deps[i].ver_regexp, &error);
-        if (!status)
-            g_warning ("%s", error->message);
-        else
-            g_atomic_int_or (&avail_deps, 1 << i);
-        g_clear_error (&error);
-        ret = ret && status;
-    }
-
-    if (!ret)
-        g_warning("Cannot load the LVM plugin");
-
-    return ret;
-}
-
-/**
- * discard_dm_log: (skip)
- */
-static void discard_dm_log (int level __attribute__((unused)), const char *file __attribute__((unused)), int line __attribute__((unused)),
-                            int dm_errno_or_class __attribute__((unused)), const char *f __attribute__((unused)), ...) {
-    return;
-}
-
-/**
  * bd_lvm_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -281,8 +341,12 @@ static void discard_dm_log (int level __attribute__((unused)), const char *file 
  *
  */
 gboolean bd_lvm_init (void) {
-    dm_log_with_errno_init ((dm_log_with_errno_fn) discard_dm_log);
-    dm_log_init_verbose (0);
+    dm_log_with_errno_init ((dm_log_with_errno_fn) redirect_dm_log);
+#ifdef DEBUG
+    dm_log_init_verbose (LOG_DEBUG);
+#else
+    dm_log_init_verbose (LOG_INFO);
+#endif
 
     return TRUE;
 };
@@ -303,9 +367,9 @@ void bd_lvm_close (void) {
  * bd_lvm_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation (#BDLVMTechMode) for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
- * Returns: whether the @tech-@mode combination is avaible -- supported by the
+ * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
  */
 gboolean bd_lvm_is_tech_avail (BDLVMTech tech, guint64 mode, GError **error) {
@@ -326,7 +390,13 @@ gboolean bd_lvm_is_tech_avail (BDLVMTech tech, guint64 mode, GError **error) {
             return TRUE;
     case BD_LVM_TECH_VDO:
             return check_features (&avail_features, FEATURES_VDO_MASK, features, FEATURES_LAST, &deps_check_lock, error) &&
-                   check_module_deps (&avail_module_deps, MODULE_DEPS_VDO_MASK, module_deps, MODULE_DEPS_LAST, &deps_check_lock, error);
+                   check_module_deps (&avail_module_deps, MODULE_DEPS_VDO_MASK, module_deps, MODULE_DEPS_LAST, &deps_check_lock, error) &&
+                   check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+    case BD_LVM_TECH_WRITECACHE:
+            return check_features (&avail_features, FEATURES_WRITECACHE_MASK, features, FEATURES_LAST, &deps_check_lock, error) &&
+                   check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error);
+    case BD_LVM_TECH_DEVICES:
+            return check_deps (&avail_deps, DEPS_LVMDEVICES_MASK, deps, DEPS_LAST, &deps_check_lock, error);
     default:
         /* everything is supported by this implementation of the plugin */
         return check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error);
@@ -337,6 +407,8 @@ static gboolean call_lvm_and_report_error (const gchar **args, const BDExtraArg 
     gboolean success = FALSE;
     guint i = 0;
     guint args_length = g_strv_length ((gchar **) args);
+    g_autofree gchar *config_arg = NULL;
+    g_autofree gchar *devices_arg = NULL;
 
     if (!check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -345,20 +417,26 @@ static gboolean call_lvm_and_report_error (const gchar **args, const BDExtraArg 
     if (lock_config)
         g_mutex_lock (&global_config_lock);
 
-    /* allocate enough space for the args plus "lvm", "--config" and NULL */
-    const gchar **argv = g_new0 (const gchar*, args_length + 3);
+    /* allocate enough space for the args plus "lvm", "--config", "--devices" and NULL */
+    const gchar **argv = g_new0 (const gchar*, args_length + 4);
 
     /* construct argv from args with "lvm" prepended */
     argv[0] = "lvm";
     for (i=0; i < args_length; i++)
         argv[i+1] = args[i];
-    argv[args_length + 1] = global_config_str ? g_strdup_printf("--config=%s", global_config_str) : NULL;
-    argv[args_length + 2] = NULL;
+    if (global_config_str) {
+        config_arg = g_strdup_printf ("--config=%s", global_config_str);
+        argv[++args_length] = config_arg;
+    }
+    if (global_devices_str) {
+        devices_arg = g_strdup_printf ("--devices=%s", global_devices_str);
+        argv[++args_length] = devices_arg;
+    }
+    argv[++args_length] = NULL;
 
     success = bd_utils_exec_and_report_error (argv, extra, error);
     if (lock_config)
         g_mutex_unlock (&global_config_lock);
-    g_free ((gchar *) argv[args_length + 1]);
     g_free (argv);
 
     return success;
@@ -368,6 +446,8 @@ static gboolean call_lvm_and_capture_output (const gchar **args, const BDExtraAr
     gboolean success = FALSE;
     guint i = 0;
     guint args_length = g_strv_length ((gchar **) args);
+    g_autofree gchar *config_arg = NULL;
+    g_autofree gchar *devices_arg = NULL;
 
     if (!check_deps (&avail_deps, DEPS_LVM_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
@@ -375,19 +455,25 @@ static gboolean call_lvm_and_capture_output (const gchar **args, const BDExtraAr
     /* don't allow global config string changes during the run */
     g_mutex_lock (&global_config_lock);
 
-    /* allocate enough space for the args plus "lvm", "--config" and NULL */
-    const gchar **argv = g_new0 (const gchar*, args_length + 3);
+    /* allocate enough space for the args plus "lvm", "--config", "--devices" and NULL */
+    const gchar **argv = g_new0 (const gchar*, args_length + 4);
 
     /* construct argv from args with "lvm" prepended */
     argv[0] = "lvm";
     for (i=0; i < args_length; i++)
         argv[i+1] = args[i];
-    argv[args_length + 1] = global_config_str ? g_strdup_printf("--config=%s", global_config_str) : NULL;
-    argv[args_length + 2] = NULL;
+    if (global_config_str) {
+        config_arg = g_strdup_printf ("--config=%s", global_config_str);
+        argv[++args_length] = config_arg;
+    }
+    if (global_devices_str) {
+        devices_arg = g_strdup_printf ("--devices=%s", global_devices_str);
+        argv[++args_length] = devices_arg;
+    }
+    argv[++args_length] = NULL;
 
     success = bd_utils_exec_and_capture_output (argv, extra, output, error);
     g_mutex_unlock (&global_config_lock);
-    g_free ((gchar *) argv[args_length + 1]);
     g_free (argv);
 
     return success;
@@ -490,6 +576,15 @@ static BDLVMPVdata* get_pv_data_from_table (GHashTable *table, gboolean free_tab
     else
         data->vg_pv_count = 0;
 
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_PV_TAGS");
+    if (value)
+        data->pv_tags = g_strsplit (value, ",", -1);
+    else
+        data->pv_tags = NULL;
+
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_PV_MISSING");
+    data->missing = (g_strcmp0 (value, "missing") == 0);
+
     if (free_table)
         g_hash_table_destroy (table);
 
@@ -539,10 +634,46 @@ static BDLVMVGdata* get_vg_data_from_table (GHashTable *table, gboolean free_tab
     else
         data->pv_count = 0;
 
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_VG_EXPORTED");
+    if (value && g_strcmp0 (value, "exported") == 0)
+        data->exported = TRUE;
+    else
+        data->exported = FALSE;
+
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_VG_TAGS");
+    if (value)
+        data->vg_tags = g_strsplit (value, ",", -1);
+    else
+        data->vg_tags = NULL;
+
     if (free_table)
         g_hash_table_destroy (table);
 
     return data;
+}
+
+static gchar **prepare_sublvs (gchar **values, gchar *extra_value) {
+  /* LVM2 guarantees: No "/dev/" prefixes or "[unknown]" in a list of sub-lvs. */
+  gboolean found_extra = FALSE;
+  for (int i = 0; values[i]; i++) {
+    gchar *paren = strrchr (values[i], '(');
+    if (paren) {
+      /* LVM2 guarantees: start offsets of sub-lvs are always zero. */
+      *paren = '\0';
+    }
+    if (g_strcmp0 (extra_value, values[i]) == 0)
+      found_extra = TRUE;
+  }
+  if (extra_value && *extra_value && !found_extra) {
+    int len = g_strv_length (values);
+    gchar **new_values = g_new0 (gchar *, len+2);
+    for (int j = 0; j < len; j++)
+      new_values[j] = values[j];
+    new_values[len] = g_strdup (extra_value);
+    g_free (values);
+    values = new_values;
+  }
+  return values;
 }
 
 static BDLVMLVdata* get_lv_data_from_table (GHashTable *table, gboolean free_table) {
@@ -560,7 +691,19 @@ static BDLVMLVdata* get_lv_data_from_table (GHashTable *table, gboolean free_tab
         data->size = 0;
 
     data->attr = g_strdup (g_hash_table_lookup (table, "LVM2_LV_ATTR"));
-    data->segtype = g_strdup (g_hash_table_lookup (table, "LVM2_SEGTYPE"));
+
+    value = g_hash_table_lookup (table, "LVM2_SEGTYPE");
+    if (g_strcmp0 (value, "error") == 0) {
+      /* A segment type "error" appears when "vgreduce
+       * --removemissing" replaces a missing PV with a device mapper
+       * "error" target.  It very likely was a "linear" segment before that
+       * and will again be "linear" after repair.  Let's not expose
+       * this implementation detail.
+       */
+      value = "linear";
+    }
+    data->segtype = g_strdup (value);
+
     data->origin = g_strdup (g_hash_table_lookup (table, "LVM2_ORIGIN"));
     data->pool_lv = g_strdup (g_hash_table_lookup (table, "LVM2_POOL_LV"));
     data->data_lv = g_strdup (g_hash_table_lookup (table, "LVM2_DATA_LV"));
@@ -587,16 +730,89 @@ static BDLVMLVdata* get_lv_data_from_table (GHashTable *table, gboolean free_tab
     else
         data->copy_percent = 0;
 
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_LV_TAGS");
+    if (value)
+        data->lv_tags = g_strsplit (value, ",", -1);
+    else
+        data->lv_tags = NULL;
+
     /* replace '[' and ']' (marking LVs as internal) with spaces and then
        remove all the leading and trailing whitespace */
     g_strstrip (g_strdelimit (data->pool_lv, "[]", ' '));
     g_strstrip (g_strdelimit (data->data_lv, "[]", ' '));
     g_strstrip (g_strdelimit (data->metadata_lv, "[]", ' '));
 
+    value = (gchar*) g_hash_table_lookup (table, "LVM2_DEVICES");
+    if (value) {
+      gchar **values = g_strsplit (value, ",", -1);
+
+      /* If values starts with "/dev/", we have a single PV.
+
+         If the list is empty, this is probably an "error" segment
+         resulting from a "vgreduce --removemissing" operation.
+
+         If the value starts with "[unknown]", it is a segment with a
+         missing PV that hasn't been converted to an "error" segment
+         yet.
+
+         Otherwise it is a list of sub-lvs.
+
+         LVM2 guarantees: only one entry if the first is a PV
+         Additional segments are added in merge_lv_data below.
+      */
+      if (!values[0] || g_str_has_prefix (values[0], "[unknown]")) {
+        data->segs = g_new0 (BDLVMSEGdata *, 1);
+        data->segs[0] = NULL;
+        g_strfreev (values);
+      } else if (g_str_has_prefix (values[0], "/dev/")) {
+        data->segs = g_new0 (BDLVMSEGdata *, 2);
+        data->segs[0] = g_new0 (BDLVMSEGdata, 1);
+        data->segs[1] = NULL;
+
+        gchar *paren = strrchr (values[0], '(');
+        if (paren) {
+          data->segs[0]->pv_start_pe = atoi (paren+1);
+          *paren = '\0';
+        }
+        data->segs[0]->pvdev = g_strdup (values[0]);
+        value = (gchar*) g_hash_table_lookup (table, "LVM2_SEG_SIZE_PE");
+        if (value)
+          data->segs[0]->size_pe = g_ascii_strtoull (value, NULL, 0);
+        g_strfreev (values);
+      } else {
+        data->data_lvs = prepare_sublvs (values, data->data_lv);
+        value = (gchar*) g_hash_table_lookup (table, "LVM2_METADATA_DEVICES");
+        data->metadata_lvs = prepare_sublvs (g_strsplit (value ?: "", ",", -1), data->metadata_lv);
+      }
+    }
+
     if (free_table)
         g_hash_table_destroy (table);
 
     return data;
+}
+
+static void merge_lv_data (BDLVMLVdata *data, BDLVMLVdata *more_data) {
+  /* LVM2 guarantees:
+     - more_data->data_lvs is NULL
+     - more_data->metadata_lvs is NULL
+     - more_data->segs has zero or one entry
+     - more_data->seg_type is the same as data->seg_type (after mapping "error" to "linear")
+  */
+
+  if (more_data->segs && more_data->segs[0]) {
+    int i;
+    for (i = 0; data->segs && data->segs[i]; i++)
+      ;
+
+    BDLVMSEGdata **new_segs = g_new0 (BDLVMSEGdata *, i+2);
+    for (i = 0; data->segs && data->segs[i]; i++)
+      new_segs[i] = data->segs[i];
+    new_segs[i] = more_data->segs[0];
+    g_free (data->segs);
+    data->segs = new_segs;
+    more_data->segs[0] = NULL;
+  }
 }
 
 static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean free_table) {
@@ -611,7 +827,7 @@ static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean fr
     else if (g_strcmp0 (value, "normal") == 0)
         data->operating_mode = BD_LVM_VDO_MODE_NORMAL;
     else {
-        g_debug ("Unknown VDO operating mode: %s", value);
+        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "Unknown VDO operating mode: %s", value);
         data->operating_mode = BD_LVM_VDO_MODE_UNKNOWN;
     }
 
@@ -621,7 +837,7 @@ static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean fr
     else if (g_strcmp0 (value, "offline") == 0)
         data->compression_state = BD_LVM_VDO_COMPRESSION_OFFLINE;
     else {
-        g_debug ("Unknown VDO compression state: %s", value);
+        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "Unknown VDO compression state: %s", value);
         data->compression_state = BD_LVM_VDO_COMPRESSION_UNKNOWN;
     }
 
@@ -639,7 +855,7 @@ static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean fr
     else if (g_strcmp0 (value, "online") == 0)
         data->index_state = BD_LVM_VDO_INDEX_ONLINE;
     else {
-        g_debug ("Unknown VDO index state: %s", value);
+        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "Unknown VDO index state: %s", value);
         data->index_state = BD_LVM_VDO_INDEX_UNKNOWN;
     }
 
@@ -651,7 +867,7 @@ static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean fr
     else if (g_strcmp0 (value, "async") == 0)
         data->write_policy = BD_LVM_VDO_WRITE_POLICY_ASYNC;
     else {
-        g_debug ("Unknown VDO write policy: %s", value);
+        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "Unknown VDO write policy: %s", value);
         data->write_policy = BD_LVM_VDO_WRITE_POLICY_UNKNOWN;
     }
 
@@ -694,19 +910,19 @@ static BDLVMVDOPooldata* get_vdo_data_from_table (GHashTable *table, gboolean fr
 /**
  * bd_lvm_is_supported_pe_size:
  * @size: size (in bytes) to test
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the given size is supported physical extent size or not
  *
  * Tech category: %BD_LVM_TECH_CALCS no mode (it is ignored)
  */
 gboolean bd_lvm_is_supported_pe_size (guint64 size, GError **error UNUSED) {
-    return (((size % 2) == 0) && (size >= (BD_LVM_MIN_PE_SIZE)) && (size <= (BD_LVM_MAX_PE_SIZE)));
+    return (((size % 2) == 0) && (size >= (MIN_PE_SIZE)) && (size <= (MAX_PE_SIZE)));
 }
 
 /**
  * bd_lvm_get_supported_pe_sizes:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full) (array fixed-size=25): list of supported PE sizes
  *
@@ -714,11 +930,11 @@ gboolean bd_lvm_is_supported_pe_size (guint64 size, GError **error UNUSED) {
  */
 guint64 *bd_lvm_get_supported_pe_sizes (GError **error UNUSED) {
     guint8 i;
-    guint64 val = BD_LVM_MIN_PE_SIZE;
-    guint8 num_items = ((guint8) round (log2 ((double) BD_LVM_MAX_PE_SIZE))) - ((guint8) round (log2 ((double) BD_LVM_MIN_PE_SIZE))) + 2;
+    guint64 val = MIN_PE_SIZE;
+    guint8 num_items = ((guint8) round (log2 ((double) MAX_PE_SIZE))) - ((guint8) round (log2 ((double) MIN_PE_SIZE))) + 2;
     guint64 *ret = g_new0 (guint64, num_items);
 
-    for (i=0; (val <= BD_LVM_MAX_PE_SIZE); i++, val = val * 2)
+    for (i=0; (val <= MAX_PE_SIZE); i++, val = val * 2)
         ret[i] = val;
 
     ret[num_items-1] = 0;
@@ -728,14 +944,14 @@ guint64 *bd_lvm_get_supported_pe_sizes (GError **error UNUSED) {
 
 /**
  * bd_lvm_get_max_lv_size:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: maximum LV size in bytes
  *
  * Tech category: %BD_LVM_TECH_CALCS no mode (it is ignored)
  */
 guint64 bd_lvm_get_max_lv_size (GError **error UNUSED) {
-    return BD_LVM_MAX_LV_SIZE;
+    return MAX_LV_SIZE;
 }
 
 /**
@@ -743,7 +959,7 @@ guint64 bd_lvm_get_max_lv_size (GError **error UNUSED) {
  * @size: size to be rounded
  * @pe_size: physical extent (PE) size or 0 to use the default
  * @roundup: whether to round up or down (ceil or floor)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: @size rounded to @pe_size according to the @roundup
  *
@@ -755,7 +971,7 @@ guint64 bd_lvm_get_max_lv_size (GError **error UNUSED) {
  * Tech category: %BD_LVM_TECH_CALCS no mode (it is ignored)
  */
 guint64 bd_lvm_round_size_to_pe (guint64 size, guint64 pe_size, gboolean roundup, GError **error UNUSED) {
-    pe_size = RESOLVE_PE_SIZE(pe_size);
+    pe_size = RESOLVE_PE_SIZE (pe_size);
     guint64 delta = size % pe_size;
     if (delta == 0)
         return size;
@@ -770,7 +986,7 @@ guint64 bd_lvm_round_size_to_pe (guint64 size, guint64 pe_size, gboolean roundup
  * bd_lvm_get_lv_physical_size:
  * @lv_size: LV size
  * @pe_size: PE size
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: space taken on disk(s) by the LV with given @size
  *
@@ -780,9 +996,9 @@ guint64 bd_lvm_round_size_to_pe (guint64 size, guint64 pe_size, gboolean roundup
  * Tech category: %BD_LVM_TECH_CALCS no mode (it is ignored)
  */
 guint64 bd_lvm_get_lv_physical_size (guint64 lv_size, guint64 pe_size, GError **error) {
-    pe_size = RESOLVE_PE_SIZE(pe_size);
+    pe_size = RESOLVE_PE_SIZE (pe_size);
 
-    /* the LV just takes space rounded up the the a multiple of extent size */
+    /* the LV just takes space rounded up to the multiple of extent size */
     return bd_lvm_round_size_to_pe (lv_size, pe_size, TRUE, error);
 }
 
@@ -791,7 +1007,7 @@ guint64 bd_lvm_get_lv_physical_size (guint64 lv_size, guint64 pe_size, GError **
  * @size: size of the thin pool
  * @pe_size: PE size or 0 if the default value should be used
  * @included: if padding is already included in the size
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: size of the padding needed for a thin pool with the given @size
  *         according to the @pe_size and @included
@@ -800,23 +1016,23 @@ guint64 bd_lvm_get_lv_physical_size (guint64 lv_size, guint64 pe_size, GError **
  */
 guint64 bd_lvm_get_thpool_padding (guint64 size, guint64 pe_size, gboolean included, GError **error) {
     guint64 raw_md_size;
-    pe_size = RESOLVE_PE_SIZE(pe_size);
+    pe_size = RESOLVE_PE_SIZE (pe_size);
 
     if (included)
         raw_md_size = (guint64) ceil (size * THPOOL_MD_FACTOR_EXISTS);
     else
         raw_md_size = (guint64) ceil (size * THPOOL_MD_FACTOR_NEW);
 
-    return MIN (bd_lvm_round_size_to_pe(raw_md_size, pe_size, TRUE, error),
-                bd_lvm_round_size_to_pe(BD_LVM_MAX_THPOOL_MD_SIZE, pe_size, TRUE, error));
+    return MIN (bd_lvm_round_size_to_pe (raw_md_size, pe_size, TRUE, error),
+                bd_lvm_round_size_to_pe (MAX_THPOOL_MD_SIZE, pe_size, TRUE, error));
 }
 
 /**
  * bd_lvm_get_thpool_meta_size:
  * @size: size of the thin pool
- * @chunk_size: chunk size of the thin pool or 0 to use the default (%BD_LVM_DEFAULT_CHUNK_SIZE)
+ * @chunk_size: chunk size of the thin pool or 0 to use the default
  * @n_snapshots: ignored
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Note: This function will be changed in 3.0: the @n_snapshots parameter
  *       is currently not used and will be removed.
@@ -829,12 +1045,12 @@ guint64 bd_lvm_get_thpool_meta_size (guint64 size, guint64 chunk_size, guint64 n
     guint64 md_size = 0;
 
     /* based on lvcreate metadata size calculation */
-    md_size = UINT64_C(64) * size / (chunk_size ? chunk_size : BD_LVM_DEFAULT_CHUNK_SIZE);
+    md_size = UINT64_C (64) * size / (chunk_size ? chunk_size : DEFAULT_CHUNK_SIZE);
 
-    if (md_size > BD_LVM_MAX_THPOOL_MD_SIZE)
-        md_size = BD_LVM_MAX_THPOOL_MD_SIZE;
-    else if (md_size < BD_LVM_MIN_THPOOL_MD_SIZE)
-        md_size = BD_LVM_MIN_THPOOL_MD_SIZE;
+    if (md_size > MAX_THPOOL_MD_SIZE)
+        md_size = MAX_THPOOL_MD_SIZE;
+    else if (md_size < MIN_THPOOL_MD_SIZE)
+        md_size = MIN_THPOOL_MD_SIZE;
 
     return md_size;
 }
@@ -842,21 +1058,21 @@ guint64 bd_lvm_get_thpool_meta_size (guint64 size, guint64 chunk_size, guint64 n
 /**
  * bd_lvm_is_valid_thpool_md_size:
  * @size: the size to be tested
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the given size is a valid thin pool metadata size or not
  *
  * Tech category: %BD_LVM_TECH_THIN_CALCS no mode (it is ignored)
  */
 gboolean bd_lvm_is_valid_thpool_md_size (guint64 size, GError **error UNUSED) {
-    return ((BD_LVM_MIN_THPOOL_MD_SIZE <= size) && (size <= BD_LVM_MAX_THPOOL_MD_SIZE));
+    return ((MIN_THPOOL_MD_SIZE <= size) && (size <= MAX_THPOOL_MD_SIZE));
 }
 
 /**
  * bd_lvm_is_valid_thpool_chunk_size:
  * @size: the size to be tested
  * @discard: whether discard/TRIM is required to be supported or not
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the given size is a valid thin pool chunk size or not
  *
@@ -865,7 +1081,7 @@ gboolean bd_lvm_is_valid_thpool_md_size (guint64 size, GError **error UNUSED) {
 gboolean bd_lvm_is_valid_thpool_chunk_size (guint64 size, gboolean discard, GError **error UNUSED) {
     gdouble size_log2 = 0.0;
 
-    if ((size < BD_LVM_MIN_THPOOL_CHUNK_SIZE) || (size > BD_LVM_MAX_THPOOL_CHUNK_SIZE))
+    if ((size < MIN_THPOOL_CHUNK_SIZE) || (size > MAX_THPOOL_CHUNK_SIZE))
         return FALSE;
 
     /* To support discard, chunk size must be a power of two. Otherwise it must be a
@@ -882,9 +1098,9 @@ gboolean bd_lvm_is_valid_thpool_chunk_size (guint64 size, gboolean discard, GErr
  * @device: the device to make PV from
  * @data_alignment: data (first PE) alignment or 0 to use the default
  * @metadata_size: size of the area reserved for metadata or 0 to use the default
- * @extra: (allow-none) (array zero-terminated=1): extra options for the PV creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the PV creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the PV was successfully created or not
  *
@@ -918,14 +1134,14 @@ gboolean bd_lvm_pvcreate (const gchar *device, guint64 data_alignment, guint64 m
  * bd_lvm_pvresize:
  * @device: the device to resize
  * @size: the new requested size of the PV or 0 if it should be adjusted to device's size
- * @extra: (allow-none) (array zero-terminated=1): extra options for the PV resize
+ * @extra: (nullable) (array zero-terminated=1): extra options for the PV resize
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the PV's size was successfully changed or not
  *
  * If given @size different from 0, sets the PV's size to the given value (see
- * pvresize(8)). If given @size 0, adjusts the PV's size to the underlaying
+ * pvresize(8)). If given @size 0, adjusts the PV's size to the underlying
  * block device's size.
  *
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_MODIFY
@@ -958,9 +1174,9 @@ gboolean bd_lvm_pvresize (const gchar *device, guint64 size, const BDExtraArg **
 /**
  * bd_lvm_pvremove:
  * @device: the PV device to be removed/destroyed
- * @extra: (allow-none) (array zero-terminated=1): extra options for the PV removal
+ * @extra: (nullable) (array zero-terminated=1): extra options for the PV removal
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the PV was successfully removed/destroyed or not
  *
@@ -994,10 +1210,10 @@ static gboolean extract_pvmove_progress (const gchar *line, guint8 *completion) 
 /**
  * bd_lvm_pvmove:
  * @src: the PV device to move extents off of
- * @dest: (allow-none): the PV device to move extents onto or %NULL
- * @extra: (allow-none) (array zero-terminated=1): extra options for the PV move
+ * @dest: (nullable): the PV device to move extents onto or %NULL
+ * @extra: (nullable) (array zero-terminated=1): extra options for the PV move
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the extents from the @src PV where successfully moved or not
  *
@@ -1017,11 +1233,11 @@ gboolean bd_lvm_pvmove (const gchar *src, const gchar *dest, const BDExtraArg **
 
 /**
  * bd_lvm_pvscan:
- * @device: (allow-none): the device to scan for PVs or %NULL
+ * @device: (nullable): the device to scan for PVs or %NULL
  * @update_cache: whether to update the lvmetad cache or not
- * @extra: (allow-none) (array zero-terminated=1): extra options for the PV scan
+ * @extra: (nullable) (array zero-terminated=1): extra options for the PV scan
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the system or @device was successfully scanned for PVs or not
  *
@@ -1038,15 +1254,62 @@ gboolean bd_lvm_pvscan (const gchar *device, gboolean update_cache, const BDExtr
     }
     else
         if (device)
-            g_warning ("Ignoring the device argument in pvscan (cache update not requested)");
+            bd_utils_log_format (BD_UTILS_LOG_WARNING, "Ignoring the device argument in pvscan (cache update not requested)");
 
     return call_lvm_and_report_error (args, extra, TRUE, error);
+}
+
+static gboolean _manage_lvm_tags (const gchar *devspec, const gchar **tags, const gchar *action, const gchar *cmd, GError **error) {
+    guint tags_len = g_strv_length ((gchar **) tags);
+    const gchar **argv = g_new0 (const gchar*, 2 * tags_len + 3);
+    guint next_arg = 0;
+    gboolean success = FALSE;
+
+    argv[next_arg++] = cmd;
+    for (guint i = 0; i < tags_len; i++) {
+        argv[next_arg++] = action;
+        argv[next_arg++] = tags[i];
+    }
+    argv[next_arg++] = devspec;
+    argv[next_arg] = NULL;
+
+    success = call_lvm_and_report_error (argv, NULL, TRUE, error);
+    g_free (argv);
+    return success;
+}
+
+/**
+ * bd_lvm_add_pv_tags:
+ * @device: the device to set PV tags for
+ * @tags: (array zero-terminated=1): list of tags to add
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully added to @device or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_add_pv_tags (const gchar *device, const gchar **tags, GError **error) {
+    return _manage_lvm_tags (device, tags, "--addtag", "pvchange", error);
+}
+
+/**
+ * bd_lvm_delete_pv_tags:
+ * @device: the device to set PV tags for
+ * @tags: (array zero-terminated=1): list of tags to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully removed from @device or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_delete_pv_tags (const gchar *device, const gchar **tags, GError **error) {
+    return _manage_lvm_tags (device, tags, "--deltag", "pvchange", error);
 }
 
 /**
  * bd_lvm_pvinfo:
  * @device: a PV to get information about or %NULL
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the PV on the given @device or
  * %NULL in case of error (the @error) gets populated in those cases)
@@ -1057,7 +1320,7 @@ BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error) {
     const gchar *args[10] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
                        "--unquoted", "--noheadings",
                        "-o", "pv_name,pv_uuid,pv_free,pv_size,pe_start,vg_name,vg_uuid,vg_size," \
-                       "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count",
+                       "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count,pv_tags,pv_missing",
                        device, NULL};
     GHashTable *table = NULL;
     gboolean success = FALSE;
@@ -1076,7 +1339,7 @@ BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error) {
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 13)) {
+        if (table && (num_items == 15)) {
             g_clear_error (error);
             g_strfreev (lines);
             return get_pv_data_from_table (table, TRUE);
@@ -1094,7 +1357,7 @@ BDLVMPVdata* bd_lvm_pvinfo (const gchar *device, GError **error) {
 
 /**
  * bd_lvm_pvs:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (array zero-terminated=1): information about PVs found in the system
  *
@@ -1104,7 +1367,7 @@ BDLVMPVdata** bd_lvm_pvs (GError **error) {
     const gchar *args[9] = {"pvs", "--unit=b", "--nosuffix", "--nameprefixes",
                        "--unquoted", "--noheadings",
                        "-o", "pv_name,pv_uuid,pv_free,pv_size,pe_start,vg_name,vg_uuid,vg_size," \
-                       "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count",
+                       "vg_free,vg_extent_size,vg_extent_count,vg_free_count,pv_count,pv_tags,pv_missing",
                        NULL};
     GHashTable *table = NULL;
     gboolean success = FALSE;
@@ -1138,7 +1401,7 @@ BDLVMPVdata** bd_lvm_pvs (GError **error) {
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 13)) {
+        if (table && (num_items == 15)) {
             /* valid line, try to parse and record it */
             pvdata = get_pv_data_from_table (table, TRUE);
             if (pvdata)
@@ -1167,9 +1430,9 @@ BDLVMPVdata** bd_lvm_pvs (GError **error) {
  * @name: name of the newly created VG
  * @pv_list: (array zero-terminated=1): list of PVs the newly created VG should use
  * @pe_size: PE size or 0 if the default value should be used
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG @name was successfully created or not
  *
@@ -1201,9 +1464,9 @@ gboolean bd_lvm_vgcreate (const gchar *name, const gchar **pv_list, guint64 pe_s
 /**
  * bd_lvm_vgremove:
  * @vg_name: name of the to be removed VG
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG removal
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG removal
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG was successfully removed or not
  *
@@ -1219,9 +1482,9 @@ gboolean bd_lvm_vgremove (const gchar *vg_name, const BDExtraArg **extra, GError
  * bd_lvm_vgrename:
  * @old_vg_name: old name of the VG to rename
  * @new_vg_name: new name for the @old_vg_name VG
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG rename
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG rename
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG was successfully renamed or not
  *
@@ -1236,9 +1499,9 @@ gboolean bd_lvm_vgrename (const gchar *old_vg_name, const gchar *new_vg_name, co
 /**
  * bd_lvm_vgactivate:
  * @vg_name: name of the to be activated VG
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG activation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG activation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG was successfully activated or not
  *
@@ -1253,9 +1516,9 @@ gboolean bd_lvm_vgactivate (const gchar *vg_name, const BDExtraArg **extra, GErr
 /**
  * bd_lvm_vgdeactivate:
  * @vg_name: name of the to be deactivated VG
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG deactivation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG deactivation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG was successfully deactivated or not
  *
@@ -1271,9 +1534,9 @@ gboolean bd_lvm_vgdeactivate (const gchar *vg_name, const BDExtraArg **extra, GE
  * bd_lvm_vgextend:
  * @vg_name: name of the to be extended VG
  * @device: PV device to extend the @vg_name VG with
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG extension
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG extension
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG @vg_name was successfully extended with the given @device or not.
  *
@@ -1288,11 +1551,11 @@ gboolean bd_lvm_vgextend (const gchar *vg_name, const gchar *device, const BDExt
 /**
  * bd_lvm_vgreduce:
  * @vg_name: name of the to be reduced VG
- * @device: (allow-none): PV device the @vg_name VG should be reduced of or %NULL
+ * @device: (nullable): PV device the @vg_name VG should be reduced of or %NULL
  *                        if the VG should be reduced of the missing PVs
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VG reduction
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VG reduction
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the VG @vg_name was successfully reduced of the given @device or not
  *
@@ -1317,9 +1580,78 @@ gboolean bd_lvm_vgreduce (const gchar *vg_name, const gchar *device, const BDExt
 }
 
 /**
+ * bd_lvm_add_vg_tags:
+ * @vg_name: the VG to set tags on
+ * @tags: (array zero-terminated=1): list of tags to add
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully added to @vg_name or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_add_vg_tags (const gchar *vg_name, const gchar **tags, GError **error) {
+    return _manage_lvm_tags (vg_name, tags, "--addtag", "vgchange", error);
+}
+
+/**
+ * bd_lvm_delete_vg_tags:
+ * @vg_name: the VG to set tags on
+ * @tags: (array zero-terminated=1): list of tags to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully removed from @vg_name or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_delete_vg_tags (const gchar *vg_name, const gchar **tags, GError **error) {
+    return _manage_lvm_tags (vg_name, tags, "--deltag", "vgchange", error);
+}
+
+gboolean _vglock_start_stop (const gchar *vg_name, gboolean start, const BDExtraArg **extra, GError **error) {
+    const gchar *args[4] = {"vgchange", NULL, vg_name, NULL};
+
+    if (start)
+        args[1] = "--lockstart";
+    else
+        args[1] = "--lockstop";
+
+    return call_lvm_and_report_error (args, extra, TRUE, error);
+}
+
+/**
+ * bd_lvm_vglock_start:
+ * @vg_name: a shared VG to start the lockspace in lvmlockd
+ * @extra: (nullable) (array zero-terminated=1): extra options for the vgchange command
+ *                                               (just passed to LVM as is)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the lock was successfully started for @vg_name or not
+ *
+ * Tech category: %BD_LVM_TECH_SHARED-%BD_LVM_TECH_MODE_MODIFY
+ */
+gboolean bd_lvm_vglock_start (const gchar *vg_name, const BDExtraArg **extra, GError **error) {
+    return _vglock_start_stop (vg_name, TRUE, extra, error);
+}
+
+/**
+ * bd_lvm_vglock_stop:
+ * @vg_name: a shared VG to stop the lockspace in lvmlockd
+ * @extra: (nullable) (array zero-terminated=1): extra options for the vgchange command
+ *                                               (just passed to LVM as is)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the lock was successfully stopped for @vg_name or not
+ *
+ * Tech category: %BD_LVM_TECH_SHARED-%BD_LVM_TECH_MODE_MODIFY
+ */
+gboolean bd_lvm_vglock_stop (const gchar *vg_name, const BDExtraArg **extra, GError **error) {
+    return _vglock_start_stop (vg_name, FALSE, extra, error);
+}
+
+/**
  * bd_lvm_vginfo:
  * @vg_name: a VG to get information about
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the @vg_name VG or %NULL in case
  * of error (the @error) gets populated in those cases)
@@ -1329,7 +1661,7 @@ gboolean bd_lvm_vgreduce (const gchar *vg_name, const gchar *device, const BDExt
 BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
     const gchar *args[10] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
                        "--unquoted", "--units=b",
-                       "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count",
+                       "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count,vg_exported,vg_tags",
                        vg_name, NULL};
 
     GHashTable *table = NULL;
@@ -1349,7 +1681,7 @@ BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 8)) {
+        if (table && (num_items == 10)) {
             g_strfreev (lines);
             return get_vg_data_from_table (table, TRUE);
         } else
@@ -1366,7 +1698,7 @@ BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
 
 /**
  * bd_lvm_vgs:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (array zero-terminated=1): information about VGs found in the system
  *
@@ -1375,7 +1707,7 @@ BDLVMVGdata* bd_lvm_vginfo (const gchar *vg_name, GError **error) {
 BDLVMVGdata** bd_lvm_vgs (GError **error) {
     const gchar *args[9] = {"vgs", "--noheadings", "--nosuffix", "--nameprefixes",
                       "--unquoted", "--units=b",
-                      "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count",
+                      "-o", "name,uuid,size,free,extent_size,extent_count,free_count,pv_count,vg_tags",
                       NULL};
     GHashTable *table = NULL;
     gboolean success = FALSE;
@@ -1385,21 +1717,22 @@ BDLVMVGdata** bd_lvm_vgs (GError **error) {
     guint num_items;
     GPtrArray *vgs;
     BDLVMVGdata *vgdata = NULL;
+    GError *l_error = NULL;
 
     vgs = g_ptr_array_new ();
 
-    success = call_lvm_and_capture_output (args, NULL, &output, error);
+    success = call_lvm_and_capture_output (args, NULL, &output, &l_error);
     if (!success) {
-        if (g_error_matches (*error, BD_UTILS_EXEC_ERROR, BD_UTILS_EXEC_ERROR_NOOUT)) {
+        if (g_error_matches (l_error, BD_UTILS_EXEC_ERROR, BD_UTILS_EXEC_ERROR_NOOUT)) {
             /* no output => no VGs, not an error */
-            g_clear_error (error);
+            g_clear_error (&l_error);
             /* return an empty list */
             g_ptr_array_add (vgs, NULL);
             return (BDLVMVGdata **) g_ptr_array_free (vgs, FALSE);
-        }
-        else {
+        } else {
             /* the error is already populated from the call */
             g_ptr_array_free (vgs, TRUE);
+            g_propagate_error (error, l_error);
             return NULL;
        }
     }
@@ -1409,7 +1742,7 @@ BDLVMVGdata** bd_lvm_vgs (GError **error) {
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 8)) {
+        if (table && (num_items == 9)) {
             /* valid line, try to parse and record it */
             vgdata = get_vg_data_from_table (table, TRUE);
             if (vgdata)
@@ -1437,7 +1770,7 @@ BDLVMVGdata** bd_lvm_vgs (GError **error) {
  * bd_lvm_lvorigin:
  * @vg_name: name of the VG containing the queried LV
  * @lv_name: name of the queried LV
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): the origin volume for the @vg_name/@lv_name LV or
  * %NULL if failed to determine (@error) is set in those cases)
@@ -1465,12 +1798,12 @@ gchar* bd_lvm_lvorigin (const gchar *vg_name, const gchar *lv_name, GError **err
  * @vg_name: name of the VG to create a new LV in
  * @lv_name: name of the to-be-created LV
  * @size: requested size of the new LV
- * @type: (allow-none): type of the new LV ("striped", "raid1",..., see lvcreate (8))
- * @pv_list: (allow-none) (array zero-terminated=1): list of PVs the newly created LV should use or %NULL
+ * @type: (nullable): type of the new LV ("striped", "raid1",..., see lvcreate (8))
+ * @pv_list: (nullable) (array zero-terminated=1): list of PVs the newly created LV should use or %NULL
  * if not specified
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the given @vg_name/@lv_name LV was successfully created or not
  *
@@ -1522,9 +1855,9 @@ gboolean bd_lvm_lvcreate (const gchar *vg_name, const gchar *lv_name, guint64 si
  * @vg_name: name of the VG containing the to-be-removed LV
  * @lv_name: name of the to-be-removed LV
  * @force: whether to force removal or not
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV removal
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV removal
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name LV was successfully removed or not
  *
@@ -1554,9 +1887,9 @@ gboolean bd_lvm_lvremove (const gchar *vg_name, const gchar *lv_name, gboolean f
  * @vg_name: name of the VG containing the to-be-renamed LV
  * @lv_name: name of the to-be-renamed LV
  * @new_name: new name for the @vg_name/@lv_name LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV rename
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV rename
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name LV was successfully renamed to
  * @vg_name/@new_name or not
@@ -1574,24 +1907,80 @@ gboolean bd_lvm_lvrename (const gchar *vg_name, const gchar *lv_name, const gcha
  * @vg_name: name of the VG containing the to-be-resized LV
  * @lv_name: name of the to-be-resized LV
  * @size: the requested new size of the LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV resize
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV resize
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name LV was successfully resized or not
  *
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_MODIFY
  */
 gboolean bd_lvm_lvresize (const gchar *vg_name, const gchar *lv_name, guint64 size, const BDExtraArg **extra, GError **error) {
-    const gchar *args[6] = {"lvresize", "--force", "-L", NULL, NULL, NULL};
+    const gchar *args[8] = {"lvresize", "--force", "-L", NULL, NULL, NULL, NULL, NULL};
     gboolean success = FALSE;
+    guint8 next_arg = 4;
+    g_autofree gchar *lvspec = NULL;
+    BDLVMLVdata *lvinfo = NULL;
+
+    lvinfo = bd_lvm_lvinfo (vg_name, lv_name, error);
+    if (!lvinfo)
+        /* error is already populated */
+        return FALSE;
 
     args[3] = g_strdup_printf ("%"G_GUINT64_FORMAT"K", size/1024);
-    args[4] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+
+    if (lvinfo->attr[4] != 'a') {
+        /* starting with 2.03.19 we need to add extra option to allow resizing of inactive LVs */
+        success = bd_utils_check_util_version (deps[DEPS_LVM].name, LVM_VERSION_FSRESIZE,
+                                               deps[DEPS_LVM].ver_arg, deps[DEPS_LVM].ver_regexp, NULL);
+        if (success) {
+            args[next_arg++] = "--fs";
+            args[next_arg++] = "ignore";
+        }
+    }
+
+    bd_lvm_lvdata_free (lvinfo);
+
+    lvspec = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    args[next_arg++] = lvspec;
 
     success = call_lvm_and_report_error (args, extra, TRUE, error);
     g_free ((gchar *) args[3]);
-    g_free ((gchar *) args[4]);
+
+    return success;
+}
+
+/**
+ * bd_lvm_lvrepair:
+ * @vg_name: name of the VG containing the to-be-repaired LV
+ * @lv_name: name of the to-be-repaired LV
+ * @pv_list: (array zero-terminated=1): list of PVs to be used for the repair
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV repair
+ *                                                 (just passed to LVM as is)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the @vg_name/@lv_name LV was successfully repaired or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_MODIFY
+ */
+gboolean bd_lvm_lvrepair (const gchar *vg_name, const gchar *lv_name, const gchar **pv_list, const BDExtraArg **extra, GError **error) {
+    guint i = 0;
+    guint pv_list_len = pv_list ? g_strv_length ((gchar **) pv_list) : 0;
+    const gchar **argv = g_new0 (const gchar*, pv_list_len + 5);
+    gboolean success = FALSE;
+
+    argv[0] = "lvconvert";
+    argv[1] = "--repair";
+    argv[2] = "--yes";
+    argv[3] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    for (i=4; i < (pv_list_len + 4); i++) {
+        argv[i] = pv_list[i-4];
+    }
+    argv[i] = NULL;
+
+    success = call_lvm_and_report_error (argv, extra, TRUE, error);
+    g_free ((gchar *) argv[3]);
+    g_free (argv);
 
     return success;
 }
@@ -1601,18 +1990,25 @@ gboolean bd_lvm_lvresize (const gchar *vg_name, const gchar *lv_name, guint64 si
  * @vg_name: name of the VG containing the to-be-activated LV
  * @lv_name: name of the to-be-activated LV
  * @ignore_skip: whether to ignore the skip flag or not
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV activation
+ * @shared: whether to activate the LV in shared mode (used for shared LVM setups with lvmlockd,
+ *          use %FALSE if not sure)
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV activation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name LV was successfully activated or not
  *
  * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_MODIFY
  */
-gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean ignore_skip, const BDExtraArg **extra, GError **error) {
-    const gchar *args[5] = {"lvchange", "-ay", NULL, NULL, NULL};
+gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean ignore_skip, gboolean shared, const BDExtraArg **extra, GError **error) {
+    const gchar *args[5] = {"lvchange", NULL, NULL, NULL, NULL};
     guint8 next_arg = 2;
     gboolean success = FALSE;
+
+    if (shared)
+        args[1] = "-asy";
+    else
+        args[1] = "-ay";
 
     if (ignore_skip) {
         args[next_arg] = "-K";
@@ -1630,9 +2026,9 @@ gboolean bd_lvm_lvactivate (const gchar *vg_name, const gchar *lv_name, gboolean
  * bd_lvm_lvdeactivate:
  * @vg_name: name of the VG containing the to-be-deactivated LV
  * @lv_name: name of the to-be-deactivated LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV deactivation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV deactivation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name LV was successfully deactivated or not
  *
@@ -1654,11 +2050,11 @@ gboolean bd_lvm_lvdeactivate (const gchar *vg_name, const gchar *lv_name, const 
  * bd_lvm_lvsnapshotcreate:
  * @vg_name: name of the VG containing the LV a new snapshot should be created of
  * @origin_name: name of the LV a new snapshot should be created of
- * @snapshot_name: name fo the to-be-created snapshot
+ * @snapshot_name: name of the to-be-created snapshot
  * @size: requested size for the snapshot
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV snapshot creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV snapshot creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @snapshot_name snapshot of the @vg_name/@origin_name LV
  * was successfully created or not.
@@ -1683,9 +2079,9 @@ gboolean bd_lvm_lvsnapshotcreate (const gchar *vg_name, const gchar *origin_name
  * bd_lvm_lvsnapshotmerge:
  * @vg_name: name of the VG containing the to-be-merged LV snapshot
  * @snapshot_name: name of the to-be-merged LV snapshot
- * @extra: (allow-none) (array zero-terminated=1): extra options for the LV snapshot merge
+ * @extra: (nullable) (array zero-terminated=1): extra options for the LV snapshot merge
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@snapshot_name LV snapshot was successfully merged or not
  *
@@ -1704,10 +2100,42 @@ gboolean bd_lvm_lvsnapshotmerge (const gchar *vg_name, const gchar *snapshot_nam
 }
 
 /**
+ * bd_lvm_add_lv_tags:
+ * @vg_name: name of the VG that contains the LV to set tags on
+ * @lv_name: name of the LV to set tags on
+ * @tags: (array zero-terminated=1): list of tags to add
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully added to @device or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_add_lv_tags (const gchar *vg_name, const gchar *lv_name, const gchar **tags, GError **error) {
+    g_autofree gchar *lvspec = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    return _manage_lvm_tags (lvspec, tags, "--addtag", "lvchange", error);
+}
+
+/**
+ * bd_lvm_delete_lv_tags:
+ * @vg_name: name of the VG that contains the LV to set tags on
+ * @lv_name: name of the LV to set tags on
+ * @tags: (array zero-terminated=1): list of tags to remove
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the tags were successfully removed from @device or not
+ *
+ * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
+ */
+gboolean bd_lvm_delete_lv_tags (const gchar *vg_name, const gchar *lv_name, const gchar **tags, GError **error) {
+    g_autofree gchar *lvspec = g_strdup_printf ("%s/%s", vg_name, lv_name);
+    return _manage_lvm_tags (lvspec, tags, "--deltag", "lvchange", error);
+}
+
+/**
  * bd_lvm_lvinfo:
  * @vg_name: name of the VG that contains the LV to get information about
  * @lv_name: name of the LV to get information about
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the @vg_name/@lv_name LV or %NULL in case
  * of error (the @error) gets populated in those cases)
@@ -1717,7 +2145,7 @@ gboolean bd_lvm_lvsnapshotmerge (const gchar *vg_name, const gchar *snapshot_nam
 BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError **error) {
     const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
                        "--unquoted", "--units=b", "-a",
-                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent",
+                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags",
                        NULL, NULL};
 
     GHashTable *table = NULL;
@@ -1741,7 +2169,7 @@ BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError *
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 15)) {
+        if (table && (num_items == 16)) {
             g_strfreev (lines);
             return get_lv_data_from_table (table, TRUE);
         } else
@@ -1756,10 +2184,58 @@ BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError *
     return NULL;
 }
 
+BDLVMLVdata* bd_lvm_lvinfo_tree (const gchar *vg_name, const gchar *lv_name, GError **error) {
+    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--units=b", "-a",
+                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags,devices,metadata_devices,seg_size_pe",
+                       NULL, NULL};
+
+    GHashTable *table = NULL;
+    gboolean success = FALSE;
+    gchar *output = NULL;
+    gchar **lines = NULL;
+    gchar **lines_p = NULL;
+    guint num_items;
+    BDLVMLVdata *result = NULL;
+
+    args[9] = g_strdup_printf ("%s/%s", vg_name, lv_name);
+
+    success = call_lvm_and_capture_output (args, NULL, &output, error);
+    g_free ((gchar *) args[9]);
+
+    if (!success)
+        /* the error is already populated from the call */
+        return NULL;
+
+    lines = g_strsplit (output, "\n", 0);
+    g_free (output);
+
+    for (lines_p = lines; *lines_p; lines_p++) {
+        table = parse_lvm_vars ((*lines_p), &num_items);
+        if (table && (num_items == 19)) {
+            BDLVMLVdata *lvdata = get_lv_data_from_table (table, TRUE);
+            if (result) {
+                merge_lv_data (result, lvdata);
+                bd_lvm_lvdata_free (lvdata);
+            } else
+                result = lvdata;
+        } else {
+            if (table)
+                g_hash_table_destroy (table);
+        }
+    }
+    g_strfreev (lines);
+
+    if (result == NULL)
+      g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_PARSE,
+                   "Failed to parse information about the LV");
+    return result;
+}
+
 /**
  * bd_lvm_lvs:
- * @vg_name: (allow-none): name of the VG to get information about LVs from
- * @error: (out): place to store error (if any)
+ * @vg_name: (nullable): name of the VG to get information about LVs from
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (array zero-terminated=1): information about LVs found in the given
  * @vg_name VG or in system if @vg_name is %NULL
@@ -1769,7 +2245,7 @@ BDLVMLVdata* bd_lvm_lvinfo (const gchar *vg_name, const gchar *lv_name, GError *
 BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
     const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
                        "--unquoted", "--units=b", "-a",
-                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent",
+                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags",
                        NULL, NULL};
 
     GHashTable *table = NULL;
@@ -1780,17 +2256,18 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
     guint num_items;
     GPtrArray *lvs;
     BDLVMLVdata *lvdata = NULL;
+    GError *l_error = NULL;
 
     lvs = g_ptr_array_new ();
 
     if (vg_name)
         args[9] = vg_name;
 
-    success = call_lvm_and_capture_output (args, NULL, &output, error);
+    success = call_lvm_and_capture_output (args, NULL, &output, &l_error);
     if (!success) {
-        if (g_error_matches (*error, BD_UTILS_EXEC_ERROR, BD_UTILS_EXEC_ERROR_NOOUT)) {
+        if (g_error_matches (l_error, BD_UTILS_EXEC_ERROR, BD_UTILS_EXEC_ERROR_NOOUT)) {
             /* no output => no LVs, not an error */
-            g_clear_error (error);
+            g_clear_error (&l_error);
             /* return an empty list */
             g_ptr_array_add (lvs, NULL);
             return (BDLVMLVdata **) g_ptr_array_free (lvs, FALSE);
@@ -1798,6 +2275,7 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
         else {
             /* the error is already populated from the call */
             g_ptr_array_free (lvs, TRUE);
+            g_propagate_error (error, l_error);
             return NULL;
         }
     }
@@ -1807,14 +2285,95 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
 
     for (lines_p = lines; *lines_p; lines_p++) {
         table = parse_lvm_vars ((*lines_p), &num_items);
-        if (table && (num_items == 15)) {
+        if (table && (num_items == 16)) {
             /* valid line, try to parse and record it */
             lvdata = get_lv_data_from_table (table, TRUE);
             if (lvdata) {
                 /* ignore duplicate entries in lvs output, these are caused by multi segments LVs */
                 for (gsize i = 0; i < lvs->len; i++) {
                     if (g_strcmp0 (((BDLVMLVdata *) g_ptr_array_index (lvs, i))->lv_name, lvdata->lv_name) == 0) {
-                        g_debug ("Duplicate LV entry for '%s' found in lvs output", lvdata->lv_name);
+                        bd_utils_log_format (BD_UTILS_LOG_DEBUG,
+                                             "Duplicate LV entry for '%s' found in lvs output",
+                                             lvdata->lv_name);
+                        bd_lvm_lvdata_free (lvdata);
+                        lvdata = NULL;
+                        break;
+                    }
+                }
+
+                if (lvdata)
+                    g_ptr_array_add (lvs, lvdata);
+            }
+        } else
+            if (table)
+                g_hash_table_destroy (table);
+    }
+
+    g_strfreev (lines);
+
+    if (lvs->len == 0) {
+        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_PARSE,
+                     "Failed to parse information about LVs");
+        g_ptr_array_free (lvs, TRUE);
+        return NULL;
+    }
+
+    /* returning NULL-terminated array of BDLVMLVdata */
+    g_ptr_array_add (lvs, NULL);
+    return (BDLVMLVdata **) g_ptr_array_free (lvs, FALSE);
+}
+
+BDLVMLVdata** bd_lvm_lvs_tree (const gchar *vg_name, GError **error) {
+    const gchar *args[11] = {"lvs", "--noheadings", "--nosuffix", "--nameprefixes",
+                       "--unquoted", "--units=b", "-a",
+                       "-o", "vg_name,lv_name,lv_uuid,lv_size,lv_attr,segtype,origin,pool_lv,data_lv,metadata_lv,role,move_pv,data_percent,metadata_percent,copy_percent,lv_tags,devices,metadata_devices,seg_size_pe",
+                       NULL, NULL};
+
+    GHashTable *table = NULL;
+    gboolean success = FALSE;
+    gchar *output = NULL;
+    gchar **lines = NULL;
+    gchar **lines_p = NULL;
+    guint num_items;
+    GPtrArray *lvs;
+    BDLVMLVdata *lvdata = NULL;
+    GError *l_error = NULL;
+
+    lvs = g_ptr_array_new ();
+
+    if (vg_name)
+        args[9] = vg_name;
+
+    success = call_lvm_and_capture_output (args, NULL, &output, &l_error);
+    if (!success) {
+        if (g_error_matches (l_error, BD_UTILS_EXEC_ERROR, BD_UTILS_EXEC_ERROR_NOOUT)) {
+            /* no output => no LVs, not an error */
+            g_clear_error (&l_error);
+            /* return an empty list */
+            g_ptr_array_add (lvs, NULL);
+            return (BDLVMLVdata **) g_ptr_array_free (lvs, FALSE);
+        }
+        else {
+            /* the error is already populated from the call */
+            g_ptr_array_free (lvs, TRUE);
+            g_propagate_error (error, l_error);
+            return NULL;
+        }
+    }
+
+    lines = g_strsplit (output, "\n", 0);
+    g_free (output);
+
+    for (lines_p = lines; *lines_p; lines_p++) {
+        table = parse_lvm_vars ((*lines_p), &num_items);
+        if (table && (num_items == 19)) {
+            /* valid line, try to parse and record it */
+            lvdata = get_lv_data_from_table (table, TRUE);
+            if (lvdata) {
+                for (gsize i = 0; i < lvs->len; i++) {
+                    BDLVMLVdata *other = (BDLVMLVdata *) g_ptr_array_index (lvs, i);
+                    if (g_strcmp0 (other->lv_name, lvdata->lv_name) == 0) {
+                        merge_lv_data (other, lvdata);
                         bd_lvm_lvdata_free (lvdata);
                         lvdata = NULL;
                         break;
@@ -1850,11 +2409,11 @@ BDLVMLVdata** bd_lvm_lvs (const gchar *vg_name, GError **error) {
  * @size: requested size of the to-be-created pool
  * @md_size: requested metadata size or 0 to use the default
  * @chunk_size: requested chunk size or 0 to use the default
- * @profile: (allow-none): profile to use (see lvm(8) for more information) or %NULL to use
+ * @profile: (nullable): profile to use (see lvm(8) for more information) or %NULL to use
  *                         the default
- * @extra: (allow-none) (array zero-terminated=1): extra options for the thin pool creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the thin pool creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name thin pool was successfully created or not
  *
@@ -1868,17 +2427,17 @@ gboolean bd_lvm_thpoolcreate (const gchar *vg_name, const gchar *lv_name, guint6
     args[3] = g_strdup_printf ("%"G_GUINT64_FORMAT"K", size/1024);
 
     if (md_size != 0) {
-        args[next_arg] = g_strdup_printf("--poolmetadatasize=%"G_GUINT64_FORMAT"K", md_size / 1024);
+        args[next_arg] = g_strdup_printf ("--poolmetadatasize=%"G_GUINT64_FORMAT"K", md_size / 1024);
         next_arg++;
     }
 
     if (chunk_size != 0) {
-        args[next_arg] = g_strdup_printf("--chunksize=%"G_GUINT64_FORMAT"K", chunk_size / 1024);
+        args[next_arg] = g_strdup_printf ("--chunksize=%"G_GUINT64_FORMAT"K", chunk_size / 1024);
         next_arg++;
     }
 
     if (profile) {
-        args[next_arg] = g_strdup_printf("--profile=%s", profile);
+        args[next_arg] = g_strdup_printf ("--profile=%s", profile);
         next_arg++;
     }
 
@@ -1900,9 +2459,9 @@ gboolean bd_lvm_thpoolcreate (const gchar *vg_name, const gchar *lv_name, guint6
  * @pool_name: name of the pool LV providing extents for the to-be-created thin LV
  * @lv_name: name of the to-be-created thin LV
  * @size: requested virtual size of the to-be-created thin LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the thin LV creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the thin LV creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name thin LV was successfully created or not
  *
@@ -1926,7 +2485,7 @@ gboolean bd_lvm_thlvcreate (const gchar *vg_name, const gchar *pool_name, const 
  * bd_lvm_thlvpoolname:
  * @vg_name: name of the VG containing the queried thin LV
  * @lv_name: name of the queried thin LV
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): the name of the pool volume for the @vg_name/@lv_name
  * thin LV or %NULL if failed to determine (@error) is set in those cases)
@@ -1953,11 +2512,11 @@ gchar* bd_lvm_thlvpoolname (const gchar *vg_name, const gchar *lv_name, GError *
  * bd_lvm_thsnapshotcreate:
  * @vg_name: name of the VG containing the thin LV a new snapshot should be created of
  * @origin_name: name of the thin LV a new snapshot should be created of
- * @snapshot_name: name fo the to-be-created snapshot
- * @pool_name: (allow-none): name of the thin pool to create the snapshot in or %NULL if not specified
- * @extra: (allow-none) (array zero-terminated=1): extra options for the thin LV snapshot creation
+ * @snapshot_name: name of the to-be-created snapshot
+ * @pool_name: (nullable): name of the thin pool to create the snapshot in or %NULL if not specified
+ * @extra: (nullable) (array zero-terminated=1): extra options for the thin LV snapshot creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @snapshot_name snapshot of the @vg_name/@origin_name
  * thin LV was successfully created or not.
@@ -1986,9 +2545,9 @@ gboolean bd_lvm_thsnapshotcreate (const gchar *vg_name, const gchar *origin_name
 
 /**
  * bd_lvm_set_global_config:
- * @new_config: (allow-none): string representation of the new global LVM
+ * @new_config: (nullable): string representation of the new global LVM
  *                            configuration to set or %NULL to reset to default
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the new requested global config @new_config was successfully
  *          set or not
@@ -2016,7 +2575,7 @@ gboolean bd_lvm_set_global_config (const gchar *new_config, GError **error UNUSE
 
 /**
  * bd_lvm_get_global_config:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): a copy of a string representation of the currently
  *                           set LVM global configuration
@@ -2034,16 +2593,68 @@ gchar* bd_lvm_get_global_config (GError **error UNUSED) {
 }
 
 /**
+ * bd_lvm_set_devices_filter:
+ * @devices: (nullable) (array zero-terminated=1): list of devices for lvm commands to work on
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the devices filter was successfully set or not
+ *
+ * Tech category: %BD_LVM_TECH_DEVICES no mode (it is ignored)
+ */
+gboolean bd_lvm_set_devices_filter (const gchar **devices, GError **error) {
+    if (!bd_lvm_is_tech_avail (BD_LVM_TECH_DEVICES, 0, error))
+        return FALSE;
+
+    g_mutex_lock (&global_config_lock);
+
+    /* first free the old value */
+    g_free (global_devices_str);
+
+    /* now store the new one */
+    if (!devices || !(*devices))
+        global_devices_str = NULL;
+    else
+        global_devices_str = g_strjoinv (",", (gchar **) devices);
+
+    g_mutex_unlock (&global_config_lock);
+    return TRUE;
+}
+
+/**
+ * bd_lvm_get_devices_filter:
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full) (array zero-terminated=1): a copy of a string representation of
+ *                                                     the currently set LVM devices filter
+ *
+ * Tech category: %BD_LVM_TECH_DEVICES no mode (it is ignored)
+ */
+gchar** bd_lvm_get_devices_filter (GError **error UNUSED) {
+    gchar **ret = NULL;
+
+    g_mutex_lock (&global_config_lock);
+
+    if (global_devices_str)
+        ret = g_strsplit (global_devices_str, ",", -1);
+    else
+        ret = NULL;
+
+    g_mutex_unlock (&global_config_lock);
+
+    return ret;
+}
+
+/**
  * bd_lvm_cache_get_default_md_size:
  * @cache_size: size of the cache to determine MD size for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: recommended default size of the cache metadata LV or 0 in case of error
  *
  * Tech category: %BD_LVM_TECH_CACHE_CALCS no mode (it is ignored)
  */
 guint64 bd_lvm_cache_get_default_md_size (guint64 cache_size, GError **error UNUSED) {
-    return MAX ((guint64) cache_size / 1000, BD_LVM_MIN_CACHE_MD_SIZE);
+    return MAX ((guint64) cache_size / 1000, MIN_CACHE_MD_SIZE);
 }
 
 /**
@@ -2085,7 +2696,7 @@ static const gchar* get_lv_type_from_flags (BDLVMCachePoolFlags flags, gboolean 
 /**
  * bd_lvm_cache_get_mode_str:
  * @mode: mode to get the string representation for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: string representation of @mode or %NULL in case of error
  *
@@ -2108,7 +2719,7 @@ const gchar* bd_lvm_cache_get_mode_str (BDLVMCacheMode mode, GError **error) {
 /**
  * bd_lvm_cache_get_mode_from_str:
  * @mode_str: string representation of a cache mode
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: cache mode for the @mode_str or %BD_LVM_CACHE_MODE_UNKNOWN if
  *          failed to determine
@@ -2140,7 +2751,7 @@ BDLVMCacheMode bd_lvm_cache_get_mode_from_str (const gchar *mode_str, GError **e
  * @flags: a combination of (ORed) #BDLVMCachePoolFlags
  * @fast_pvs: (array zero-terminated=1): list of (fast) PVs to create the @pool_name
  *                                       cache pool (and the metadata LV)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the cache pool @vg_name/@pool_name was successfully created or not
  *
@@ -2153,17 +2764,19 @@ gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name,
     gchar *msg = NULL;
     guint64 progress_id = 0;
     const gchar *args[10] = {"lvconvert", "-y", "--type", "cache-pool", "--poolmetadata", NULL, "--cachemode", NULL, NULL, NULL};
+    GError *l_error = NULL;
 
     msg = g_strdup_printf ("Started 'create cache pool %s/%s'", vg_name, pool_name);
     progress_id = bd_utils_report_started (msg);
     g_free (msg);
 
     /* create an LV for the pool */
-    type = get_lv_type_from_flags (flags, FALSE, error);
-    success = bd_lvm_lvcreate (vg_name, pool_name, pool_size, type, fast_pvs, NULL, error);
+    type = get_lv_type_from_flags (flags, FALSE, NULL);
+    success = bd_lvm_lvcreate (vg_name, pool_name, pool_size, type, fast_pvs, NULL, &l_error);
     if (!success) {
-        g_prefix_error (error, "Failed to create the pool LV: ");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        g_prefix_error (&l_error, "Failed to create the pool LV: ");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -2171,22 +2784,24 @@ gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name,
     bd_utils_report_progress (progress_id, 33, "Created the data LV");
 
     /* determine the size of the metadata LV */
-    type = get_lv_type_from_flags (flags, TRUE, error);
+    type = get_lv_type_from_flags (flags, TRUE, NULL);
     if (md_size == 0)
-        md_size = bd_lvm_cache_get_default_md_size (pool_size, error);
-    if (*error) {
-        g_prefix_error (error, "Failed to determine size for the pool metadata LV: ");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        md_size = bd_lvm_cache_get_default_md_size (pool_size, &l_error);
+    if (l_error) {
+        g_prefix_error (&l_error, "Failed to determine size for the pool metadata LV: ");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
     name = g_strdup_printf ("%s_meta", pool_name);
 
     /* create the metadata LV */
-    success = bd_lvm_lvcreate (vg_name, name, md_size, type, fast_pvs, NULL, error);
+    success = bd_lvm_lvcreate (vg_name, name, md_size, type, fast_pvs, NULL, &l_error);
     if (!success) {
         g_free (name);
-        g_prefix_error (error, "Failed to create the pool metadata LV: ");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        g_prefix_error (&l_error, "Failed to create the pool metadata LV: ");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -2195,21 +2810,26 @@ gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name,
 
     /* create the cache pool from the two LVs */
     args[5] = name;
-    args[7] = (const gchar *) bd_lvm_cache_get_mode_str (mode, error);
+    args[7] = (const gchar *) bd_lvm_cache_get_mode_str (mode, &l_error);
     if (!args[7]) {
         g_free ((gchar *) args[5]);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
     name = g_strdup_printf ("%s/%s", vg_name, pool_name);
     args[8] = name;
-    success = call_lvm_and_report_error (args, NULL, TRUE, error);
+    success = call_lvm_and_report_error (args, NULL, TRUE, &l_error);
     g_free ((gchar *) args[5]);
     g_free ((gchar *) args[8]);
 
-    if (!success && (*error))
-        bd_utils_report_finished (progress_id, (*error)->message);
-    else
+    if (!success) {
+        if (l_error)
+            bd_utils_report_finished (progress_id, l_error->message);
+        else
+            bd_utils_report_finished (progress_id, "Completed");
+        g_propagate_error (error, l_error);
+    } else
         bd_utils_report_finished (progress_id, "Completed");
 
     /* just return the result of the last step (it sets error on fail) */
@@ -2219,13 +2839,15 @@ gboolean bd_lvm_cache_create_pool (const gchar *vg_name, const gchar *pool_name,
 /**
  * bd_lvm_cache_attach:
  * @vg_name: name of the VG containing the @data_lv and the @cache_pool_lv LVs
- * @data_lv: data LV to attache the @cache_pool_lv to
+ * @data_lv: data LV to attach the @cache_pool_lv to
  * @cache_pool_lv: cache pool LV to attach to the @data_lv
- * @extra: (allow-none) (array zero-terminated=1): extra options for the cache attachment
+ * @extra: (nullable) (array zero-terminated=1): extra options for the cache attachment
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @cache_pool_lv was successfully attached to the @data_lv or not
+ *
+ * Note: Both @data_lv and @cache_lv will be deactivated before the operation.
  *
  * Tech category: %BD_LVM_TECH_CACHE-%BD_LVM_TECH_MODE_MODIFY
  */
@@ -2247,9 +2869,9 @@ gboolean bd_lvm_cache_attach (const gchar *vg_name, const gchar *data_lv, const 
  * @vg_name: name of the VG containing the @cached_lv
  * @cached_lv: name of the cached LV to detach its cache from
  * @destroy: whether to destroy the cache after detach or not
- * @extra: (allow-none) (array zero-terminated=1): extra options for the cache detachment
+ * @extra: (nullable) (array zero-terminated=1): extra options for the cache detachment
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the cache was successfully detached from the @cached_lv or not
  *
@@ -2282,7 +2904,7 @@ gboolean bd_lvm_cache_detach (const gchar *vg_name, const gchar *cached_lv, gboo
  * @flags: a combination of (ORed) #BDLVMCachePoolFlags
  * @slow_pvs: (array zero-terminated=1): list of slow PVs (used for the data LV)
  * @fast_pvs: (array zero-terminated=1): list of fast PVs (used for the cache LV)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the cached LV @lv_name was successfully created or not
  *
@@ -2294,38 +2916,162 @@ gboolean bd_lvm_cache_create_cached_lv (const gchar *vg_name, const gchar *lv_na
     gchar *name = NULL;
     gchar *msg = NULL;
     guint64 progress_id = 0;
+    GError *l_error = NULL;
 
     msg = g_strdup_printf ("Started 'create cached LV %s/%s'", vg_name, lv_name);
     progress_id = bd_utils_report_started (msg);
     g_free (msg);
 
     name = g_strdup_printf ("%s_cache", lv_name);
-    success = bd_lvm_cache_create_pool (vg_name, name, cache_size, md_size, mode, flags, fast_pvs, error);
+    success = bd_lvm_cache_create_pool (vg_name, name, cache_size, md_size, mode, flags, fast_pvs, &l_error);
     if (!success) {
-        g_prefix_error (error, "Failed to create the cache pool '%s': ", name);
+        g_prefix_error (&l_error, "Failed to create the cache pool '%s': ", name);
         g_free (name);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
     /* 3/5 steps (cache pool creation has 3 steps) done */
     bd_utils_report_progress (progress_id, 60, "Cache pool created");
 
-    success = bd_lvm_lvcreate (vg_name, lv_name, data_size, NULL, slow_pvs, NULL, error);
+    success = bd_lvm_lvcreate (vg_name, lv_name, data_size, NULL, slow_pvs, NULL, &l_error);
     if (!success) {
-        g_prefix_error (error, "Failed to create the data LV: ");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        g_free (name);
+        g_prefix_error (&l_error, "Failed to create the data LV: ");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
     /* 4/5 steps (cache pool creation has 3 steps) done */
     bd_utils_report_progress (progress_id, 80, "Data LV created");
 
-    success = bd_lvm_cache_attach (vg_name, lv_name, name, NULL, error);
+    success = bd_lvm_cache_attach (vg_name, lv_name, name, NULL, &l_error);
     if (!success) {
         g_prefix_error (error, "Failed to attach the cache pool '%s' to the data LV: ", name);
         g_free (name);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
+        return FALSE;
+    }
+
+    bd_utils_report_finished (progress_id, "Completed");
+    g_free (name);
+    return TRUE;
+}
+
+/**
+ * bd_lvm_writecache_attach:
+ * @vg_name: name of the VG containing the @data_lv and the @cache_pool_lv LVs
+ * @data_lv: data LV to attach the @cache_lv to
+ * @cache_lv: cache (fast) LV to attach to the @data_lv
+ * @extra: (nullable) (array zero-terminated=1): extra options for the cache attachment
+ *                                                 (just passed to LVM as is)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the @cache_lv was successfully attached to the @data_lv or not
+ *
+ * Tech category: %BD_LVM_TECH_WRITECACHE-%BD_LVM_TECH_MODE_MODIFY
+ */
+gboolean bd_lvm_writecache_attach (const gchar *vg_name, const gchar *data_lv, const gchar *cache_lv, const BDExtraArg **extra, GError **error) {
+    const gchar *args[8] = {"lvconvert", "-y", "--type", "writecache", "--cachevol", NULL, NULL, NULL};
+    gboolean success = FALSE;
+
+    /* both LVs need to be inactive for the writecache convert to work */
+    success = bd_lvm_lvdeactivate (vg_name, data_lv, NULL, error);
+    if (!success)
+        return FALSE;
+
+    success = bd_lvm_lvdeactivate (vg_name, cache_lv, NULL, error);
+    if (!success)
+        return FALSE;
+
+    args[5] = g_strdup_printf ("%s/%s", vg_name, cache_lv);
+    args[6] = g_strdup_printf ("%s/%s", vg_name, data_lv);
+    success = call_lvm_and_report_error (args, extra, TRUE, error);
+
+    g_free ((gchar *) args[5]);
+    g_free ((gchar *) args[6]);
+    return success;
+}
+
+/**
+ * bd_lvm_writecache_detach:
+ * @vg_name: name of the VG containing the @cached_lv
+ * @cached_lv: name of the cached LV to detach its cache from
+ * @destroy: whether to destroy the cache after detach or not
+ * @extra: (nullable) (array zero-terminated=1): extra options for the cache detachment
+ *                                                 (just passed to LVM as is)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the cache was successfully detached from the @cached_lv or not
+ *
+ * Note: synces the cache first
+ *
+ * Tech category: %BD_LVM_TECH_WRITECACHE-%BD_LVM_TECH_MODE_MODIFY
+ */
+gboolean bd_lvm_writecache_detach (const gchar *vg_name, const gchar *cached_lv, gboolean destroy, const BDExtraArg **extra, GError **error) {
+    return bd_lvm_cache_detach (vg_name, cached_lv, destroy, extra, error);
+}
+
+/**
+ * bd_lvm_writecache_create_cached_lv:
+ * @vg_name: name of the VG to create a cached LV in
+ * @lv_name: name of the cached LV to create
+ * @data_size: size of the data LV
+ * @cache_size: size of the cache (or cached LV more precisely)
+ * @slow_pvs: (array zero-terminated=1): list of slow PVs (used for the data LV)
+ * @fast_pvs: (array zero-terminated=1): list of fast PVs (used for the cache LV)
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the cached LV @lv_name was successfully created or not
+ *
+ * Tech category: %BD_LVM_TECH_WRITECACHE-%BD_LVM_TECH_MODE_CREATE
+ */
+gboolean bd_lvm_writecache_create_cached_lv (const gchar *vg_name, const gchar *lv_name, guint64 data_size, guint64 cache_size,
+                                             const gchar **slow_pvs, const gchar **fast_pvs, GError **error) {
+    gboolean success = FALSE;
+    gchar *name = NULL;
+    gchar *msg = NULL;
+    guint64 progress_id = 0;
+    GError *l_error = NULL;
+
+    msg = g_strdup_printf ("Started 'create cached LV %s/%s'", vg_name, lv_name);
+    progress_id = bd_utils_report_started (msg);
+    g_free (msg);
+
+    name = g_strdup_printf ("%s_writecache", lv_name);
+    success = bd_lvm_lvcreate (vg_name, name, cache_size, NULL, fast_pvs, NULL, &l_error);
+    if (!success) {
+        g_prefix_error (&l_error, "Failed to create the cache LV '%s': ", name);
+        g_free (name);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
+        return FALSE;
+    }
+
+    /* 1/3 steps done */
+    bd_utils_report_progress (progress_id, 33, "Cache LV created");
+
+    success = bd_lvm_lvcreate (vg_name, lv_name, data_size, NULL, slow_pvs, NULL, &l_error);
+    if (!success) {
+        g_free (name);
+        g_prefix_error (&l_error, "Failed to create the data LV: ");
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
+        return FALSE;
+    }
+
+    /* 2/3 steps done */
+    bd_utils_report_progress (progress_id, 66, "Data LV created");
+
+    success = bd_lvm_writecache_attach (vg_name, lv_name, name, NULL, &l_error);
+    if (!success) {
+        g_prefix_error (&l_error, "Failed to attach the cache LV '%s' to the data LV: ", name);
+        g_free (name);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -2338,7 +3084,7 @@ gboolean bd_lvm_cache_create_cached_lv (const gchar *vg_name, const gchar *lv_na
  * bd_lvm_cache_pool_name:
  * @vg_name: name of the VG containing the @cached_lv
  * @cached_lv: cached LV to get the name of the its pool LV for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: name of the cache pool LV used by the @cached_lv or %NULL in case of error
  *
@@ -2382,7 +3128,7 @@ gchar* bd_lvm_cache_pool_name (const gchar *vg_name, const gchar *cached_lv, GEr
  * bd_lvm_cache_stats:
  * @vg_name: name of the VG containing the @cached_lv
  * @cached_lv: cached LV to get stats for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: stats for the @cached_lv or %NULL in case of error
  *
@@ -2400,7 +3146,6 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
     gchar *params = NULL;
     BDLVMCacheStats *ret = NULL;
     BDLVMLVdata *lvdata = NULL;
-    gchar *data_lv_name = NULL;
 
     if (geteuid () != 0) {
         g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_NOT_ROOT,
@@ -2414,17 +3159,9 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
 
     pool = dm_pool_create ("bd-pool", 20);
 
-    if (g_strcmp0 (lvdata->segtype, "thin-pool") == 0) {
-        data_lv_name = bd_lvm_data_lv_name (vg_name, cached_lv, error);
-        if (!data_lv_name) {
-            dm_pool_destroy (pool);
-            bd_lvm_lvdata_free (lvdata);
-            return NULL;
-        }
-
-        map_name = dm_build_dm_name (pool, vg_name, data_lv_name, NULL);
-        g_free (data_lv_name);
-    } else
+    if (g_strcmp0 (lvdata->segtype, "thin-pool") == 0)
+        map_name = dm_build_dm_name (pool, vg_name, lvdata->data_lv, NULL);
+    else
         /* translate the VG+LV name into the DM map name */
         map_name = dm_build_dm_name (pool, vg_name, cached_lv, NULL);
 
@@ -2446,7 +3183,7 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
         return NULL;
     }
 
-    if (dm_task_run(task) == 0) {
+    if (dm_task_run (task) == 0) {
         g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_DM_ERROR,
                      "Failed to run the DM task for the cache map '%s': ", map_name);
         dm_task_destroy (task);
@@ -2470,7 +3207,7 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
         return NULL;
     }
 
-    dm_get_next_target(task, NULL, &start, &length, &type, &params);
+    dm_get_next_target (task, NULL, &start, &length, &type, &params);
 
     if (dm_get_status_cache (pool, params, &status) == 0) {
         g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_CACHE_INVAL,
@@ -2515,75 +3252,14 @@ BDLVMCacheStats* bd_lvm_cache_stats (const gchar *vg_name, const gchar *cached_l
 }
 
 /**
- * bd_lvm_data_lv_name:
- * @vg_name: name of the VG containing the queried LV
- * @lv_name: name of the queried LV
- * @error: (out): place to store error (if any)
- *
- * Returns: (transfer full): the name of the (internal) data LV of the
- * @vg_name/@lv_name LV
- *
- * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
- */
-gchar* bd_lvm_data_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error) {
-    gboolean success = FALSE;
-    gchar *output = NULL;
-    const gchar *args[6] = {"lvs", "--noheadings", "-o", "data_lv", NULL, NULL};
-
-    args[4] = g_strdup_printf ("%s/%s", vg_name, lv_name);
-
-    success = call_lvm_and_capture_output (args, NULL, &output, error);
-    g_free ((gchar *) args[4]);
-
-    if (!success)
-        /* the error is already populated from the call */
-        return NULL;
-
-    /* replace the '[' and ']' (marking the LV as internal) with spaces and then
-       remove all the leading and trailing whitespace */
-    return g_strstrip (g_strdelimit (output, "[]", ' '));
-}
-
-/**
- * bd_lvm_metadata_lv_name:
- * @vg_name: name of the VG containing the queried LV
- * @lv_name: name of the queried LV
- * @error: (out): place to store error (if any)
- *
- * Returns: (transfer full): the name of the (internal) metadata LV of the
- * @vg_name/@lv_name LV
- *
- * Tech category: %BD_LVM_TECH_BASIC-%BD_LVM_TECH_MODE_QUERY
- */
-gchar* bd_lvm_metadata_lv_name (const gchar *vg_name, const gchar *lv_name, GError **error) {
-    gboolean success = FALSE;
-    gchar *output = NULL;
-    const gchar *args[6] = {"lvs", "--noheadings", "-o", "metadata_lv", NULL, NULL};
-
-    args[4] = g_strdup_printf ("%s/%s", vg_name, lv_name);
-
-    success = call_lvm_and_capture_output (args, NULL, &output, error);
-    g_free ((gchar *) args[4]);
-
-    if (!success)
-        /* the error is already populated from the call */
-        return NULL;
-
-    /* replace the '[' and ']' (marking the LV as internal) with spaces and then
-       remove all the leading and trailing whitespace */
-    return g_strstrip (g_strdelimit (output, "[]", ' '));
-}
-
-
-/**
  * bd_lvm_thpool_convert:
  * @vg_name: name of the VG to create the new thin pool in
  * @data_lv: name of the LV that should become the data part of the new pool
  * @metadata_lv: name of the LV that should become the metadata part of the new pool
- * @name: (allow-none): name for the thin pool (if %NULL, the name @data_lv is inherited)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the thin pool creation
+ * @name: (nullable): name for the thin pool (if %NULL, the name @data_lv is inherited)
+ * @extra: (nullable) (array zero-terminated=1): extra options for the thin pool creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Converts the @data_lv and @metadata_lv into a new thin pool in the @vg_name
  * VG.
@@ -2613,10 +3289,10 @@ gboolean bd_lvm_thpool_convert (const gchar *vg_name, const gchar *data_lv, cons
  * @vg_name: name of the VG to create the new thin pool in
  * @data_lv: name of the LV that should become the data part of the new pool
  * @metadata_lv: name of the LV that should become the metadata part of the new pool
- * @name: (allow-none): name for the thin pool (if %NULL, the name @data_lv is inherited)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the thin pool creation
+ * @name: (nullable): name for the thin pool (if %NULL, the name @data_lv is inherited)
+ * @extra: (nullable) (array zero-terminated=1): extra options for the thin pool creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Converts the @data_lv and @metadata_lv into a new cache pool in the @vg_name
  * VG.
@@ -2645,16 +3321,16 @@ gboolean bd_lvm_cache_pool_convert (const gchar *vg_name, const gchar *data_lv, 
  * bd_lvm_vdo_pool_create:
  * @vg_name: name of the VG to create a new LV in
  * @lv_name: name of the to-be-created VDO LV
- * @pool_name: name of the to-be-created VDO pool LV
+ * @pool_name: (nullable): name of the to-be-created VDO pool LV or %NULL for default name
  * @data_size: requested size of the data VDO LV (physical size of the @pool_name VDO pool LV)
  * @virtual_size: requested virtual_size of the @lv_name VDO LV
  * @index_memory: amount of index memory (in bytes) or 0 for default
  * @compression: whether to enable compression or not
  * @deduplication: whether to enable deduplication or not
  * @write_policy: write policy for the volume
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO LV creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO LV creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the given @vg_name/@lv_name VDO LV was successfully created or not
  *
@@ -2670,12 +3346,16 @@ gboolean bd_lvm_vdo_pool_create (const gchar *vg_name, const gchar *lv_name, con
     const gchar *write_policy_str = NULL;
 
     write_policy_str = bd_lvm_get_vdo_write_policy_str (write_policy, error);
-    if (*error)
+    if (!write_policy_str)
         return FALSE;
 
     args[6] = g_strdup_printf ("%"G_GUINT64_FORMAT"K", data_size / 1024);
     args[8] = g_strdup_printf ("%"G_GUINT64_FORMAT"K", virtual_size / 1024);
-    args[14] = g_strdup_printf ("%s/%s", vg_name, pool_name);
+
+    if (pool_name) {
+        args[14] = g_strdup_printf ("%s/%s", vg_name, pool_name);
+    } else
+        args[14] = vg_name;
 
     /* index_memory and write_policy can be specified only using the config */
     g_mutex_lock (&global_config_lock);
@@ -2696,7 +3376,9 @@ gboolean bd_lvm_vdo_pool_create (const gchar *vg_name, const gchar *lv_name, con
 
     g_free ((gchar *) args[6]);
     g_free ((gchar *) args[8]);
-    g_free ((gchar *) args[14]);
+
+    if (pool_name)
+        g_free ((gchar *) args[14]);
 
     return success;
 }
@@ -2717,9 +3399,9 @@ static gboolean _vdo_set_compression_deduplication (const gchar *vg_name, const 
  * bd_lvm_vdo_enable_compression:
  * @vg_name: name of the VG containing the to-be-changed VDO pool LV
  * @pool_name: name of the VDO pool LV to enable compression on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO change
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO change
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether compression was successfully enabled on @vg_name/@pool_name LV or not
  *
@@ -2733,9 +3415,9 @@ gboolean bd_lvm_vdo_enable_compression (const gchar *vg_name, const gchar *pool_
  * bd_lvm_vdo_disable_compression:
  * @vg_name: name of the VG containing the to-be-changed VDO pool LV
  * @pool_name: name of the VDO pool LV to disable compression on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO change
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO change
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether compression was successfully disabled on @vg_name/@pool_name LV or not
  *
@@ -2749,9 +3431,9 @@ gboolean bd_lvm_vdo_disable_compression (const gchar *vg_name, const gchar *pool
  * bd_lvm_vdo_enable_deduplication:
  * @vg_name: name of the VG containing the to-be-changed VDO pool LV
  * @pool_name: name of the VDO pool LV to enable deduplication on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO change
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO change
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether deduplication was successfully enabled on @vg_name/@pool_name LV or not
  *
@@ -2765,9 +3447,9 @@ gboolean bd_lvm_vdo_enable_deduplication (const gchar *vg_name, const gchar *poo
  * bd_lvm_vdo_enable_deduplication:
  * @vg_name: name of the VG containing the to-be-changed VDO pool LV
  * @pool_name: name of the VDO pool LV to disable deduplication on
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO change
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO change
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether deduplication was successfully disabled on @vg_name/@pool_name LV or not
  *
@@ -2781,7 +3463,7 @@ gboolean bd_lvm_vdo_disable_deduplication (const gchar *vg_name, const gchar *po
  * bd_lvm_vdo_info:
  * @vg_name: name of the VG that contains the LV to get information about
  * @lv_name: name of the LV to get information about
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): information about the @vg_name/@lv_name LV or %NULL in case
  * of error (the @error) gets populated in those cases)
@@ -2834,9 +3516,9 @@ BDLVMVDOPooldata* bd_lvm_vdo_info (const gchar *vg_name, const gchar *lv_name, G
  * @vg_name: name of the VG containing the to-be-resized VDO LV
  * @lv_name: name of the to-be-resized VDO LV
  * @size: the requested new size of the VDO LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO LV resize
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO LV resize
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@lv_name VDO LV was successfully resized or not
  *
@@ -2854,9 +3536,9 @@ gboolean bd_lvm_vdo_resize (const gchar *vg_name, const gchar *lv_name, guint64 
  * @vg_name: name of the VG containing the to-be-resized VDO pool LV
  * @pool_name: name of the to-be-resized VDO pool LV
  * @size: the requested new size of the VDO pool LV
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO pool LV resize
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO pool LV resize
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @vg_name/@pool_name VDO pool LV was successfully resized or not
  *
@@ -2887,15 +3569,15 @@ gboolean bd_lvm_vdo_pool_resize (const gchar *vg_name, const gchar *pool_name, g
  * bd_lvm_vdo_pool_convert:
  * @vg_name: name of the VG that contains @pool_lv
  * @pool_lv: name of the LV that should become the new VDO pool LV
- * @name: (allow-none): name for the VDO LV or %NULL for default name
+ * @name: (nullable): name for the VDO LV or %NULL for default name
  * @virtual_size: virtual size for the new VDO LV
  * @index_memory: amount of index memory (in bytes) or 0 for default
  * @compression: whether to enable compression or not
  * @deduplication: whether to enable deduplication or not
  * @write_policy: write policy for the volume
- * @extra: (allow-none) (array zero-terminated=1): extra options for the VDO pool creation
+ * @extra: (nullable) (array zero-terminated=1): extra options for the VDO pool creation
  *                                                 (just passed to LVM as is)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Converts the @pool_lv into a new VDO pool LV in the @vg_name VG and creates a new
  * @name VDO LV with size @virtual_size.
@@ -2904,7 +3586,7 @@ gboolean bd_lvm_vdo_pool_resize (const gchar *vg_name, const gchar *pool_name, g
  *
  * Returns: whether the new VDO pool LV was successfully created from @pool_lv and or not
  *
- * Tech category: %BD_LVM_TECH_POOL-%BD_LVM_TECH_MODE_CREATE
+ * Tech category: %BD_LVM_TECH_VDO-%BD_LVM_TECH_MODE_CREATE&%BD_LVM_TECH_MODE_MODIFY
  */
 gboolean bd_lvm_vdo_pool_convert (const gchar *vg_name, const gchar *pool_lv, const gchar *name, guint64 virtual_size, guint64 index_memory, gboolean compression, gboolean deduplication, BDLVMVDOWritePolicy write_policy, const BDExtraArg **extra, GError **error) {
     const gchar *args[14] = {"lvconvert", "--yes", "--type", "vdo-pool",
@@ -2919,7 +3601,7 @@ gboolean bd_lvm_vdo_pool_convert (const gchar *vg_name, const gchar *pool_lv, co
     const gchar *write_policy_str = NULL;
 
     write_policy_str = bd_lvm_get_vdo_write_policy_str (write_policy, error);
-    if (*error)
+    if (!write_policy_str)
         return FALSE;
 
     if (name) {
@@ -2960,7 +3642,7 @@ gboolean bd_lvm_vdo_pool_convert (const gchar *vg_name, const gchar *pool_lv, co
  * bd_lvm_vdolvpoolname:
  * @vg_name: name of the VG containing the queried VDO LV
  * @lv_name: name of the queried VDO LV
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): the name of the pool volume for the @vg_name/@lv_name
  * VDO LV or %NULL if failed to determine (@error) is set in those cases)
@@ -2986,7 +3668,7 @@ gchar* bd_lvm_vdolvpoolname (const gchar *vg_name, const gchar *lv_name, GError 
 /**
  * bd_lvm_get_vdo_operating_mode_str:
  * @mode: mode to get the string representation for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: string representation of @mode or %NULL in case of error
  *
@@ -3012,7 +3694,7 @@ const gchar* bd_lvm_get_vdo_operating_mode_str (BDLVMVDOOperatingMode mode, GErr
 /**
  * bd_lvm_get_vdo_compression_state_str:
  * @state: state to get the string representation for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: string representation of @state or %NULL in case of error
  *
@@ -3036,7 +3718,7 @@ const gchar* bd_lvm_get_vdo_compression_state_str (BDLVMVDOCompressionState stat
 /**
  * bd_lvm_get_vdo_index_state_str:
  * @state: state to get the string representation for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: string representation of @state or %NULL in case of error
  *
@@ -3068,7 +3750,7 @@ const gchar* bd_lvm_get_vdo_index_state_str (BDLVMVDOIndexState state, GError **
 /**
  * bd_lvm_get_vdo_write_policy_str:
  * @policy: policy to get the string representation for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: string representation of @policy or %NULL in case of error
  *
@@ -3094,7 +3776,7 @@ const gchar* bd_lvm_get_vdo_write_policy_str (BDLVMVDOWritePolicy policy, GError
 /**
  * bd_lvm_get_vdo_write_policy_from_str:
  * @policy_str: string representation of a policy
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: write policy for the @policy_str or %BD_LVM_VDO_WRITE_POLICY_UNKNOWN if
  *          failed to determine
@@ -3119,7 +3801,7 @@ BDLVMVDOWritePolicy bd_lvm_get_vdo_write_policy_from_str (const gchar *policy_st
  * bd_lvm_vdo_get_stats_full:
  * @vg_name: name of the VG that contains @pool_name VDO pool
  * @pool_name: name of the VDO pool to get statistics for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full) (element-type utf8 utf8): hashtable of type string - string of available
  *                                                    statistics or %NULL in case of error
@@ -3134,14 +3816,14 @@ BDLVMVDOWritePolicy bd_lvm_get_vdo_write_policy_from_str (const gchar *policy_st
  */
 GHashTable* bd_lvm_vdo_get_stats_full (const gchar *vg_name, const gchar *pool_name, GError **error) {
     g_autofree gchar *kvdo_name = g_strdup_printf ("%s-%s-%s", vg_name, pool_name, VDO_POOL_SUFFIX);
-    return vdo_get_stats_full(kvdo_name, error);
+    return vdo_get_stats_full (kvdo_name, error);
 }
 
 /**
  * bd_lvm_vdo_get_stats:
  * @vg_name: name of the VG that contains @pool_name VDO pool
  * @pool_name: name of the VDO pool to get statistics for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): a structure containing selected statistics or %NULL in case of error
  *                           (@error gets populated in those cases)
@@ -3174,4 +3856,116 @@ BDLVMVDOStats* bd_lvm_vdo_get_stats (const gchar *vg_name, const gchar *pool_nam
     g_hash_table_destroy (full_stats);
 
     return stats;
+}
+
+/* check whether the LVM devices file is enabled by LVM
+ * we use the existence of the "lvmdevices" command to check whether the feature is available
+ * or not, but this can still be disabled either in LVM or in lvm.conf
+ */
+static gboolean _lvm_devices_enabled () {
+    const gchar *args[5] = {"config", "--typeconfig", NULL, "devices/use_devicesfile", NULL};
+    gboolean ret = FALSE;
+    GError *loc_error = NULL;
+    gchar *output = NULL;
+    gboolean enabled = FALSE;
+    gint scanned = 0;
+
+    /* try full config first -- if we get something from this it means the feature is
+       explicitly enabled or disabled by system lvm.conf or using the --config option */
+    args[2] = "full";
+    ret = call_lvm_and_capture_output (args, NULL, &output, &loc_error);
+    if (ret) {
+        scanned = sscanf (output, "use_devicesfile=%u", &enabled);
+        g_free (output);
+        if (scanned != 1)
+            return FALSE;
+
+        return enabled;
+    } else {
+        g_clear_error (&loc_error);
+        g_free (output);
+    }
+
+    output = NULL;
+
+    /* now try default */
+    args[2] = "default";
+    ret = call_lvm_and_capture_output (args, NULL, &output, &loc_error);
+    if (ret) {
+        scanned = sscanf (output, "# use_devicesfile=%u", &enabled);
+        g_free (output);
+        if (scanned != 1)
+            return FALSE;
+
+        return enabled;
+    } else {
+        g_clear_error (&loc_error);
+        g_free (output);
+    }
+
+    return FALSE;
+}
+
+/**
+ * bd_lvm_devices_add:
+ * @device: device (PV) to add to the devices file
+ * @devices_file: (nullable): LVM devices file or %NULL for default
+ * @extra: (nullable) (array zero-terminated=1): extra options for the lvmdevices command
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the @device was successfully added to @devices_file or not
+ *
+ * Tech category: %BD_LVM_TECH_DEVICES no mode (it is ignored)
+ */
+gboolean bd_lvm_devices_add (const gchar *device, const gchar *devices_file, const BDExtraArg **extra, GError **error) {
+    const gchar *args[5] = {"lvmdevices", "--adddev", device, NULL, NULL};
+    g_autofree gchar *devfile = NULL;
+
+    if (!bd_lvm_is_tech_avail (BD_LVM_TECH_DEVICES, 0, error))
+        return FALSE;
+
+    if (!_lvm_devices_enabled ()) {
+        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_DEVICES_DISABLED,
+                     "LVM devices file not enabled.");
+        return FALSE;
+    }
+
+    if (devices_file) {
+        devfile = g_strdup_printf ("--devicesfile=%s", devices_file);
+        args[3] = devfile;
+    }
+
+    return bd_utils_exec_and_report_error (args, extra, error);
+}
+
+/**
+ * bd_lvm_devices_delete:
+ * @device: device (PV) to delete from the devices file
+ * @devices_file: (nullable): LVM devices file or %NULL for default
+ * @extra: (nullable) (array zero-terminated=1): extra options for the lvmdevices command
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: whether the @device was successfully removed from @devices_file or not
+ *
+ * Tech category: %BD_LVM_TECH_DEVICES no mode (it is ignored)
+ */
+gboolean bd_lvm_devices_delete (const gchar *device, const gchar *devices_file, const BDExtraArg **extra, GError **error) {
+    const gchar *args[5] = {"lvmdevices", "--deldev", device, NULL, NULL};
+    g_autofree gchar *devfile = NULL;
+
+    if (!bd_lvm_is_tech_avail (BD_LVM_TECH_DEVICES, 0, error))
+        return FALSE;
+
+    if (!_lvm_devices_enabled ()) {
+        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_DEVICES_DISABLED,
+                     "LVM devices file not enabled.");
+        return FALSE;
+    }
+
+    if (devices_file) {
+        devfile = g_strdup_printf ("--devicesfile=%s", devices_file);
+        args[3] = devfile;
+    }
+
+    return bd_utils_exec_and_report_error (args, extra, error);
 }

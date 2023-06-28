@@ -17,7 +17,7 @@
  * Author: Vratislav Podzimek <vpodzime@redhat.com>
  */
 
-#define _XOPEN_SOURCE  // needed for time.h
+#define _XOPEN_SOURCE  /* needed for time.h */
 
 #include <glib.h>
 #include <unistd.h>
@@ -29,6 +29,8 @@
 
 #include "mdraid.h"
 #include "check_deps.h"
+
+#define MDADM_MIN_VERSION "3.3.2"
 
 /**
  * SECTION: mdraid
@@ -116,6 +118,7 @@ BDMDDetailData* bd_md_detail_data_copy (BDMDDetailData *data) {
     new_data->spare_devices = data->spare_devices;
     new_data->clean = data->clean;
     new_data->uuid = g_strdup (data->uuid);
+    new_data->container = g_strdup (data->container);
 
     return new_data;
 }
@@ -135,6 +138,7 @@ void bd_md_detail_data_free (BDMDDetailData *data) {
     g_free (data->creation_time);
     g_free (data->level);
     g_free (data->uuid);
+    g_free (data->container);
 
     g_free (data);
 }
@@ -150,38 +154,6 @@ static GMutex deps_check_lock;
 static const UtilDep deps[DEPS_LAST] = {
     {"mdadm", MDADM_MIN_VERSION, NULL, "mdadm - v([\\d\\.]+)"},
 };
-
-
-/**
- * bd_md_check_deps:
- *
- * Returns: whether the plugin's runtime dependencies are satisfied or not
- *
- * Function checking plugin's runtime dependencies.
- *
- */
-gboolean bd_md_check_deps (void) {
-    GError *error = NULL;
-    guint i = 0;
-    gboolean status = FALSE;
-    gboolean ret = TRUE;
-
-    for (i=0; i < DEPS_LAST; i++) {
-        status = bd_utils_check_util_version (deps[i].name, deps[i].version,
-                                              deps[i].ver_arg, deps[i].ver_regexp, &error);
-        if (!status)
-            g_warning ("%s", error->message);
-        else
-            g_atomic_int_or (&avail_deps, 1 << i);
-        g_clear_error (&error);
-        ret = ret && status;
-    }
-
-    if (!ret)
-        g_warning ("Cannot load the MDRAID plugin");
-
-    return ret;
-}
 
 
 /**
@@ -213,7 +185,7 @@ void bd_md_close (void) {
  * bd_md_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
@@ -275,7 +247,7 @@ static GHashTable* parse_mdadm_vars (const gchar *str, const gchar *item_sep, co
     return table;
 }
 
-static BDMDExamineData* get_examine_data_from_table (GHashTable *table, gboolean free_table, G_GNUC_UNUSED GError **error) {
+static BDMDExamineData* get_examine_data_from_table (GHashTable *table, gboolean free_table) {
     BDMDExamineData *data = g_new0 (BDMDExamineData, 1);
     gchar *value = NULL;
     gchar *first_space = NULL;
@@ -326,9 +298,9 @@ static BDMDExamineData* get_examine_data_from_table (GHashTable *table, gboolean
 
     value = (gchar*) g_hash_table_lookup (table, "Update Time");
     if (value) {
-        memset(&tm, 0, sizeof(struct tm));
-        strptime(value, "%a %b %e %H:%M:%S %Y", &tm);
-        strftime(time_str, sizeof(time_str), "%s" , &tm);
+        memset (&tm, 0, sizeof (struct tm));
+        strptime (value, "%a %b %e %H:%M:%S %Y", &tm);
+        strftime (time_str, sizeof (time_str), "%s" , &tm);
 
         data->update_time = g_ascii_strtoull (time_str, NULL, 0);
     } else
@@ -357,7 +329,8 @@ static BDMDExamineData* get_examine_data_from_table (GHashTable *table, gboolean
         }
 
         if (bs_error) {
-            g_warning ("get_examine_data_from_table(): Failed to parse chunk size from mdexamine data: %s", bs_error->msg);
+            bd_utils_log_format (BD_UTILS_LOG_WARNING, "get_examine_data_from_table(): Failed to parse chunk size "
+                          "from mdexamine data: %s", bs_error->msg);
             bs_clear_error (&bs_error);
         }
     } else
@@ -462,11 +435,11 @@ static BDMDDetailData* get_detail_data_from_table (GHashTable *table, gboolean f
 /**
  * get_sysfs_name_from_input: (skip)
  * @input: either RAID name or node name
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): RAID node name
  */
-static gchar* get_sysfs_name_from_input(const gchar *input, GError **error) {
+static gchar* get_sysfs_name_from_input (const gchar *input, GError **error) {
   gchar* sysfs_name = NULL;
   gchar* path = NULL;
 
@@ -490,14 +463,14 @@ static gchar* get_sysfs_name_from_input(const gchar *input, GError **error) {
 /**
  * get_mdadm_spec_from_input: (skip)
  * @input: RAID specification from user
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): RAID specification for mdadm
  *
  * Takes some RAID specification (raid name, node name, path or name symlink)
  * and returns a new specification suitable for mdadm command.
  */
-static gchar* get_mdadm_spec_from_input(const gchar *input, GError **error) {
+static gchar* get_mdadm_spec_from_input (const gchar *input, GError **error) {
   gchar* md_path_str = NULL;
   gchar* name_path_str = NULL;
   gchar* mdadm_spec = NULL;
@@ -530,15 +503,15 @@ static gchar* get_mdadm_spec_from_input(const gchar *input, GError **error) {
 /**
  * bd_md_get_superblock_size:
  * @member_size: size of an array member
- * @version: (allow-none): metadata version or %NULL to use the current default version
- * @error: (out): place to store error (if any)
+ * @version: (nullable): metadata version or %NULL to use the current default version
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: Calculated superblock size for an array with a given @member_size
  * and metadata @version or default if unsupported @version is used.
  *
  * Tech category: always available
  */
-guint64 bd_md_get_superblock_size (guint64 member_size, const gchar *version, GError **error __attribute__((unused))) {
+guint64 bd_md_get_superblock_size (guint64 member_size, const gchar *version, GError **error UNUSED) {
     guint64 headroom = BD_MD_SUPERBLOCK_SIZE;
     guint64 min_headroom = (1 MiB);
 
@@ -565,18 +538,18 @@ guint64 bd_md_get_superblock_size (guint64 member_size, const gchar *version, GE
  * @level: RAID level (as understood by mdadm, see mdadm(8))
  * @disks: (array zero-terminated=1): disks to use for the new RAID (including spares)
  * @spares: number of spare devices
- * @version: (allow-none): metadata version
- * @bitmap: whether to create an internal bitmap on the device or not
+ * @version: (nullable): metadata version
+ * @bitmap: (nullable): write-intent bitmap location ('none', 'internal') or %NULL to let mdadm decide (i.e. internal > 100GB)
  * @chunk_size: chunk size of the device to create
- * @extra: (allow-none) (array zero-terminated=1): extra options for the creation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the creation (right now
  *                                                 passed to the 'mdadm' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the new MD RAID device @device_name was successfully created or not
  *
  * Tech category: %BD_MD_TECH_MDRAID-%BD_MD_TECH_MODE_CREATE
  */
-gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar **disks, guint64 spares, const gchar *version, gboolean bitmap, guint64 chunk_size, const BDExtraArg **extra, GError **error) {
+gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar **disks, guint64 spares, const gchar *version, const gchar *bitmap, guint64 chunk_size, const BDExtraArg **extra, GError **error) {
     const gchar **argv = NULL;
     /* {"mdadm", "create", device, "--run", "level", "raid-devices",...} */
     guint argv_len = 6;
@@ -588,6 +561,7 @@ gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar
     gchar *spares_str = NULL;
     gchar *version_str = NULL;
     gchar *chunk_str = NULL;
+    gchar *bitmap_str = NULL;
     gboolean ret = FALSE;
 
     if (!check_deps (&avail_deps, DEPS_MDADM_MASK, deps, DEPS_LAST, &deps_check_lock, error))
@@ -625,8 +599,10 @@ gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar
         version_str = g_strdup_printf ("--metadata=%s", version);
         argv[argv_top++] = version_str;
     }
-    if (bitmap)
-        argv[argv_top++] = "--bitmap=internal";
+    if (bitmap) {
+        bitmap_str = g_strdup_printf ("--bitmap=%s", bitmap);
+        argv[argv_top++] = bitmap_str;
+    }
     if (chunk_size != 0) {
         chunk_str = g_strdup_printf ("--chunk=%"G_GUINT64_FORMAT, chunk_size/1024);
         argv[argv_top++] = chunk_str;
@@ -643,6 +619,7 @@ gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar
     g_free (spares_str);
     g_free (version_str);
     g_free (chunk_str);
+    g_free (bitmap_str);
     g_free (argv);
 
     return ret;
@@ -651,7 +628,7 @@ gboolean bd_md_create (const gchar *device_name, const gchar *level, const gchar
 /**
  * bd_md_destroy:
  * @device: device to destroy MD RAID metadata on
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the MD RAID metadata was successfully destroyed on @device or not
  *
@@ -669,7 +646,7 @@ gboolean bd_md_destroy (const gchar *device, GError **error) {
 /**
  * bd_md_deactivate:
  * @raid_spec: specification of the RAID device (name, node or path)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the RAID device @raid_spec was successfully deactivated or not
  *
@@ -698,13 +675,13 @@ gboolean bd_md_deactivate (const gchar *raid_spec, GError **error) {
 
 /**
  * bd_md_activate:
- * @raid_spec: (allow-none): specification of the RAID device (name, node or path) to activate (if not given "--scan" is implied and @members is ignored)
- * @members: (allow-none) (array zero-terminated=1): member devices to be considered for @device activation
- * @uuid: (allow-none): UUID (in the MD RAID format!) of the MD RAID to activate
+ * @raid_spec: (nullable): specification of the RAID device (name, node or path) to activate (if not given "--scan" is implied and @members is ignored)
+ * @members: (nullable) (array zero-terminated=1): member devices to be considered for @device activation
+ * @uuid: (nullable): UUID (in the MD RAID format!) of the MD RAID to activate
  * @start_degraded: whether to start the array even if it's degraded
- * @extra: (allow-none) (array zero-terminated=1): extra options for the activation (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the activation (right now
  *                                                 passed to the 'mdadm' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the MD RAID @device was successfully activated or not
  *
@@ -719,9 +696,23 @@ gboolean bd_md_activate (const gchar *raid_spec, const gchar **members, const gc
     guint argv_top = 0;
     guint i = 0;
     gboolean ret = FALSE;
+    BDMDDetailData *data = NULL;
 
     if (!check_deps (&avail_deps, DEPS_MDADM_MASK, deps, DEPS_LAST, &deps_check_lock, error))
         return FALSE;
+
+    if (raid_spec) {
+        data = bd_md_detail (raid_spec, NULL);
+        if (data) {
+            bd_utils_log_format (BD_UTILS_LOG_INFO,
+                                 "RAID array '%s' is already active with %"G_GUINT64_FORMAT" devices"
+                                 " (%"G_GUINT64_FORMAT" active, %"G_GUINT64_FORMAT" spare)",
+                                 raid_spec, data->total_devices,
+                                 data->active_devices, data->spare_devices);
+            bd_md_detail_data_free (data);
+            return TRUE;
+        }
+    }
 
     /* mdadm, --assemble, raid_spec/--scan, --run, --uuid=uuid, member1, member2,..., NULL*/
     argv = g_new0 (const gchar*, num_members + 6);
@@ -756,7 +747,7 @@ gboolean bd_md_activate (const gchar *raid_spec, const gchar **members, const gc
 /**
  * bd_md_run:
  * @raid_spec: specification of the (possibly degraded) RAID device (name, node or path) to be started
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @raid_spec was successfully started or not
  *
@@ -786,7 +777,7 @@ gboolean bd_md_run (const gchar *raid_spec, GError **error) {
 /**
  * bd_md_nominate:
  * @device: device to nominate (add to its appropriate RAID) as a MD RAID device
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @device was successfully nominated (added to its
  * appropriate RAID) or not
@@ -807,7 +798,7 @@ gboolean bd_md_nominate (const gchar *device, GError **error) {
 /**
  * bd_md_denominate:
  * @device: device to denominate (remove from its appropriate RAID) as a MD RAID device
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @device was successfully denominated (added to its
  * appropriate RAID) or not
@@ -832,9 +823,9 @@ gboolean bd_md_denominate (const gchar *device, GError **error) {
  * @device: name of the device to add to the @raid_spec RAID device
  * @raid_devs: number of devices the @raid_spec RAID should actively use or 0
  *             to leave unspecified (see below)
- * @extra: (allow-none) (array zero-terminated=1): extra options for the addition (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the addition (right now
  *                                                 passed to the 'mdadm' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @device was successfully added to the @raid_spec RAID or
  * not
@@ -886,9 +877,9 @@ gboolean bd_md_add (const gchar *raid_spec, const gchar *device, guint64 raid_de
  * @raid_spec: specification of the RAID device (name, node or path) to remove @device from
  * @device: device to remove from the @raid_spec RAID
  * @fail: whether to mark the @device as failed before removing
- * @extra: (allow-none) (array zero-terminated=1): extra options for the removal (right now
+ * @extra: (nullable) (array zero-terminated=1): extra options for the removal (right now
  *                                                 passed to the 'mdadm' utility)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @device was successfully removed from the @raid_spec
  * RAID or not.
@@ -937,7 +928,7 @@ gboolean bd_md_remove (const gchar *raid_spec, const gchar *device, gboolean fai
 /**
  * bd_md_examine:
  * @device: name of the device (a member of an MD RAID) to examine
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: information about the MD RAID extracted from the @device
  *
@@ -974,10 +965,13 @@ BDMDExamineData* bd_md_examine (const gchar *device, GError **error) {
         return NULL;
     }
 
-    ret = get_examine_data_from_table (table, TRUE, error);
-    if (!ret)
-        /* error is already populated */
+    ret = get_examine_data_from_table (table, TRUE);
+    if (!ret) {
+        g_set_error (error, BD_MD_ERROR, BD_MD_ERROR_PARSE, "Failed to get mdexamine data");
+        if (table)
+            g_hash_table_destroy (table);
         return NULL;
+    }
 
     /* canonicalize UUIDs (as long as we got them) */
     orig_data = ret->uuid;
@@ -1085,7 +1079,7 @@ BDMDExamineData* bd_md_examine (const gchar *device, GError **error) {
 /**
  * bd_md_detail:
  * @raid_spec: specification of the RAID device (name, node or path) to examine
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: information about the MD RAID @raid_spec
  *
@@ -1143,35 +1137,38 @@ BDMDDetailData* bd_md_detail (const gchar *raid_spec, GError **error) {
         g_free (orig_uuid);
     }
 
-    if (!ret->uuid) {
-        argv[2] = "--export";
-        argv[3] = mdadm_spec;
-        success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
-        if (!success) {
-            /* error is already populated */
-            bd_md_detail_data_free (ret);
-            return NULL;
-        }
-
-        /* try to get a better information about RAID level because it may be
-           missing in the output without --export */
-        output_fields = g_strsplit (output, "\n", 0);
-        g_free (output);
-        output = NULL;
-        for (i = 0; (i < g_strv_length (output_fields) - 1); i++)
-            if (g_str_has_prefix (output_fields[i], "MD_UUID=")) {
-                value = strchr (output_fields[i], '=');
-                value++;
-                ret->uuid = bd_md_canonicalize_uuid (value, error);
-                if (!ret->uuid) {
-                    g_prefix_error (error, "Failed to canonicalize MD UUID '%s': ", value);
-                    bd_md_detail_data_free (ret);
-                    g_strfreev (output_fields);
-                    return NULL;
-                }
-            }
-        g_strfreev (output_fields);
+    argv[2] = "--export";
+    argv[3] = mdadm_spec;
+    success = bd_utils_exec_and_capture_output (argv, NULL, &output, error);
+    if (!success) {
+        /* error is already populated */
+        bd_md_detail_data_free (ret);
+        return NULL;
     }
+
+    /* try to get a better information about RAID level because it may be
+        missing in the output without --export */
+    output_fields = g_strsplit (output, "\n", 0);
+    g_free (output);
+    output = NULL;
+    for (i = 0; (i < g_strv_length (output_fields) - 1); i++) {
+        if (!ret->uuid && g_str_has_prefix (output_fields[i], "MD_UUID=")) {
+            value = strchr (output_fields[i], '=');
+            value++;
+            ret->uuid = bd_md_canonicalize_uuid (value, error);
+            if (!ret->uuid) {
+                g_prefix_error (error, "Failed to canonicalize MD UUID '%s': ", value);
+                bd_md_detail_data_free (ret);
+                g_strfreev (output_fields);
+                return NULL;
+            }
+        } else if (g_str_has_prefix (output_fields[i], "MD_CONTAINER=")) {
+            value = strchr (output_fields[i], '=');
+            value++;
+            ret->container = g_strdup (value);
+        }
+    }
+    g_strfreev (output_fields);
 
     return ret;
 }
@@ -1179,9 +1176,9 @@ BDMDDetailData* bd_md_detail (const gchar *raid_spec, GError **error) {
 /**
  * bd_md_canonicalize_uuid:
  * @uuid: UUID to canonicalize
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
- * Returns: (transfer full): cannonicalized form of @uuid or %NULL in case of error
+ * Returns: (transfer full): canonicalized form of @uuid or %NULL in case of error
  *
  * This function expects a UUID in the form that mdadm returns. The change is as
  * follows: 3386ff85:f5012621:4a435f06:1eb47236 -> 3386ff85-f501-2621-4a43-5f061eb47236
@@ -1252,7 +1249,7 @@ gchar* bd_md_canonicalize_uuid (const gchar *uuid, GError **error) {
 /**
  * bd_md_get_md_uuid:
  * @uuid: UUID to transform into format used by MD RAID
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): transformed form of @uuid or %NULL in case of error
  *
@@ -1325,7 +1322,7 @@ gchar* bd_md_get_md_uuid (const gchar *uuid, GError **error) {
 /**
  * bd_md_node_from_name:
  * @name: name of the MD RAID
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: device node of the @name MD RAID or %NULL in case of error
  *
@@ -1351,7 +1348,7 @@ gchar* bd_md_node_from_name (const gchar *name, GError **error) {
 /**
  * bd_md_name_from_node:
  * @node: path of the MD RAID's device node
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: @name of the MD RAID the device node belongs to or %NULL in case of error
  *
@@ -1375,11 +1372,9 @@ gchar* bd_md_name_from_node (const gchar *node, GError **error) {
         return NULL;
     }
     for (path_p = glob_buf.gl_pathv; *path_p && !found; path_p++) {
-        dev_path = bd_utils_resolve_device (*path_p, error);
-        if (!dev_path) {
-            g_clear_error (error);
+        dev_path = bd_utils_resolve_device (*path_p, NULL);
+        if (!dev_path)
             continue;
-        }
         node_name = g_path_get_basename (dev_path);
         g_free (dev_path);
         if (g_strcmp0 (node_name, node) == 0) {
@@ -1399,7 +1394,7 @@ gchar* bd_md_name_from_node (const gchar *node, GError **error) {
 /**
  * bd_md_get_status
  * @raid_spec: specification of the RAID device (name, node or path) to get status
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): status of the @raid_spec RAID.
  *
@@ -1421,7 +1416,7 @@ gchar* bd_md_get_status (const gchar *raid_spec, GError **error) {
 
     success = g_file_get_contents (sys_path, &ret, NULL, error);
     if (!success) {
-        /* error is alraedy populated */
+        /* error is already populated */
         g_free (sys_path);
         return NULL;
     }
@@ -1435,7 +1430,7 @@ gchar* bd_md_get_status (const gchar *raid_spec, GError **error) {
  * bd_md_set_bitmap_location:
  * @raid_spec: specification of the RAID device (name, node or path) to set the bitmap location
  * @location: bitmap location (none, internal or path)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether @location was successfully set for @raid_spec
  *
@@ -1475,7 +1470,7 @@ gboolean bd_md_set_bitmap_location (const gchar *raid_spec, const gchar *locatio
 /**
  * bd_md_get_bitmap_location:
  * @raid_spec: specification of the RAID device (name, node or path) to get the bitmap location
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): bitmap location for @raid_spec
  *
@@ -1497,7 +1492,7 @@ gchar* bd_md_get_bitmap_location (const gchar *raid_spec, GError **error) {
 
     success = g_file_get_contents (sys_path, &ret, NULL, error);
     if (!success) {
-        /* error is alraedy populated */
+        /* error is already populated */
         g_free (sys_path);
         return NULL;
     }
@@ -1511,7 +1506,7 @@ gchar* bd_md_get_bitmap_location (const gchar *raid_spec, GError **error) {
  * bd_md_request_sync_action:
  * @raid_spec: specification of the RAID device (name, node or path) to request sync action on
  * @action: requested sync action (resync, recovery, check, repair or idle)
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @action was successfully requested for the @raid_spec
  * RAID or not.

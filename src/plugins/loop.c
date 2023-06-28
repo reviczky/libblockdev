@@ -49,19 +49,6 @@ GQuark bd_loop_error_quark (void)
 }
 
 /**
- * bd_loop_check_deps:
- *
- * Returns: whether the plugin's runtime dependencies are satisfied or not
- *
- * Function checking plugin's runtime dependencies.
- *
- */
-gboolean bd_loop_check_deps (void) {
-    /* nothing to check here */
-    return TRUE;
-}
-
-/**
  * bd_loop_init:
  *
  * Initializes the plugin. **This function is called automatically by the
@@ -90,7 +77,7 @@ void bd_loop_close (void) {
  * bd_loop_is_tech_avail:
  * @tech: the queried tech
  * @mode: a bit mask of queried modes of operation (#BDLoopTechMode) for @tech
- * @error: (out): place to store error (details about why the @tech-@mode combination is not available)
+ * @error: (out) (optional): place to store error (details about why the @tech-@mode combination is not available)
  *
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
@@ -100,17 +87,31 @@ gboolean bd_loop_is_tech_avail (BDLoopTech tech UNUSED, guint64 mode UNUSED, GEr
     return TRUE;
 }
 
-/**
- * bd_loop_get_backing_file:
- * @dev_name: name of the loop device to get backing file for (e.g. "loop0")
- * @error: (out): place to store error (if any)
- *
- * Returns: (transfer full): path of the device's backing file or %NULL if none
- *                           is found
- *
- * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
- */
-gchar* bd_loop_get_backing_file (const gchar *dev_name, GError **error) {
+void bd_loop_info_free (BDLoopInfo *info) {
+    if (info == NULL)
+        return;
+
+    g_free (info->backing_file);
+    g_free (info);
+}
+
+BDLoopInfo* bd_loop_info_copy (BDLoopInfo *info) {
+    if (info == NULL)
+        return NULL;
+
+    BDLoopInfo *new_info = g_new0 (BDLoopInfo, 1);
+
+    new_info->backing_file = g_strdup (info->backing_file);
+    new_info->offset = info->offset;
+    new_info->autoclear = info->autoclear;
+    new_info->direct_io = info->direct_io;
+    new_info->part_scan = info->part_scan;
+    new_info->read_only = info->read_only;
+
+    return new_info;
+}
+
+static gchar* _loop_get_backing_file (const gchar *dev_name, GError **error) {
     gchar *sys_path = g_strdup_printf ("/sys/class/block/%s/loop/backing_file", dev_name);
     gchar *ret = NULL;
     gboolean success = FALSE;
@@ -122,7 +123,7 @@ gchar* bd_loop_get_backing_file (const gchar *dev_name, GError **error) {
 
     success = g_file_get_contents (sys_path, &ret, NULL, error);
     if (!success) {
-        /* error is alraedy populated */
+        /* error is already populated */
         g_free (sys_path);
         return NULL;
     }
@@ -132,20 +133,79 @@ gchar* bd_loop_get_backing_file (const gchar *dev_name, GError **error) {
 }
 
 /**
+ * bd_loop_info:
+ * @loop: name of the loop device to get information about (e.g. "loop0")
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Returns: (transfer full): information about the @loop device or %NULL in case of error
+ *
+ * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
+ */
+BDLoopInfo* bd_loop_info (const gchar *loop, GError **error) {
+    BDLoopInfo *info = NULL;
+    g_autofree gchar *dev_loop = NULL;
+    g_autofree gchar *sys_path = NULL;
+    gint fd = -1;
+    struct loop_info64 li64;
+    GError *l_error = NULL;
+
+    if (!g_str_has_prefix (loop, "/dev/"))
+        dev_loop = g_strdup_printf ("/dev/%s", loop);
+
+    fd = open (dev_loop ? dev_loop : loop, O_RDONLY);
+    if (fd < 0) {
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
+                     "Failed to open device %s: %m", loop);
+        return NULL;
+    }
+
+    memset (&li64, 0, sizeof (li64));
+    if (ioctl (fd, LOOP_GET_STATUS64, &li64) < 0) {
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+                     "Failed to get status of the device %s: %m", loop);
+        close (fd);
+        return NULL;
+    }
+
+    close (fd);
+
+    info = g_new0 (BDLoopInfo, 1);
+    info->offset = li64.lo_offset;
+    if ((li64.lo_flags & LO_FLAGS_AUTOCLEAR) != 0)
+        info->autoclear = TRUE;
+    if ((li64.lo_flags & LO_FLAGS_DIRECT_IO) != 0)
+        info->direct_io = TRUE;
+    if ((li64.lo_flags & LO_FLAGS_PARTSCAN) != 0)
+        info->part_scan = TRUE;
+    if ((li64.lo_flags & LO_FLAGS_READ_ONLY) != 0)
+        info->read_only = TRUE;
+
+    info->backing_file = _loop_get_backing_file (loop, &l_error);
+    if (l_error) {
+        bd_loop_info_free (info);
+        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+                     "Failed to get backing file of the device %s: %s", loop, l_error->message);
+        g_clear_error (&l_error);
+        return NULL;
+    }
+
+    return info;
+}
+
+/**
  * bd_loop_get_loop_name:
  * @file: path of the backing file to get loop name for
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: (transfer full): name of the loop device associated with the given
  * @file or %NULL if failed to determine
  *
  * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
  */
-gchar* bd_loop_get_loop_name (const gchar *file, GError **error __attribute__((unused))) {
+gchar* bd_loop_get_loop_name (const gchar *file, GError **error UNUSED) {
     glob_t globbuf;
     gchar **path_p;
     gboolean success = FALSE;
-    GError *tmp_error = NULL;
     gchar *content = NULL;
     gboolean found = FALSE;
     gchar **parts;
@@ -156,11 +216,9 @@ gchar* bd_loop_get_loop_name (const gchar *file, GError **error __attribute__((u
     }
 
     for (path_p = globbuf.gl_pathv; *path_p && !found; path_p++) {
-        success = g_file_get_contents (*path_p, &content, NULL, &tmp_error);
-        if (!success) {
-            g_clear_error (&tmp_error);
+        success = g_file_get_contents (*path_p, &content, NULL, NULL);
+        if (!success)
             continue;
-        }
 
         g_strstrip (content);
         found = (g_strcmp0 (content, file) == 0);
@@ -187,14 +245,15 @@ gchar* bd_loop_get_loop_name (const gchar *file, GError **error __attribute__((u
  * @size: maximum size of the device (or 0 to leave unspecified)
  * @read_only: whether to setup as read-only (%TRUE) or read-write (%FALSE)
  * @part_scan: whether to enforce partition scan on the newly created device or not
- * @loop_name: (allow-none) (out): if not %NULL, it is used to store the name of the loop device
- * @error: (out): place to store error (if any)
+ * @sector_size: logical sector size for the loop device in bytes (or 0 for default)
+ * @loop_name: (optional) (out): if not %NULL, it is used to store the name of the loop device
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @file was successfully setup as a loop device or not
  *
  * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_CREATE
  */
-gboolean bd_loop_setup (const gchar *file, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, const gchar **loop_name, GError **error) {
+gboolean bd_loop_setup (const gchar *file, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, guint64 sector_size, const gchar **loop_name, GError **error) {
     gint fd = -1;
     gboolean ret = FALSE;
 
@@ -207,7 +266,7 @@ gboolean bd_loop_setup (const gchar *file, guint64 offset, guint64 size, gboolea
         return FALSE;
     }
 
-    ret = bd_loop_setup_from_fd (fd, offset, size, read_only, part_scan, loop_name, error);
+    ret = bd_loop_setup_from_fd (fd, offset, size, read_only, part_scan, sector_size, loop_name, error);
     close (fd);
     return ret;
 }
@@ -219,14 +278,15 @@ gboolean bd_loop_setup (const gchar *file, guint64 offset, guint64 size, gboolea
  * @size: maximum size of the device (or 0 to leave unspecified)
  * @read_only: whether to setup as read-only (%TRUE) or read-write (%FALSE)
  * @part_scan: whether to enforce partition scan on the newly created device or not
- * @loop_name: (allow-none) (out): if not %NULL, it is used to store the name of the loop device
- * @error: (out): place to store error (if any)
+ * @sector_size: logical sector size for the loop device in bytes (or 0 for default)
+ * @loop_name: (optional) (out): if not %NULL, it is used to store the name of the loop device
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether an new loop device was successfully setup for @fd or not
  *
  * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_CREATE
  */
-gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, const gchar **loop_name, GError **error) {
+gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean read_only, gboolean part_scan, guint64 sector_size, const gchar **loop_name, GError **error) {
     gint loop_control_fd = -1;
     gint loop_number = -1;
     gchar *loop_device = NULL;
@@ -235,14 +295,16 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
     guint64 progress_id = 0;
     gint status = 0;
     guint n_try = 0;
+    GError *l_error = NULL;
 
     progress_id = bd_utils_report_started ("Started setting up loop device");
 
     loop_control_fd = open ("/dev/loop-control", O_RDWR);
     if (loop_control_fd == -1) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to open the loop-control device: %m");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -253,9 +315,10 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
     g_mutex_unlock (&loop_control_lock);
     close (loop_control_fd);
     if (loop_number < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to open the loop-control device: %m");
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -264,10 +327,11 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
     loop_device = g_strdup_printf ("/dev/loop%d", loop_number);
     loop_fd = open (loop_device, read_only ? O_RDONLY : O_RDWR);
     if (loop_fd == -1) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to open the %s device: %m", loop_device);
         g_free (loop_device);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -281,11 +345,12 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
     if (size > 0)
         li64.lo_sizelimit = size;
     if (ioctl (loop_fd, LOOP_SET_FD, fd) < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
                      "Failed to associate the %s device with the file descriptor: %m", loop_device);
         g_free (loop_device);
         close (loop_fd);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -302,12 +367,33 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
     }
 
     if (status != 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to set status for the %s device: %m", loop_device);
         g_free (loop_device);
         close (loop_fd);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
+    }
+
+    if (sector_size > 0) {
+        for (n_try=10, status=-1; (status != 0) && (n_try > 0); n_try--) {
+            status = ioctl (loop_fd, LOOP_SET_BLOCK_SIZE, (unsigned long) sector_size);
+            if (status < 0 && errno == EAGAIN)
+                g_usleep (100 * 1000); /* microseconds */
+            else
+                break;
+        }
+
+        if (status != 0) {
+            g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+                         "Failed to set sector size for the %s device: %m", loop_device);
+            g_free (loop_device);
+            close (loop_fd);
+            bd_utils_report_finished (progress_id, l_error->message);
+            g_propagate_error (error, l_error);
+            return FALSE;
+        }
     }
 
     if (loop_name)
@@ -322,7 +408,7 @@ gboolean bd_loop_setup_from_fd (gint fd, guint64 offset, guint64 size, gboolean 
 /**
  * bd_loop_teardown:
  * @loop: path or name of the loop device to tear down
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @loop device was successfully torn down or not
  *
@@ -332,6 +418,7 @@ gboolean bd_loop_teardown (const gchar *loop, GError **error) {
     gchar *dev_loop = NULL;
     gint loop_fd = -1;
     guint64 progress_id = 0;
+    GError *l_error = NULL;
 
     progress_id = bd_utils_report_started ("Started tearing down loop device");
 
@@ -341,17 +428,19 @@ gboolean bd_loop_teardown (const gchar *loop, GError **error) {
     loop_fd = open (dev_loop ? dev_loop : loop, O_RDONLY);
     g_free (dev_loop);
     if (loop_fd == -1) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to open the %s device: %m", loop);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
     if (ioctl (loop_fd, LOOP_CLR_FD) < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to detach the backing file from the %s device: %m", loop);
         close (loop_fd);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -364,7 +453,7 @@ gboolean bd_loop_teardown (const gchar *loop, GError **error) {
 /**
  * bd_loop_get_autoclear:
  * @loop: path or name of the loop device
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the autoclear flag is set on the @loop device or not (if %FALSE, @error may be set)
  *
@@ -386,7 +475,7 @@ gboolean bd_loop_get_autoclear (const gchar *loop, GError **error) {
     else
         sys_path = g_strdup_printf ("/sys/class/block/%s/loop/autoclear", loop);
 
-    success = g_file_get_contents (sys_path, &contents, NULL, error);
+    success = g_file_get_contents (sys_path, &contents, NULL, NULL);
     g_free (sys_path);
     if (success) {
         g_strstrip (contents);
@@ -395,8 +484,7 @@ gboolean bd_loop_get_autoclear (const gchar *loop, GError **error) {
         return ret;
     }
 
-    /* else try using the ioctl() (and ignore all previous errors) */
-    g_clear_error (error);
+    /* else try using the ioctl() */
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
 
@@ -424,7 +512,7 @@ gboolean bd_loop_get_autoclear (const gchar *loop, GError **error) {
  * bd_loop_set_autoclear:
  * @loop: path or name of the loop device
  * @autoclear: whether to set or unset the autoclear flag
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the autoclear flag was successfully set on the @loop device or not
  *
@@ -436,6 +524,7 @@ gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **
     struct loop_info64 li64;
     guint64 progress_id = 0;
     gchar *msg = NULL;
+    GError *l_error = NULL;
 
     if (!g_str_has_prefix (loop, "/dev/"))
         dev_loop = g_strdup_printf ("/dev/%s", loop);
@@ -448,18 +537,20 @@ gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **
     fd = open (dev_loop ? dev_loop : loop, O_RDWR);
     g_free (dev_loop);
     if (fd < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
                      "Failed to open device %s: %m", loop);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
     memset (&li64, 0, sizeof (li64));
     if (ioctl (fd, LOOP_GET_STATUS64, &li64) < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to get status of the device %s: %m", loop);
         close (fd);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 
@@ -469,10 +560,11 @@ gboolean bd_loop_set_autoclear (const gchar *loop, gboolean autoclear, GError **
         li64.lo_flags &= (~LO_FLAGS_AUTOCLEAR);
 
     if (ioctl (fd, LOOP_SET_STATUS64, &li64) < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
+        g_set_error (&l_error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
                      "Failed to set status of the device %s: %m", loop);
         close (fd);
-        bd_utils_report_finished (progress_id, (*error)->message);
+        bd_utils_report_finished (progress_id, l_error->message);
+        g_propagate_error (error, l_error);
         return FALSE;
     }
 

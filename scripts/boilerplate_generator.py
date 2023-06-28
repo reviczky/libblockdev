@@ -195,30 +195,18 @@ def get_loading_func(fn_infos, module_name):
     ret =  'static gpointer load_{0}_from_plugin(const gchar *so_name) {{\n'.format(module_name)
     ret += '    void *handle = NULL;\n'
     ret += '    char *error = NULL;\n'
-    ret += '    gboolean (*check_fn) (void) = NULL;\n'
     ret += '    gboolean (*init_fn) (void) = NULL;\n\n'
 
     ret += '    handle = dlopen(so_name, RTLD_LAZY);\n'
     ret += '    if (!handle) {\n'
-    ret += '        g_warning("failed to load module {0}: %s", dlerror());\n'.format(module_name)
+    ret += '        bd_utils_log_format (BD_UTILS_LOG_WARNING, "failed to load module {0}: %s", dlerror());\n'.format(module_name)
     ret += '        return NULL;\n'
     ret += '    }\n\n'
 
     ret += '    dlerror();\n'
-    ret += '    * (void**) (&check_fn) = dlsym(handle, "bd_{0}_check_deps");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
-    ret += '    if ((error = dlerror()) != NULL)\n'
-    ret += '        g_debug("failed to load the check() function for {0}: %s", error);\n'.format(module_name)
-    ret += '    /* coverity[dead_error_condition] */\n'  # coverity doesn't understand dlsym and thinks check_fn is NULL
-    ret += '    if (!g_getenv ("LIBBLOCKDEV_SKIP_DEP_CHECKS") && check_fn && !check_fn()) {\n'
-    ret += '        dlclose(handle);\n'
-    ret += '        return NULL;\n'
-    ret += '    }\n'
-    ret += '    check_fn = NULL;\n\n'
-
-    ret += '    dlerror();\n'
     ret += '    * (void**) (&init_fn) = dlsym(handle, "bd_{0}_init");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
     ret += '    if ((error = dlerror()) != NULL)\n'
-    ret += '        g_debug("failed to load the init() function for {0}: %s", error);\n'.format(module_name)
+    ret += '        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "failed to load the init() function for {0}: %s", error);\n'.format(module_name)
     ret += '    /* coverity[dead_error_condition] */\n'  # coverity doesn't understand dlsym and thinks init_fn is NULL
     ret += '    if (init_fn && !init_fn()) {\n'
     ret += '        dlclose(handle);\n'
@@ -231,7 +219,7 @@ def get_loading_func(fn_infos, module_name):
         ret += '    dlerror();\n'
         ret += '    * (void**) (&_{0.name}) = dlsym(handle, "{0.name}");\n'.format(info)
         ret += '    if ((error = dlerror()) != NULL)\n'
-        ret += '        g_warning("failed to load {0.name}: %s", error);\n\n'.format(info)
+        ret += '        bd_utils_log_format (BD_UTILS_LOG_WARNING, "failed to load {0.name}: %s", error);\n\n'.format(info)
 
     ret += '    return handle;\n'
     ret += '}\n\n'
@@ -251,7 +239,7 @@ def get_unloading_func(fn_infos, module_name):
     ret += '    dlerror();\n'
     ret += '    * (void**) (&close_fn) = dlsym(handle, "bd_{0}_close");\n'.format(MOD_FNAME_OVERRIDES.get(module_name, module_name))
     ret += '    if (((error = dlerror()) != NULL) || !close_fn)\n'
-    ret += '        g_debug("failed to load the close_plugin() function for {0}: %s", error);\n'.format(module_name)
+    ret += '        bd_utils_log_format (BD_UTILS_LOG_DEBUG, "failed to load the close_plugin() function for {0}: %s", error);\n'.format(module_name)
     ret += '    /* coverity[dead_error_condition] */\n'  # coverity doesn't understand dlsym and thinks close_fn is NULL
     ret += '    if (close_fn) {\n'
     ret += '        close_fn();\n'
@@ -314,7 +302,7 @@ def generate_source_header(api_file, out_dir, skip_patterns=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Needs a file name and output directory, exitting.")
+        print("Needs a file name and output directory, exiting.")
         print("Usage: %s FILE_NAME OUTPUT_DIR [SKIP_PATTERNS]" % sys.argv[0])
         sys.exit(1)
 

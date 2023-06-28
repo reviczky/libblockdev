@@ -26,7 +26,10 @@
 #include <sys/utsname.h>
 
 #include "module.h"
+#include "exec.h"
+#include "logging.h"
 
+#define UNUSED __attribute__((unused))
 
 /**
  * bd_utils_module_error_quark: (skip)
@@ -36,10 +39,45 @@ GQuark bd_utils_module_error_quark (void)
     return g_quark_from_static_string ("g-bd-utils-module-error-quark");
 }
 
+static void utils_kmod_log_redirect (void *log_data UNUSED, int priority,
+                                     const char *file UNUSED, int line UNUSED,
+                                     const char *fn UNUSED, const char *format,
+                                     va_list args) {
+    gchar *kmod_msg = NULL;
+    gchar *message = NULL;
+    gint ret = 0;
+
+    ret = g_vasprintf (&kmod_msg, format, args);
+    if (ret < 0) {
+        g_free (kmod_msg);
+        return;
+    }
+
+#ifdef DEBUG
+    message = g_strdup_printf ("[libmkod] %s:%d %s() %s", file, line, fn, kmod_msg);
+#else
+    message = g_strdup_printf ("[libmkod] %s", kmod_msg);
+#endif
+    bd_utils_log (priority, message);
+
+    g_free (kmod_msg);
+    g_free (message);
+
+}
+
+static void set_kmod_logging (struct kmod_ctx *ctx) {
+#ifdef DEBUG
+    kmod_set_log_priority (ctx, LOG_DEBUG);
+#else
+    kmod_set_log_priority (ctx, LOG_INFO);
+#endif
+    kmod_set_log_fn (ctx, utils_kmod_log_redirect, NULL);
+}
+
 /**
  * bd_utils_have_kernel_module:
  * @module_name: name of the kernel module to check
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @module_name was found in the system, either as a module
  * or built-in in the kernel
@@ -61,8 +99,7 @@ gboolean bd_utils_have_kernel_module (const gchar *module_name, GError **error) 
         freelocale (c_locale);
         return FALSE;
     }
-    /* prevent libkmod from spamming our STDERR */
-    kmod_set_log_priority (ctx, LOG_CRIT);
+    set_kmod_logging (ctx);
 
     ret = kmod_module_new_from_name (ctx, module_name, &mod);
     if (ret < 0) {
@@ -88,8 +125,8 @@ gboolean bd_utils_have_kernel_module (const gchar *module_name, GError **error) 
 /**
  * bd_utils_load_kernel_module:
  * @module_name: name of the kernel module to load
- * @options: (allow-none): module options
- * @error: (out): place to store error (if any)
+ * @options: (nullable): module options
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @module_name was successfully loaded or not
  */
@@ -107,8 +144,7 @@ gboolean bd_utils_load_kernel_module (const gchar *module_name, const gchar *opt
         freelocale (c_locale);
         return FALSE;
     }
-    /* prevent libkmod from spamming our STDERR */
-    kmod_set_log_priority (ctx, LOG_CRIT);
+    set_kmod_logging (ctx);
 
     ret = kmod_module_new_from_name (ctx, module_name, &mod);
     if (ret < 0) {
@@ -133,9 +169,14 @@ gboolean bd_utils_load_kernel_module (const gchar *module_name, const gchar *opt
     ret = kmod_module_probe_insert_module (mod, KMOD_PROBE_FAIL_ON_LOADED,
                                            options, NULL, NULL, NULL);
     if (ret < 0) {
-        g_set_error (error, BD_UTILS_MODULE_ERROR, BD_UTILS_MODULE_ERROR_FAIL,
-                     "Failed to load the module '%s' with options '%s': %s",
-                     module_name, options, strerror_l (-ret, c_locale));
+        if (options)
+            g_set_error (error, BD_UTILS_MODULE_ERROR, BD_UTILS_MODULE_ERROR_FAIL,
+                         "Failed to load the module '%s' with options '%s': %s",
+                         module_name, options, strerror_l (-ret, c_locale));
+        else
+            g_set_error (error, BD_UTILS_MODULE_ERROR, BD_UTILS_MODULE_ERROR_FAIL,
+                         "Failed to load the module '%s': %s",
+                         module_name, strerror_l (-ret, c_locale));
         kmod_module_unref (mod);
         kmod_unref (ctx);
         freelocale (c_locale);
@@ -151,7 +192,7 @@ gboolean bd_utils_load_kernel_module (const gchar *module_name, const gchar *opt
 /**
  * bd_utils_unload_kernel_module:
  * @module_name: name of the kernel module to unload
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Returns: whether the @module_name was successfully unloaded or not
  */
@@ -172,8 +213,7 @@ gboolean bd_utils_unload_kernel_module (const gchar *module_name, GError **error
         freelocale (c_locale);
         return FALSE;
     }
-    /* prevent libkmod from spamming our STDERR */
-    kmod_set_log_priority (ctx, LOG_CRIT);
+    set_kmod_logging (ctx);
 
     ret = kmod_module_new_from_loaded (ctx, &list);
     if (ret < 0) {
@@ -227,7 +267,7 @@ G_LOCK_DEFINE_STATIC (detected_linux_ver);
 
 /**
  * bd_utils_get_linux_version:
- * @error: (out): place to store error (if any)
+ * @error: (out) (optional): place to store error (if any)
  *
  * Retrieves version of currently running Linux kernel. Acts also as an initializer for statically cached data.
  *
@@ -288,10 +328,10 @@ BDUtilsLinuxVersion * bd_utils_get_linux_version (GError **error) {
 gint bd_utils_check_linux_version (guint major, guint minor, guint micro) {
     gint ret;
 
-    g_warn_if_fail (have_linux_ver == TRUE);
+    if (!have_linux_ver)
+        bd_utils_get_linux_version (NULL);
 
     G_LOCK (detected_linux_ver);
-
     ret = detected_linux_ver.major - major;
     if (ret == 0)
         ret = detected_linux_ver.minor - minor;

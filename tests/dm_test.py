@@ -6,7 +6,7 @@ from utils import run, create_sparse_tempfile, create_lio_device, delete_lio_dev
 from gi.repository import BlockDev, GLib
 
 
-class DevMapperTestCase(unittest.TestCase):
+class DevMapperTest(unittest.TestCase):
 
     requested_plugins = BlockDev.plugin_specs_from_names(("dm",))
 
@@ -16,6 +16,13 @@ class DevMapperTestCase(unittest.TestCase):
             BlockDev.init(cls.requested_plugins, None)
         else:
             BlockDev.reinit(cls.requested_plugins, True, None)
+
+class DevMapperPluginVersionCase(DevMapperTest):
+    @tag_test(TestTags.NOSTORAGE)
+    def test_plugin_version(self):
+       self.assertEqual(BlockDev.get_plugin_soname(BlockDev.Plugin.DM), "libbd_dm.so.3")
+
+class DevMapperTestCase(DevMapperTest):
 
     def setUp(self):
         self.addCleanup(self._clean_up)
@@ -59,8 +66,8 @@ class DevMapperGetSubsystemFromName(DevMapperTestCase):
     def test_get_subsystem_from_name_crypt(self):
         """Verify that it is possible to get luks device subsystem from its name"""
         self.addCleanup(self._destroy_crypt)
-        run("echo \"key\" | cryptsetup luksFormat %s -" %self.loop_dev)
-        run("echo \"key\" | cryptsetup open %s libbd_dm_tests-subsystem_crypt --key-file=-" %self.loop_dev)
+        run("echo \"supersecretkey\" | cryptsetup luksFormat %s -" %self.loop_dev)
+        run("echo \"supersecretkey\" | cryptsetup open %s libbd_dm_tests-subsystem_crypt --key-file=-" %self.loop_dev)
         subsystem = BlockDev.dm_get_subsystem_from_name("libbd_dm_tests-subsystem_crypt")
         self.assertEqual(subsystem, "CRYPT")
 
@@ -115,44 +122,23 @@ class DevMapperNameNodeBijection(DevMapperTestCase):
 
         self.assertTrue(succ)
 
-class DMUnloadTest(DevMapperTestCase):
-    def setUp(self):
-        # make sure the library is initialized with all plugins loaded for other
-        # tests
-        self.addCleanup(BlockDev.reinit, self.requested_plugins, True, None)
+class DMDepsTest(DevMapperTest):
 
     @tag_test(TestTags.NOSTORAGE)
-    def test_check_low_version(self):
-        """Verify that checking the minimum dmsetup version works as expected"""
+    def test_missing_dependencies(self):
+        """Verify that checking for technology support works as expected"""
 
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
-
-        with fake_utils("tests/dm_low_version/"):
-            # too low version of dmsetup available, the DM plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
-
-            self.assertNotIn("dm", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("dm", BlockDev.get_available_plugin_names())
-
-    @tag_test(TestTags.NOSTORAGE)
-    def test_check_no_dm(self):
-        """Verify that checking dmsetup tool availability works as expected"""
-
-        # unload all plugins first
-        self.assertTrue(BlockDev.reinit([], True, None))
+        with fake_utils("tests/fake_utils/dm_low_version/"):
+            # too low version of dmsetup available
+            with self.assertRaisesRegex(GLib.GError, "Too low version of dmsetup"):
+                BlockDev.dm_is_tech_avail(BlockDev.DMTech.MAP, 0)
 
         with fake_path(all_but="dmsetup"):
-            # no dmsetup available, the DM plugin should fail to load
-            with self.assertRaises(GLib.GError):
-                BlockDev.reinit(self.requested_plugins, True, None)
+            # no dmsetup available
+            with self.assertRaisesRegex(GLib.GError, "The 'dmsetup' utility is not available"):
+                BlockDev.dm_is_tech_avail(BlockDev.DMTech.MAP, 0)
 
-            self.assertNotIn("dm", BlockDev.get_available_plugin_names())
-
-        # load the plugins back
-        self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
-        self.assertIn("dm", BlockDev.get_available_plugin_names())
+    @tag_test(TestTags.NOSTORAGE)
+    def test_check_dm_tech(self):
+        """ Verify that BlockDev.DMTech works from Python as expected """
+        self.assertTrue(hasattr(BlockDev.DMTech, "MAP"))

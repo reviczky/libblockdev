@@ -10,7 +10,7 @@ class OverridesTest(unittest.TestCase):
     # all plugins except for 'btrfs', 'fs' and 'mpath' -- these don't have all
     # the dependencies on CentOS/Debian and we don't need them for this test
     requested_plugins = BlockDev.plugin_specs_from_names(("crypto", "dm",
-                                                          "kbd", "loop", "lvm",
+                                                          "loop", "lvm",
                                                           "mdraid", "part", "swap"))
 
     @classmethod
@@ -61,11 +61,24 @@ class OverridesTestCase(OverridesTest):
         # test that overrides are used over the proxy
         expected_padding = BlockDev.lvm_round_size_to_pe(int(math.ceil(11 * 1024**2 * 0.2)),
                                                          4 * 1024**2, True)
-        # the original lvm_get_thpool_padding takes 3 arguments, but one is enough for the overriden version
+        # the original lvm_get_thpool_padding takes 3 arguments, but one is enough for the overridden version
         self.assertEqual(BlockDev.lvm_get_thpool_padding(11 * 1024**2),
                          expected_padding)
 
-class OverridesUnloadTestCase(OverridesTest):
+class OverridesUnloadTestCase(unittest.TestCase):
+    # all plugins except for 'btrfs', 'fs' and 'mpath' -- these don't have all
+    # the dependencies on CentOS/Debian and we don't need them for this test
+    requested_plugins = BlockDev.plugin_specs_from_names(("crypto", "dm",
+                                                          "loop", "mdraid",
+                                                          "part", "swap"))
+
+    @classmethod
+    def setUpClass(cls):
+        if not BlockDev.is_initialized():
+            BlockDev.init(cls.requested_plugins, None)
+        else:
+            BlockDev.reinit(cls.requested_plugins, True, None)
+
     def tearDown(self):
         # make sure the library is initialized with all plugins loaded for other
         # tests
@@ -80,7 +93,7 @@ class OverridesUnloadTestCase(OverridesTest):
 
         # no longer loaded
         with self.assertRaises(BlockDev.BlockDevNotImplementedError):
-            BlockDev.lvm.get_max_lv_size()
+            BlockDev.md.canonicalize_uuid("3386ff85:f5012621:4a435f06:1eb47236")
 
         # load the plugins back
         self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
@@ -92,9 +105,9 @@ class OverridesUnloadTestCase(OverridesTest):
 
         # the exception should be properly inherited from two classes
         with self.assertRaises(NotImplementedError):
-            BlockDev.lvm.get_max_lv_size()
+            BlockDev.md.canonicalize_uuid("3386ff85:f5012621:4a435f06:1eb47236")
         with self.assertRaises(BlockDev.BlockDevError):
-            BlockDev.lvm.get_max_lv_size()
+            BlockDev.md.canonicalize_uuid("3386ff85:f5012621:4a435f06:1eb47236")
 
         # load the plugins back
         self.assertTrue(BlockDev.reinit(self.requested_plugins, True, None))
