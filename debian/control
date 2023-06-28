@@ -19,7 +19,7 @@ Build-Depends: debhelper-compat (= 13),
                libvolume-key-dev,
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
-               libndctl-dev (>= 63-1.2~) [!ia64],
+               libndctl-dev (>= 63-1.2~),
                libfdisk-dev (>= 2.31.0),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
@@ -299,8 +299,6 @@ Description: Multipath plugin for libblockdev - development
  with the libblockdev-mpath plugin/library.
 
 Package: libblockdev-nvdimm3
-# Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -311,8 +309,6 @@ Description: NVDIMM plugin for libblockdev
 
 Package: libblockdev-nvdimm-dev
 Section: libdevel
-# Via debian/rules, it's actually:
-# Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-nvdimm3 (= ${binary:Version}),
@@ -382,7 +378,7 @@ Depends: libblockdev3 (= ${binary:Version}),
          libblockdev-lvm3 (= ${binary:Version}),
          libblockdev-lvm-dbus3 (= ${binary:Version}),
          libblockdev-mdraid3 (= ${binary:Version}),
-         libblockdev-nvdimm3 (= ${binary:Version}) [!ia64],
+         libblockdev-nvdimm3 (= ${binary:Version}),
          libblockdev-mpath3 (= ${binary:Version}),
          libblockdev-part3 (= ${binary:Version}),
          libblockdev-swap3 (= ${binary:Version}),
