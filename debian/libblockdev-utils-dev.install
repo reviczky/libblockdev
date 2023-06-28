@@ -7,3 +7,4 @@ usr/include/blockdev/sizes.h
 usr/include/blockdev/exec.h
 usr/include/blockdev/extra_arg.h
 usr/include/blockdev/dev_utils.h
+usr/include/blockdev/logging.h
