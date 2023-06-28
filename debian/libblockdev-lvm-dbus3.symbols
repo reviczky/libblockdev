@@ -1,5 +1,9 @@
 libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
 * Build-Depends-Package: libblockdev-lvm-dbus-dev
+ (optional)_vglock_start_stop@Base 3.0
+ bd_lvm_add_lv_tags@Base 3.0
+ bd_lvm_add_pv_tags@Base 3.0
+ bd_lvm_add_vg_tags@Base 3.0
  bd_lvm_cache_attach@Base 2.14
  bd_lvm_cache_create_cached_lv@Base 2.14
  bd_lvm_cache_create_pool@Base 2.14
@@ -12,10 +16,14 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_cache_stats@Base 2.14
  bd_lvm_cache_stats_copy@Base 2.14
  bd_lvm_cache_stats_free@Base 2.14
- bd_lvm_check_deps@Base 2.14
  bd_lvm_close@Base 2.14
- bd_lvm_data_lv_name@Base 2.14
+ bd_lvm_delete_lv_tags@Base 3.0
+ bd_lvm_delete_pv_tags@Base 3.0
+ bd_lvm_delete_vg_tags@Base 3.0
+ bd_lvm_devices_add@Base 3.0
+ bd_lvm_devices_delete@Base 3.0
  bd_lvm_error_quark@Base 2.14
+ bd_lvm_get_devices_filter@Base 3.0
  bd_lvm_get_global_config@Base 2.14
  bd_lvm_get_lv_physical_size@Base 2.14
  bd_lvm_get_max_lv_size@Base 2.14
@@ -38,14 +46,16 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_lvdata_free@Base 2.14
  bd_lvm_lvdeactivate@Base 2.14
  bd_lvm_lvinfo@Base 2.14
+ bd_lvm_lvinfo_tree@Base 3.0
  bd_lvm_lvorigin@Base 2.14
  bd_lvm_lvremove@Base 2.14
  bd_lvm_lvrename@Base 2.14
+ bd_lvm_lvrepair@Base 3.0
  bd_lvm_lvresize@Base 2.14
  bd_lvm_lvs@Base 2.14
+ bd_lvm_lvs_tree@Base 3.0
  bd_lvm_lvsnapshotcreate@Base 2.14
  bd_lvm_lvsnapshotmerge@Base 2.14
- bd_lvm_metadata_lv_name@Base 2.14
  bd_lvm_pvcreate@Base 2.14
  bd_lvm_pvdata_copy@Base 2.14
  bd_lvm_pvdata_free@Base 2.14
@@ -56,6 +66,7 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_pvs@Base 2.14
  bd_lvm_pvscan@Base 2.14
  bd_lvm_round_size_to_pe@Base 2.14
+ bd_lvm_set_devices_filter@Base 3.0
  bd_lvm_set_global_config@Base 2.14
  bd_lvm_thlvcreate@Base 2.14
  bd_lvm_thlvpoolname@Base 2.14
@@ -81,7 +92,12 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_vgdeactivate@Base 2.14
  bd_lvm_vgextend@Base 2.14
  bd_lvm_vginfo@Base 2.14
+ bd_lvm_vglock_start@Base 3.0
+ bd_lvm_vglock_stop@Base 3.0
  bd_lvm_vgreduce@Base 2.14
  bd_lvm_vgremove@Base 2.14
  bd_lvm_vgrename@Base 2.14
  bd_lvm_vgs@Base 2.14
+ bd_lvm_writecache_attach@Base 3.0
+ bd_lvm_writecache_create_cached_lv@Base 3.0
+ bd_lvm_writecache_detach@Base 3.0

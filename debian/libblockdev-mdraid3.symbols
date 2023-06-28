@@ -3,7 +3,6 @@ libbd_mdraid.so.3 libblockdev-mdraid3 #MINVER#
  bd_md_activate@Base 2.14
  bd_md_add@Base 2.14
  bd_md_canonicalize_uuid@Base 2.14
- bd_md_check_deps@Base 2.14
  bd_md_close@Base 2.14
  bd_md_create@Base 2.14
  bd_md_deactivate@Base 2.14

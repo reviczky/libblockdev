@@ -3,7 +3,6 @@ libbd_btrfs.so.3 libblockdev-btrfs3 #MINVER#
  bd_btrfs_add_device@Base 2.14
  bd_btrfs_change_label@Base 2.14
  bd_btrfs_check@Base 2.14
- bd_btrfs_check_deps@Base 2.14
  bd_btrfs_close@Base 2.14
  bd_btrfs_create_snapshot@Base 2.14
  bd_btrfs_create_subvolume@Base 2.14
