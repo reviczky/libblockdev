@@ -57,6 +57,8 @@ Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev3 (= ${binary:Version}),
          gir1.2-blockdev-3.0 (= ${binary:Version}),
+         libblockdev-utils-dev (= ${binary:Version}),
+         libglib2.0-dev,
          ${misc:Depends}
 Description: Library for manipulating block devices - development
  libblockdev is a C library with GObject introspection support that can be used
@@ -145,6 +147,7 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-crypto3 (= ${binary:Version}),
+         libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Crypto plugin for libblockdev - development
@@ -166,10 +169,7 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-dm3 (= ${binary:Version}),
-         libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
-         libdevmapper-dev,
-         libsystemd-dev,
          ${misc:Depends}
 Description: Device Mapper plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
@@ -188,9 +188,8 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-fs3 (= ${binary:Version}),
-         libparted-dev,
-         libmount-dev,
-         libblkid-dev,
+         libblockdev-utils-dev (= ${binary:Version}),
+         libglib2.0-dev,
          ${misc:Depends}
 Description: file system plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
@@ -209,7 +208,6 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-loop3 (= ${binary:Version}),
-         libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Loop device plugin for libblockdev - development
@@ -294,7 +292,6 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-mpath3 (= ${binary:Version}),
-         libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Multipath plugin for libblockdev - development
@@ -342,6 +339,7 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev-part3 (= ${binary:Version}),
+         libglib2.0-dev,
          ${misc:Depends}
 Description: Partitioning plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
