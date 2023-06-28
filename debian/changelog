@@ -1,4 +1,9 @@
-libblockdev (2.28-3) UNRELEASED; urgency=medium
+libblockdev (3.0-1) UNRELEASED; urgency=medium
+
+  * Team upload
+
+  [ Michael Biebl ]
+  * New upstream release
 
   [ Debian Janitor ]
   * Update lintian override info format in
