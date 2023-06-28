@@ -109,26 +109,6 @@ Description: Utility functions for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-utils library.
 
-Package: libblockdev-part-err2
-Architecture: linux-any
-Multi-Arch: same
-Depends: ${shlibs:Depends},
-         ${misc:Depends}
-Description: Partition error utility functions for libblockdev
- libblockdev-part-err is a library providing utility functions used by the
- libblockdev library and its plugins.
-
-Package: libblockdev-part-err-dev
-Section: libdevel
-Architecture: linux-any
-Multi-Arch: same
-Depends: libblockdev-part-err2 (= ${binary:Version}),
-         libglib2.0-dev,
-         ${misc:Depends}
-Description: Partition error utility functions for libblockdev - development
- This package contains header files and pkg-config files needed for development
- with the libblockdev-part-err library.
-
 Package: libblockdev-btrfs2
 Architecture: linux-any
 Multi-Arch: same
@@ -407,7 +387,6 @@ Depends: libblockdev2 (= ${binary:Version}),
          libblockdev-nvdimm2 (= ${binary:Version}) [!ia64],
          libblockdev-mpath2 (= ${binary:Version}),
          libblockdev-part2 (= ${binary:Version}),
-         libblockdev-part-err2 (= ${binary:Version}),
          libblockdev-swap2 (= ${binary:Version}),
          libblockdev-utils2 (= ${binary:Version}),
          ${misc:Depends}
