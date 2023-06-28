@@ -1,4 +1,4 @@
-libblockdev.so.2 libblockdev2 #MINVER#
+libblockdev.so.3 libblockdev3 #MINVER#
 * Build-Depends-Package: libblockdev-dev
  bd_btrfs_add_device@Base 2.14
  bd_btrfs_change_label@Base 2.14

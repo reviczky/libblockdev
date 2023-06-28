@@ -1,4 +1,4 @@
-libbd_fs.so.2 libblockdev-fs2 #MINVER#
+libbd_fs.so.3 libblockdev-fs3 #MINVER#
 * Build-Depends-Package: libblockdev-fs-dev
  bd_fs_can_check@Base 2.14
  bd_fs_can_repair@Base 2.14

@@ -1,4 +1,4 @@
-libbd_dm.so.2 libblockdev-dm2 #MINVER#
+libbd_dm.so.3 libblockdev-dm3 #MINVER#
 * Build-Depends-Package: libblockdev-dm-dev
  bd_dm_activate_raid_set@Base 2.14
  bd_dm_check_deps@Base 2.14

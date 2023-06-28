@@ -1,4 +1,4 @@
-libbd_nvdimm.so.2 libblockdev-nvdimm2 #MINVER#
+libbd_nvdimm.so.3 libblockdev-nvdimm3 #MINVER#
 * Build-Depends-Package: libblockdev-nvdimm-dev
  bd_nvdimm_check_deps@Base 2.20
  bd_nvdimm_close@Base 2.20

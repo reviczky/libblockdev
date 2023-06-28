@@ -1,4 +1,4 @@
-libbd_mdraid.so.2 libblockdev-mdraid2 #MINVER#
+libbd_mdraid.so.3 libblockdev-mdraid3 #MINVER#
 * Build-Depends-Package: libblockdev-mdraid-dev
  bd_md_activate@Base 2.14
  bd_md_add@Base 2.14

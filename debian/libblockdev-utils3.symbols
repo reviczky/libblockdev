@@ -1,4 +1,4 @@
-libbd_utils.so.2 libblockdev-utils2 #MINVER#
+libbd_utils.so.3 libblockdev-utils3 #MINVER#
 * Build-Depends-Package: libblockdev-utils-dev
  bd_extra_arg_copy@Base 2.14
  bd_extra_arg_free@Base 2.14

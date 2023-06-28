@@ -1,4 +1,4 @@
-libbd_part.so.2 libblockdev-part2 #MINVER#
+libbd_part.so.3 libblockdev-part3 #MINVER#
 * Build-Depends-Package: libblockdev-part-dev
  bd_part_check_deps@Base 2.14
  bd_part_close@Base 2.14

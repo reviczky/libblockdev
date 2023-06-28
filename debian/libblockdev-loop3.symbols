@@ -1,4 +1,4 @@
-libbd_loop.so.2 libblockdev-loop2 #MINVER#
+libbd_loop.so.3 libblockdev-loop3 #MINVER#
 * Build-Depends-Package: libblockdev-loop-dev
  bd_loop_check_deps@Base 2.14
  bd_loop_close@Base 2.14

@@ -35,7 +35,7 @@ Vcs-Browser: https://salsa.debian.org/utopia-team/libblockdev
 Vcs-Git: https://salsa.debian.org/utopia-team/libblockdev.git
 Homepage: https://github.com/storaged-project/libblockdev
 
-Package: libblockdev2
+Package: libblockdev3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -55,8 +55,8 @@ Package: libblockdev-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev2 (= ${binary:Version}),
-         gir1.2-blockdev-2.0 (= ${binary:Version}),
+Depends: libblockdev3 (= ${binary:Version}),
+         gir1.2-blockdev-3.0 (= ${binary:Version}),
          ${misc:Depends}
 Description: Library for manipulating block devices - development
  libblockdev is a C library with GObject introspection support that can be used
@@ -66,7 +66,7 @@ Description: Library for manipulating block devices - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev library.
 
-Package: gir1.2-blockdev-2.0
+Package: gir1.2-blockdev-3.0
 Section: introspection
 Architecture: linux-any
 Multi-Arch: same
@@ -80,8 +80,8 @@ Description: libblockdev introspection data
 Package: python3-blockdev
 Section: python
 Architecture: all
-Depends: gir1.2-blockdev-2.0 (>= ${source:Version}),
-         gir1.2-blockdev-2.0 (<< ${source:Version}.1~),
+Depends: gir1.2-blockdev-3.0 (>= ${source:Version}),
+         gir1.2-blockdev-3.0 (<< ${source:Version}.1~),
          python3-gi,
          ${python3:Depends},
          ${misc:Depends}
@@ -89,7 +89,7 @@ Description: Python 3 gobject-introspection bindings for libblockdev
  This package contains enhancements to the gobject-introspection bindings for
  libblockdev in Python3.
 
-Package: libblockdev-utils2
+Package: libblockdev-utils3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -102,14 +102,14 @@ Package: libblockdev-utils-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-utils2 (= ${binary:Version}),
+Depends: libblockdev-utils3 (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Utility functions for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-utils library.
 
-Package: libblockdev-btrfs2
+Package: libblockdev-btrfs3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -123,7 +123,7 @@ Package: libblockdev-btrfs-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-btrfs2 (= ${binary:Version}),
+Depends: libblockdev-btrfs3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -131,7 +131,7 @@ Description: BTRFS plugin for libblockdev - development
  Header files and pkg-config files needed for development with the
  libblockdev-btrfs plugin/library.
 
-Package: libblockdev-crypto2
+Package: libblockdev-crypto3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -144,14 +144,14 @@ Package: libblockdev-crypto-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-crypto2 (= ${binary:Version}),
+Depends: libblockdev-crypto3 (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
 Description: Crypto plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-crypto plugin/library.
 
-Package: libblockdev-dm2
+Package: libblockdev-dm3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -165,7 +165,7 @@ Package: libblockdev-dm-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-dm2 (= ${binary:Version}),
+Depends: libblockdev-dm3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          libdevmapper-dev,
@@ -175,7 +175,7 @@ Description: Device Mapper plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-dm plugin/library.
 
-Package: libblockdev-fs2
+Package: libblockdev-fs3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${misc:Depends}, ${shlibs:Depends}, e2fsprogs
@@ -187,7 +187,7 @@ Package: libblockdev-fs-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-fs2 (= ${binary:Version}),
+Depends: libblockdev-fs3 (= ${binary:Version}),
          libparted-dev,
          libmount-dev,
          libblkid-dev,
@@ -196,7 +196,7 @@ Description: file system plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-fs plugin/library.
 
-Package: libblockdev-loop2
+Package: libblockdev-loop3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends}, ${misc:Depends}
@@ -208,7 +208,7 @@ Package: libblockdev-loop-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-loop2 (= ${binary:Version}),
+Depends: libblockdev-loop3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -216,12 +216,12 @@ Description: Loop device plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-loop plugin/library.
 
-Package: libblockdev-lvm2
+Package: libblockdev-lvm3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         lvm2 (>= 2.02.116),
+         lvm3 (>= 2.02.116),
 Description: LVM plugin for libblockdev
  The libblockdev library plugin (and at the same time a standalone library)
  providing the LVM-related functionality.
@@ -230,7 +230,7 @@ Package: libblockdev-lvm-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-lvm2 (= ${binary:Version}),
+Depends: libblockdev-lvm3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -238,7 +238,7 @@ Description: LVM plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-lvm plugin/library.
 
-Package: libblockdev-lvm-dbus2
+Package: libblockdev-lvm-dbus3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -251,13 +251,13 @@ Package: libblockdev-lvm-dbus-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-lvm-dbus2 (= ${binary:Version}),
+Depends: libblockdev-lvm-dbus3 (= ${binary:Version}),
          ${misc:Depends}
 Description: LVM DBus plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-lvm plugin/library.
 
-Package: libblockdev-mdraid2
+Package: libblockdev-mdraid3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -271,7 +271,7 @@ Package: libblockdev-mdraid-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-mdraid2 (= ${binary:Version}),
+Depends: libblockdev-mdraid3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -279,7 +279,7 @@ Description: MD RAID plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-mdraid plugin/library.
 
-Package: libblockdev-mpath2
+Package: libblockdev-mpath3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -293,7 +293,7 @@ Package: libblockdev-mpath-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-mpath2 (= ${binary:Version}),
+Depends: libblockdev-mpath3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -301,7 +301,7 @@ Description: Multipath plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-mpath plugin/library.
 
-Package: libblockdev-nvdimm2
+Package: libblockdev-nvdimm3
 # Via debian/rules, it's actually:
 # Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
@@ -318,7 +318,7 @@ Section: libdevel
 # Architecture: !hurd-any !kfreebsd-any !ia64
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-nvdimm2 (= ${binary:Version}),
+Depends: libblockdev-nvdimm3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -326,7 +326,7 @@ Description: NVDIMM plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-nvdimm plugin/library.
 
-Package: libblockdev-part2
+Package: libblockdev-part3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -341,13 +341,13 @@ Package: libblockdev-part-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-part2 (= ${binary:Version}),
+Depends: libblockdev-part3 (= ${binary:Version}),
          ${misc:Depends}
 Description: Partitioning plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-part plugin/library.
 
-Package: libblockdev-swap2
+Package: libblockdev-swap3
 Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
@@ -360,7 +360,7 @@ Package: libblockdev-swap-dev
 Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev-swap2 (= ${binary:Version}),
+Depends: libblockdev-swap3 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${misc:Depends}
@@ -375,20 +375,20 @@ Description: Swap plugin for libblockdev - development
 Package: libblockdev-plugins-all
 Architecture: linux-any
 Multi-Arch: same
-Depends: libblockdev2 (= ${binary:Version}),
-         libblockdev-btrfs2 (= ${binary:Version}),
-         libblockdev-crypto2 (= ${binary:Version}),
-         libblockdev-dm2 (= ${binary:Version}),
-         libblockdev-fs2 (= ${binary:Version}),
-         libblockdev-loop2 (= ${binary:Version}),
-         libblockdev-lvm2 (= ${binary:Version}),
-         libblockdev-lvm-dbus2 (= ${binary:Version}),
-         libblockdev-mdraid2 (= ${binary:Version}),
-         libblockdev-nvdimm2 (= ${binary:Version}) [!ia64],
-         libblockdev-mpath2 (= ${binary:Version}),
-         libblockdev-part2 (= ${binary:Version}),
-         libblockdev-swap2 (= ${binary:Version}),
-         libblockdev-utils2 (= ${binary:Version}),
+Depends: libblockdev3 (= ${binary:Version}),
+         libblockdev-btrfs3 (= ${binary:Version}),
+         libblockdev-crypto3 (= ${binary:Version}),
+         libblockdev-dm3 (= ${binary:Version}),
+         libblockdev-fs3 (= ${binary:Version}),
+         libblockdev-loop3 (= ${binary:Version}),
+         libblockdev-lvm3 (= ${binary:Version}),
+         libblockdev-lvm-dbus3 (= ${binary:Version}),
+         libblockdev-mdraid3 (= ${binary:Version}),
+         libblockdev-nvdimm3 (= ${binary:Version}) [!ia64],
+         libblockdev-mpath3 (= ${binary:Version}),
+         libblockdev-part3 (= ${binary:Version}),
+         libblockdev-swap3 (= ${binary:Version}),
+         libblockdev-utils3 (= ${binary:Version}),
          ${misc:Depends}
 Description: All plugins for libblockdev
  libblockdev is a C library with GObject introspection support that can be used

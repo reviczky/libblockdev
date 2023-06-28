@@ -1,4 +1,4 @@
-libbd_swap.so.2 libblockdev-swap2 #MINVER#
+libbd_swap.so.3 libblockdev-swap3 #MINVER#
 * Build-Depends-Package: libblockdev-swap-dev
  bd_swap_check_deps@Base 2.14
  bd_swap_close@Base 2.14

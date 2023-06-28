@@ -1,4 +1,4 @@
-libbd_crypto.so.2 libblockdev-crypto2 #MINVER#
+libbd_crypto.so.3 libblockdev-crypto3 #MINVER#
 * Build-Depends-Package: libblockdev-crypto-dev
  bd_crypto_bitlk_close@Base 2.24
  bd_crypto_bitlk_open@Base 2.24

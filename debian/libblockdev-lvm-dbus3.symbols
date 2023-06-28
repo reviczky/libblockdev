@@ -1,4 +1,4 @@
-libbd_lvm-dbus.so.2 libblockdev-lvm-dbus2 #MINVER#
+libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
 * Build-Depends-Package: libblockdev-lvm-dbus-dev
  bd_lvm_cache_attach@Base 2.14
  bd_lvm_cache_create_cached_lv@Base 2.14
