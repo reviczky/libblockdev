@@ -1,16 +1,36 @@
-libblockdev (3.0-1) UNRELEASED; urgency=medium
+libblockdev (3.0-1) experimental; urgency=medium
 
   * Team upload
-
-  [ Michael Biebl ]
-  * New upstream release
 
   [ Debian Janitor ]
   * Update lintian override info format in
     d/libblockdev-part-err2.lintian-overrides on line 4.
   * Avoid explicitly specifying -Wl,--as-needed linker flag.
 
- -- Michael Biebl <biebl@debian.org>  Thu, 29 Jun 2023 01:56:31 +0200
+  [ Michael Biebl ]
+  * New upstream release
+  * Remove obsolete configure switches
+  * Update Build-Depends
+    - Bump Build-Depends on libcryptsetup-dev to (>= 2.3.0)
+    - Add libkeyutils-dev for the crypto plugin
+    - Replace libparted-dev with libfdisk-dev
+    - Add uuid-dev and libext2fs-dev for the fs plugin
+  * Drop libblockdev-kbd{2,-dev} packages
+  * Drop libblockdev-part-err{2,dev} packages
+  * Update packages for 2->3 soname bump
+  * Install new logging.h header in libblockdev-utils-dev
+  * Update symbols files.
+    Some symbols are not meant to be public, so mark them as optional.
+  * Bump Standards-Version to 4.6.2
+  * Fix dependencies of -dev packages
+  * Drop ia64 specific workarounds
+  * Use DEB_PYTHON_INSTALL_LAYOUT="deb" to get the correct sysconfig scheme on
+    Debian
+  * Enable NVMe plugin
+  * vdo_stats: Remove unused libparted include.
+    Patch cherry-picked from upstream Git.
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 29 Jun 2023 16:44:38 +0200
 
 libblockdev (2.28-2) unstable; urgency=medium
 
