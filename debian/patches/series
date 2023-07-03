@@ -5,3 +5,5 @@ loop-Remove-bd_loop_get_autoclear-definition.patch
 lvm-Add-bd_lvm_segdata_copy-free-to-the-header-file.patch
 fs-Add-missing-copy-and-free-functions-to-the-header-file.patch
 nvme-Mark-private-symbols-as-hidden.patch
+configure-Fix-MAJOR_VER-macro.patch
+Make-the-conf.d-directory-versioned.patch

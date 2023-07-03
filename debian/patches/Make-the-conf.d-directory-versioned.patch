@@ -1,0 +1,72 @@
+From: Vojtech Trefny <vtrefny@redhat.com>
+Date: Sat, 1 Jul 2023 19:23:13 +0200
+Subject: Make the conf.d directory versioned
+
+Fixes: #924
+---
+ data/conf.d/Makefile.am  | 2 +-
+ dist/libblockdev.spec.in | 6 +++---
+ src/lib/blockdev.c.in    | 2 +-
+ tests/run_tests.py       | 2 +-
+ 4 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/data/conf.d/Makefile.am b/data/conf.d/Makefile.am
+index 0132040..7238632 100644
+--- a/data/conf.d/Makefile.am
++++ b/data/conf.d/Makefile.am
+@@ -1,4 +1,4 @@
+-libbdconfdir = $(sysconfdir)/libblockdev/conf.d
++libbdconfdir = $(sysconfdir)/libblockdev/@MAJOR_VER@/conf.d
+ dist_libbdconf_DATA = ${srcdir}/00-default.cfg
+ 
+ if WITH_LVM_DBUS
+diff --git a/dist/libblockdev.spec.in b/dist/libblockdev.spec.in
+index a3e27fa..242aac6 100644
+--- a/dist/libblockdev.spec.in
++++ b/dist/libblockdev.spec.in
+@@ -637,8 +637,8 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
+ %{_libdir}/girepository*/BlockDev*.typelib
+ %endif
+ %dir %{_sysconfdir}/libblockdev
+-%dir %{_sysconfdir}/libblockdev/conf.d
+-%config %{_sysconfdir}/libblockdev/conf.d/00-default.cfg
++%dir %{_sysconfdir}/libblockdev/@MAJOR_VER@/conf.d
++%config %{_sysconfdir}/libblockdev/@MAJOR_VER@/conf.d/00-default.cfg
+ 
+ %files devel
+ %{_libdir}/libblockdev.so
+@@ -747,7 +747,7 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
+ %if %{with_lvm_dbus}
+ %files lvm-dbus
+ %{_libdir}/libbd_lvm-dbus.so.*
+-%config %{_sysconfdir}/libblockdev/conf.d/10-lvm-dbus.cfg
++%config %{_sysconfdir}/libblockdev/@MAJOR_VER@/conf.d/10-lvm-dbus.cfg
+ 
+ %files lvm-dbus-devel
+ %{_libdir}/libbd_lvm-dbus.so
+diff --git a/src/lib/blockdev.c.in b/src/lib/blockdev.c.in
+index 6d92373..103a69d 100644
+--- a/src/lib/blockdev.c.in
++++ b/src/lib/blockdev.c.in
+@@ -41,7 +41,7 @@
+  *
+  */
+ 
+-#define DEFAULT_CONF_DIR_PATH "/etc/libblockdev/conf.d/"
++#define DEFAULT_CONF_DIR_PATH "/etc/libblockdev/@MAJOR_VER@/conf.d/"
+ 
+ static GMutex init_lock;
+ static gboolean initialized = FALSE;
+diff --git a/tests/run_tests.py b/tests/run_tests.py
+index 10bb93c..dbceb2a 100644
+--- a/tests/run_tests.py
++++ b/tests/run_tests.py
+@@ -273,7 +273,7 @@ if __name__ == '__main__':
+     args = parse_args()
+     if args.installed:
+         os.environ['LIBBLOCKDEV_TESTS_SKIP_OVERRIDE'] = ''
+-        os.environ['LIBBLOCKDEV_CONFIG_DIR'] = '/etc/libblockdev/conf.d/'
++        os.environ['LIBBLOCKDEV_CONFIG_DIR'] = '/etc/libblockdev/3/conf.d/'
+     else:
+         if 'LD_LIBRARY_PATH' not in os.environ and 'GI_TYPELIB_PATH' not in os.environ:
+             os.environ['LD_LIBRARY_PATH'] = LIBDIRS
