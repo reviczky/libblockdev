@@ -1,0 +1,36 @@
+From: Vojtech Trefny <vtrefny@redhat.com>
+Date: Thu, 29 Jun 2023 09:16:12 +0200
+Subject: fs: Add missing copy and free functions to the header file
+
+Added functions bd_fs_mkfs_options_copy/free and
+bd_fs_features_copy/free.
+
+(cherry picked from commit 6bcfc7a49b56f8ed1a82ab30ddfad08c8fd948ec)
+---
+ src/plugins/fs/generic.h | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/plugins/fs/generic.h b/src/plugins/fs/generic.h
+index 70d674b..16a357f 100644
+--- a/src/plugins/fs/generic.h
++++ b/src/plugins/fs/generic.h
+@@ -29,6 +29,9 @@ typedef struct BDFSMkfsOptions {
+     guint8 reserve[32];
+ } BDFSMkfsOptions;
+ 
++BDFSMkfsOptions* bd_fs_mkfs_options_copy (BDFSMkfsOptions *data);
++void bd_fs_mkfs_options_free (BDFSMkfsOptions *data);
++
+ const gchar** bd_fs_supported_filesystems (GError **error);
+ 
+ gboolean bd_fs_mkfs (const gchar *device, const gchar *fstype, BDFSMkfsOptions *options, const BDExtraArg **extra, GError **error);
+@@ -75,6 +78,9 @@ typedef struct BDFSFeatures {
+     const gchar *partition_type;
+ } BDFSFeatures;
+ 
++BDFSFeatures* bd_fs_features_copy (BDFSFeatures *data);
++void bd_fs_features_free (BDFSFeatures *data);
++
+ const BDFSFeatures* bd_fs_features (const gchar *fstype, GError **error);
+ 
+ gboolean bd_fs_can_mkfs (const gchar *type, BDFSMkfsOptionsFlags *options, gchar **required_utility, GError **error);

@@ -1,1 +1,7 @@
 vdo_stats-Remove-unused-libparted-include.patch
+lvm-Make-_vglock_start_stop-static.patch
+lvm-Fix-declaration-for-bd_lvm_vdolvpoolname.patch
+loop-Remove-bd_loop_get_autoclear-definition.patch
+lvm-Add-bd_lvm_segdata_copy-free-to-the-header-file.patch
+fs-Add-missing-copy-and-free-functions-to-the-header-file.patch
+nvme-Mark-private-symbols-as-hidden.patch
