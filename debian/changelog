@@ -1,3 +1,21 @@
+libblockdev (3.0-2) experimental; urgency=medium
+
+  * Team upload
+  * Update depencencies
+    - Fix name of lvm2 Depends
+    - Drop no longer needed gdisk Depends from libblockdev-part3
+    - Add lvm2-dbusd Depends to libblockdev-lvm-dbus3
+    - Add ndctl Depends to libblockdev-nvdimm3
+    - Wrap dependencies
+  * Fix many exported private symbols and missing declarations.
+    Patches cherry-picked from upstream Git.
+  * Update symbols files accordingly
+  * Make the conf.d directory versioned (Closes: #1040208)
+  * Update .install files accordingly
+  * Re-add s390x specific (stub) symbols
+
+ -- Michael Biebl <biebl@debian.org>  Mon, 03 Jul 2023 23:32:12 +0200
+
 libblockdev (3.0-1) experimental; urgency=medium
 
   * Team upload
