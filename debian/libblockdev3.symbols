@@ -275,7 +275,7 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_loop_info_free@Base 3.0
  bd_loop_info_get_type@Base 3.0
  bd_loop_is_tech_avail@Base 2.14
- (optional)bd_loop_set_autoclear@Base 2.14
+ bd_loop_set_autoclear@Base 2.14
  bd_loop_setup@Base 2.14
  bd_loop_setup_from_fd@Base 2.14
  bd_loop_teardown@Base 2.14

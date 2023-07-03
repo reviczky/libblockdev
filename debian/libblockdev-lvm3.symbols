@@ -1,6 +1,5 @@
 libbd_lvm.so.3 libblockdev-lvm3 #MINVER#
 * Build-Depends-Package: libblockdev-lvm-dev
- (optional)_vglock_start_stop@Base 3.0
  bd_lvm_add_lv_tags@Base 3.0
  bd_lvm_add_pv_tags@Base 3.0
  bd_lvm_add_vg_tags@Base 3.0

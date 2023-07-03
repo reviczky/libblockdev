@@ -1,8 +1,5 @@
 libbd_nvme.so.3 libblockdev-nvme3 #MINVER#
 * Build-Depends-Package: libblockdev-nvme-dev
- (optional)_nvme_fabrics_errno_to_gerror@Base 3.0
- (optional)_nvme_status_to_error@Base 3.0
- (optional)_open_dev@Base 3.0
  bd_nvme_close@Base 3.0
  bd_nvme_connect@Base 3.0
  bd_nvme_controller_info_copy@Base 3.0
