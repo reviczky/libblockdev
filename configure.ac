@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [3.0], [], [], [https://github.com/storaged-project/libblockdev])
+AC_INIT([libblockdev], [3.0.1], [], [], [https://github.com/storaged-project/libblockdev])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -244,12 +244,12 @@ AS_IF([test "x$with_nvme" != "xno"],
       ],
       [])
 
-AC_SUBST([MAJOR_VER], [\"2\"])
+AC_SUBST([MAJOR_VER], [3])
 
 CFLAGS="$CFLAGS -std=gnu99"
 
-AC_OUTPUT
 LIBBLOCKDEV_FAILURES
+AC_OUTPUT
 
 
 if test "x$with_python3" != "xno" -a "x$python3" != "xno"; then
