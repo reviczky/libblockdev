@@ -28,6 +28,10 @@
 #include <blockdev/utils.h>
 #include "loop.h"
 
+#ifndef LOOP_SET_BLOCK_SIZE
+#define LOOP_SET_BLOCK_SIZE	0x4C09
+#endif
+
 /**
  * SECTION: loop
  * @short_description: plugin for operations with loop devices
@@ -144,7 +148,6 @@ static gchar* _loop_get_backing_file (const gchar *dev_name, GError **error) {
 BDLoopInfo* bd_loop_info (const gchar *loop, GError **error) {
     BDLoopInfo *info = NULL;
     g_autofree gchar *dev_loop = NULL;
-    g_autofree gchar *sys_path = NULL;
     gint fd = -1;
     struct loop_info64 li64;
     GError *l_error = NULL;
@@ -448,64 +451,6 @@ gboolean bd_loop_teardown (const gchar *loop, GError **error) {
     bd_utils_report_finished (progress_id, "Completed");
 
     return TRUE;
-}
-
-/**
- * bd_loop_get_autoclear:
- * @loop: path or name of the loop device
- * @error: (out) (optional): place to store error (if any)
- *
- * Returns: whether the autoclear flag is set on the @loop device or not (if %FALSE, @error may be set)
- *
- * Tech category: %BD_LOOP_TECH_LOOP-%BD_LOOP_TECH_MODE_QUERY
- */
-gboolean bd_loop_get_autoclear (const gchar *loop, GError **error) {
-    gchar *sys_path = NULL;
-    gboolean success = FALSE;
-    gchar *contents = NULL;
-    gboolean ret = FALSE;
-    gchar *dev_loop = NULL;
-    gint fd = -1;
-    struct loop_info64 li64;
-
-    /* first try reading the value from /sys which seems to be safer than
-       potentially stepping on each other's toes with udev during the ioctl() */
-    if (g_str_has_prefix (loop, "/dev/"))
-        sys_path = g_strdup_printf ("/sys/class/block/%s/loop/autoclear", loop + 5);
-    else
-        sys_path = g_strdup_printf ("/sys/class/block/%s/loop/autoclear", loop);
-
-    success = g_file_get_contents (sys_path, &contents, NULL, NULL);
-    g_free (sys_path);
-    if (success) {
-        g_strstrip (contents);
-        ret = g_strcmp0 (contents, "1") == 0;
-        g_free (contents);
-        return ret;
-    }
-
-    /* else try using the ioctl() */
-    if (!g_str_has_prefix (loop, "/dev/"))
-        dev_loop = g_strdup_printf ("/dev/%s", loop);
-
-    fd = open (dev_loop ? dev_loop : loop, O_RDONLY);
-    g_free (dev_loop);
-    if (fd < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_DEVICE,
-                     "Failed to open device %s: %m", loop);
-        return FALSE;
-    }
-
-    memset (&li64, 0, sizeof (li64));
-    if (ioctl (fd, LOOP_GET_STATUS64, &li64) < 0) {
-        g_set_error (error, BD_LOOP_ERROR, BD_LOOP_ERROR_FAIL,
-                     "Failed to get status of the device %s: %m", loop);
-        close (fd);
-        return FALSE;
-    }
-
-    close (fd);
-    return (li64.lo_flags & LO_FLAGS_AUTOCLEAR) != 0;
 }
 
 /**
