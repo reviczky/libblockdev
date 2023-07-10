@@ -1,8 +1,13 @@
-libblockdev (3.0.1-1) UNRELEASED; urgency=medium
+libblockdev (3.0.1-1) unstable; urgency=medium
 
+  * Team upload
   * New upstream release
+  * Drop patches, all merged upstream
+  * Demote e2fsprogs from Depends to Recommends (Closes: #1000353)
+  * Restrict list of exported symbols via -export-symbols-regex
+  * Upload to unstable
 
- -- Michael Biebl <biebl@debian.org>  Tue, 04 Jul 2023 17:37:19 +0200
+ -- Michael Biebl <biebl@debian.org>  Mon, 10 Jul 2023 09:18:50 +0200
 
 libblockdev (3.0-2) experimental; urgency=medium
 
