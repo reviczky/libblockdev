@@ -160,7 +160,7 @@ Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         dmsetup (>= 1.02.93),
+         dmsetup,
 Description: Device Mapper plugin for libblockdev
  The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to Device Mapper.
@@ -265,7 +265,7 @@ Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         mdadm (>= 3.3.2)
+         mdadm,
 Description: MD RAID plugin for libblockdev
  The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to MD RAID.
@@ -287,7 +287,7 @@ Architecture: linux-any
 Multi-Arch: same
 Depends: ${shlibs:Depends},
          ${misc:Depends},
-         multipath-tools (>= 0.4.9)
+         multipath-tools,
 Description: Multipath plugin for libblockdev
  The libblockdev library plugin (and at the same time a standalone library)
  providing the functionality related to multipath devices.
