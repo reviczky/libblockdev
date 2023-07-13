@@ -1,3 +1,16 @@
+libblockdev (3.0.1-2) unstable; urgency=medium
+
+  * Drop fdisk Depends from libblockdev-part.
+    It only needs the library, not the command line tools.
+  * Remove unnecessary version restrictions
+  * Demote mdadm Depends of libblockdev-mdraid to Suggests.
+    mdadm is a rather heavy dependency so avoid installing it by default.
+    Users with RAID devices should typically have mdadm installed.
+    (Closes: #1040908)
+  * Add myself to Uploaders
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 13 Jul 2023 16:40:45 +0200
+
 libblockdev (3.0.1-1) unstable; urgency=medium
 
   * Team upload
