@@ -1,3 +1,9 @@
+libblockdev (3.0.2-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 20 Jul 2023 14:29:32 +0200
+
 libblockdev (3.0.1-2) unstable; urgency=medium
 
   * Drop fdisk Depends from libblockdev-part.
