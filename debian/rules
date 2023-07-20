@@ -16,7 +16,6 @@ override_dh_auto_configure:
 	dh_auto_configure -- \
 		--disable-tests \
 		--without-s390 \
-		--without-tools \
 		$(CONF_FLAGS)
 
 execute_before_dh_install:

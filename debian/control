@@ -21,6 +21,7 @@ Build-Depends: debhelper-compat (= 13),
                libbytesize-dev,
                libnss3-dev (>= 3.18.0),
                libndctl-dev (>= 63-1.2~),
+               libparted-dev (>= 3.1),
                libfdisk-dev (>= 2.31.0),
                libmount-dev (>= 2.23.0),
                libblkid-dev (>= 2.23.0),
@@ -92,6 +93,15 @@ Depends: gir1.2-blockdev-3.0 (>= ${source:Version}),
 Description: Python 3 gobject-introspection bindings for libblockdev
  This package contains enhancements to the gobject-introspection bindings for
  libblockdev in Python3.
+
+Package: libblockdev-tools
+Architecture: linux-any
+Multi-Arch: foreign
+Depends: ${shlibs:Depends},
+         ${misc:Depends},
+Description: tools for libblockdev
+ This package contains tools that enhance the functionality that is provided by
+ libblockdev.
 
 Package: libblockdev-utils3
 Architecture: linux-any
