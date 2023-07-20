@@ -1,3 +1,36 @@
+Libblockdev 3.0.2
+------------------
+
+New bugfix release of the libblockdev library with multiple fixes. See below
+for details.
+
+**Full list of changes**
+
+Alexis Murzeau (1):
+
+- Use ntfsinfo instead of ntfscluster for faster bd_fs_ntfs_get_info
+
+Marek Szuba (1):
+
+- docs: Fix test quotation
+
+Michael Biebl (1):
+
+- Restrict list of exported symbols via -export-symbols-regex
+
+Tomas Bzatek (2):
+
+- lib: Silence the missing DEFAULT_CONF_DIR_PATH
+- loop: Report BD_LOOP_ERROR_DEVICE on empty loop devices
+
+Vojtech Trefny (5):
+
+- Fix formatting in NEWS.rst
+- fs: Fix unused error in extract_e2fsck_progress
+- fs: Use read-only mount where possible for generic FS functions
+- fs: Document that generic functions can mount filesystems
+- fs: Avoid excess logging in extract_e2fsck_progress
+
 Libblockdev 3.0.1
 ------------------
 
@@ -7,9 +40,11 @@ for details.
 **Full list of changes**
 
 Giulio Benetti (1):
+
 - loop: define LOOP_SET_BLOCK_SIZE is not defined
 
 Tomas Bzatek (6):
+
 - nvme: Mark private symbols as hidden
 - build: Exit before AC_OUTPUT on error
 - loop: Remove unused variable
@@ -18,6 +53,7 @@ Tomas Bzatek (6):
 - fs: Simplify struct BDFSInfo
 
 Vojtech Trefny (11):
+
 - vdo_stats: Remove unused libparted include
 - lvm: Make _vglock_start_stop static
 - lvm: Fix declaration for bd_lvm_vdolvpoolname
