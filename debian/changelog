@@ -1,3 +1,17 @@
+libblockdev (3.0.2-2) unstable; urgency=medium
+
+  [ Michael Biebl ]
+  * Enable tools and create a libblockdev-tools package (Closes: #1040838)
+  * Run upstream integration test via autopkgtest
+  * Only run those parts of the upstream test suite that don't require
+    compilation
+
+  [ Sebastien Bacher ]
+  * Update libblockdev-mpath2 → libblockdev-mpath3 for Ubuntu's i386 exclusion
+    (Closes: #1040847)
+
+ -- Michael Biebl <biebl@debian.org>  Tue, 25 Jul 2023 18:06:55 +0200
+
 libblockdev (3.0.2-1) unstable; urgency=medium
 
   * New upstream release
