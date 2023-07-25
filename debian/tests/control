@@ -1,6 +1,5 @@
 Tests: upstream
 Depends: @,
-         @builddeps@,
          python3,
          python3-bytesize,
          python3-dbus,

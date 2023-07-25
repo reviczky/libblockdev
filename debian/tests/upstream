@@ -3,4 +3,4 @@
 # Basically all output of the test suite goes to stderr, which is why the
 # allow-stderr restriction is needed.
 # See https://github.com/storaged-project/libblockdev/issues/947
-python3 tests/run_tests.py
+python3 tests/run_tests.py --exclude-tags sourceonly
