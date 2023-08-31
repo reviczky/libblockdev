@@ -10,7 +10,11 @@ import re
 import tarfile
 
 from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, get_avail_locales, requires_locales, run_command, read_file, TestTags, tag_test
-from gi.repository import BlockDev, GLib
+
+import gi
+gi.require_version('GLib', '2.0')
+gi.require_version('BlockDev', '3.0')
+from gi.repository import GLib, BlockDev
 
 PASSWD = "myshinylittlepassword"
 PASSWD2 = "myshinylittlepassword2"
@@ -443,6 +447,43 @@ class CryptoTestOpenClose(CryptoTestCase):
     @tag_test(TestTags.SLOW, TestTags.CORE)
     def test_luks2_open_close(self):
         self._luks_open_close(self._luks2_format)
+
+    @tag_test(TestTags.SLOW, TestTags.CORE)
+    def test_luks2_open_close_non_ascii_passphrase(self):
+        passphrase = "šššššššš"
+
+        self._luks2_format(self.loop_dev, passphrase)
+
+        ctx = BlockDev.CryptoKeyslotContext(passphrase=passphrase)
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", ctx, False)
+        self.assertTrue(succ)
+
+        succ = BlockDev.crypto_luks_close("libblockdevTestLUKS")
+        self.assertTrue(succ)
+
+        # lets try with keyfile
+        with tempfile.NamedTemporaryFile(mode="w") as f:
+            f.write(passphrase)
+            f.flush()
+
+            ctx = BlockDev.CryptoKeyslotContext(keyfile=f.name)
+            succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", ctx, False)
+            self.assertTrue(succ)
+
+            succ = BlockDev.crypto_luks_close("libblockdevTestLUKS")
+            self.assertTrue(succ)
+
+        # and keyring too
+        succ = BlockDev.crypto_keyring_add_key("myshinylittlekey", passphrase)
+        self.assertTrue(succ)
+
+        ctx = BlockDev.CryptoKeyslotContext(keyring="myshinylittlekey")
+        succ = BlockDev.crypto_luks_open(self.loop_dev, "libblockdevTestLUKS", ctx)
+        self.assertTrue(succ)
+
+        succ = BlockDev.crypto_luks_close("libblockdevTestLUKS")
+        self.assertTrue(succ)
+
 
 class CryptoTestAddKey(CryptoTestCase):
     def _add_key(self, create_fn):
@@ -948,7 +989,7 @@ class CryptoTestInfo(CryptoTestCase):
                 self.fail("Failed to get LUKS 2 offset information from %s:\n%s %s" % (self.loop_dev, out, err))
             offset = int(m.group(1))
 
-        self.assertEquals(info.metadata_size, offset)
+        self.assertEqual(info.metadata_size, offset)
 
     @tag_test(TestTags.SLOW, TestTags.CORE)
     def test_luks_info(self):

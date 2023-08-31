@@ -10,6 +10,10 @@ from packaging.version import Version
 
 import overrides_hack
 from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, fake_utils, fake_path, mount, umount, run_command, TestTags, tag_test
+
+import gi
+gi.require_version('GLib', '2.0')
+gi.require_version('BlockDev', '3.0')
 from gi.repository import GLib, BlockDev
 
 TEST_MNT = "/tmp/libblockdev_test_mnt"
@@ -567,12 +571,12 @@ class BTRFSSkipTest(BtrfsTest):
 
         with fake_utils("tests/fake_utils/btrfs_low_version/"):
             # too low version of BTRFS available
-            with self.assertRaisesRegexp(GLib.GError, "Too low version of btrfs"):
+            with self.assertRaisesRegex(GLib.GError, "Too low version of btrfs"):
                 BlockDev.btrfs_is_tech_avail(BlockDev.BtrfsTech.FS, 0)
 
         with fake_path(all_but="btrfs"):
             # no btrfs tool available
-            with self.assertRaisesRegexp(GLib.GError, "The 'btrfs' utility is not available"):
+            with self.assertRaisesRegex(GLib.GError, "The 'btrfs' utility is not available"):
                 BlockDev.btrfs_is_tech_avail(BlockDev.BtrfsTech.FS, 0)
 
         # check that new version format is correctly parsed
