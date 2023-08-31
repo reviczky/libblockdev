@@ -16,6 +16,8 @@ from contextlib import contextmanager
 from enum import Enum
 from itertools import chain
 
+import gi
+gi.require_version('GLib', '2.0')
 from gi.repository import GLib
 
 try:
@@ -428,12 +430,11 @@ def create_nvmet_device(dev_path):
     """
 
     SUBNQN = 'libblockdev_subnqn'
-    hostnqn = get_nvme_hostnqn()
 
     setup_nvme_target([dev_path], SUBNQN)
 
     # connect initiator to the newly created target
-    (ret, out, err) = run_command("nvme connect --transport=loop --hostnqn=%s --nqn=%s" % (hostnqn, SUBNQN))
+    (ret, out, err) = run_command("nvme connect --transport=loop --nqn=%s" % SUBNQN)
     if ret != 0:
         raise RuntimeError("Error connecting to the NVMe target: '%s %s'" % (out, err))
 

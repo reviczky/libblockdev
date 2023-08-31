@@ -4,7 +4,10 @@ import os
 import overrides_hack
 from utils import fake_utils, create_sparse_tempfile, create_lio_device, delete_lio_device, run_command, TestTags, tag_test, read_file
 
-from gi.repository import BlockDev, GLib
+import gi
+gi.require_version('GLib', '2.0')
+gi.require_version('BlockDev', '3.0')
+from gi.repository import GLib, BlockDev
 
 
 class UtilsTestCase(unittest.TestCase):
@@ -216,11 +219,11 @@ class UtilsExecLoggingTest(UtilsTestCase):
         cnt = 65536
         succ, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "for i in {1..%d}; do echo -n .; done" % cnt])
         self.assertTrue(succ)
-        self.assertEquals(len(out), cnt)
+        self.assertEqual(len(out), cnt)
 
         succ, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "for i in {1..%d}; do echo -n .; echo -n \# >&2; done" % cnt])
         self.assertTrue(succ)
-        self.assertEquals(len(out), cnt)
+        self.assertEqual(len(out), cnt)
 
         # now exceed the system pipe buffer size
         # pipe(7): The maximum size (in bytes) of individual pipes that can be set by users without the CAP_SYS_RESOURCE capability.
@@ -229,11 +232,11 @@ class UtilsExecLoggingTest(UtilsTestCase):
 
         succ, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "for i in {1..%d}; do echo -n .; done" % cnt])
         self.assertTrue(succ)
-        self.assertEquals(len(out), cnt)
+        self.assertEqual(len(out), cnt)
 
         succ, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "for i in {1..%d}; do echo -n .; echo -n \# >&2; done" % cnt])
         self.assertTrue(succ)
-        self.assertEquals(len(out), cnt)
+        self.assertEqual(len(out), cnt)
 
         # make use of some newlines
         succ, out = BlockDev.utils_exec_and_capture_output(["bash", "-c", "for i in {1..%d}; do echo -n .; if [ $(($i%%500)) -eq 0 ]; then echo ''; fi; done" % cnt])
