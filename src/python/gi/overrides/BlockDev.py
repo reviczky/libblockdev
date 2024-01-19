@@ -27,10 +27,10 @@ no code duplication and it propagates non-callable objects directly.
 
 """
 
+import copy
 import inspect
 import os
 import re
-import sys
 from collections import namedtuple, defaultdict
 
 from bytesize import Size
@@ -77,12 +77,31 @@ def _default_repr(self):
     return s
 
 
+def _default_copy(self, memo):
+    if hasattr(self, "copy"):
+        # use our copy function (if we have one)
+        return self.copy()
+    else:
+        # use python deepcopy and hope for the best
+        return copy.deepcopy(memo)
+
+
 # get all subclasses of GBoxed in this module
 all_boxed = inspect.getmembers(BlockDev,
                                lambda member: inspect.isclass(member) and issubclass(member, GObject.GBoxed))
 for _cname, cls in all_boxed:
     cls.__str__ = _default_str
     cls.__repr__ = _default_repr
+    cls.__deepcopy__ = _default_copy
+
+
+class PluginSpec(BlockDev.PluginSpec):
+    def __new__(cls, name=BlockDev.Plugin.UNDEF, so_name=None):
+        ret = BlockDev.PluginSpec.new(name, so_name)
+        ret.__class__ = cls
+        return ret
+PluginSpec = override(PluginSpec)
+__all__.append("PluginSpec")
 
 
 class ExtraArg(BlockDev.ExtraArg):
@@ -1122,9 +1141,7 @@ __all__.append("nvme_connect")
 def plugin_specs_from_names(plugin_names):
     ret = []
     for name in plugin_names:
-        plugin = BlockDev.PluginSpec()
-        plugin.name = bd_plugins[name.lower()]
-        plugin.so_name = None
+        plugin = PluginSpec(name=bd_plugins[name.lower()], so_name=None)
         ret.append(plugin)
 
     return ret
