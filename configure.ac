@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [3.0.4], [], [], [https://github.com/storaged-project/libblockdev])
+AC_INIT([libblockdev], [3.1.0], [], [], [https://github.com/storaged-project/libblockdev])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -197,6 +197,10 @@ AS_IF([test "x$with_part" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([FDISK], [fdisk >= 2.31.0])],
       [])
 
+AS_IF([test "x$with_swap" != "xno"],
+      [LIBBLOCKDEV_PKG_CHECK_MODULES([UUID], [uuid])],
+      [])
+
 AS_IF([test "x$with_fs" != "xno"],
       [LIBBLOCKDEV_PKG_CHECK_MODULES([UUID], [uuid])
        LIBBLOCKDEV_PKG_CHECK_MODULES([MOUNT], [mount >= 2.23.0])
@@ -294,7 +298,7 @@ echo "
         LVM DBus plugin:            ${with_lvm_dbus}
         MDRAID plugin:              ${with_mdraid}
         MPath plugin                ${with_mpath}
-        NVDIMM plugin:              ${with_nvdimm}
+        NVDIMM plugin (deprecated): ${with_nvdimm}
         NVMe plugin:                ${with_nvme}
         Part plugin:                ${with_part}
         S390 plugin:                ${s390_info}
