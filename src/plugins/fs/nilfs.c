@@ -54,7 +54,6 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
     DEPS_NILFSTUNE_MASK,        /* set-uuid */
 };
 
-#define UNUSED __attribute__((unused))
 
 #ifdef __clang__
 #define ZERO_INIT {}
@@ -71,8 +70,8 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
  */
-gboolean __attribute__ ((visibility ("hidden")))
-bd_fs_nilfs2_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **error) {
+G_GNUC_INTERNAL gboolean
+bd_fs_nilfs2_is_tech_avail (BDFSTech tech G_GNUC_UNUSED, guint64 mode, GError **error) {
     guint32 required = 0;
     guint i = 0;
 
@@ -129,8 +128,8 @@ void bd_fs_nilfs2_info_free (BDFSNILFS2Info *data) {
     g_free (data);
 }
 
-BDExtraArg __attribute__ ((visibility ("hidden")))
-**bd_fs_nilfs2_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+G_GNUC_INTERNAL BDExtraArg **
+bd_fs_nilfs2_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
     GPtrArray *options_array = g_ptr_array_new ();
     const BDExtraArg **extra_p = NULL;
 
