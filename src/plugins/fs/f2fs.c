@@ -70,7 +70,6 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
     0                       /* set-uuid */
 };
 
-#define UNUSED __attribute__((unused))
 
 /* option to get version was added in 1.11.0 so we need to cover situation
    where the version is too old to check the version */
@@ -109,8 +108,8 @@ static gboolean can_check_f2fs_version (UtilDep dep, GError **error) {
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
  */
-gboolean __attribute__ ((visibility ("hidden")))
-bd_fs_f2fs_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **error) {
+G_GNUC_INTERNAL gboolean
+bd_fs_f2fs_is_tech_avail (BDFSTech tech G_GNUC_UNUSED, guint64 mode, GError **error) {
     guint32 required = 0;
     guint i = 0;
 
@@ -172,8 +171,8 @@ void bd_fs_f2fs_info_free (BDFSF2FSInfo *data) {
     g_free (data);
 }
 
-BDExtraArg __attribute__ ((visibility ("hidden")))
-**bd_fs_f2fs_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+G_GNUC_INTERNAL BDExtraArg **
+bd_fs_f2fs_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
     GPtrArray *options_array = g_ptr_array_new ();
     const BDExtraArg **extra_p = NULL;
 

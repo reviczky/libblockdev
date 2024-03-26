@@ -63,7 +63,6 @@ static guint32 fs_mode_util[BD_FS_MODE_LAST+1] = {
     DEPS_TUNE2FS_MASK       /* set-uuid */
 };
 
-#define UNUSED __attribute__((unused))
 
 static gint8 compute_percents (guint8 pass_cur, guint8 pass_total, gint val_cur, gint val_total) {
     gint perc;
@@ -156,8 +155,8 @@ static gboolean extract_e2fsck_progress (const gchar *line, guint8 *completion) 
  * Returns: whether the @tech-@mode combination is available -- supported by the
  *          plugin implementation and having all the runtime dependencies available
  */
-gboolean __attribute__ ((visibility ("hidden")))
-bd_fs_ext_is_tech_avail (BDFSTech tech UNUSED, guint64 mode, GError **error) {
+G_GNUC_INTERNAL gboolean
+bd_fs_ext_is_tech_avail (BDFSTech tech G_GNUC_UNUSED, guint64 mode, GError **error) {
     guint32 required = 0;
     guint i = 0;
     for (i = 0; i <= BD_FS_MODE_LAST; i++)
@@ -268,18 +267,18 @@ static BDExtraArg **ext_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg
     return (BDExtraArg **) g_ptr_array_free (options_array, FALSE);
 }
 
-BDExtraArg __attribute__ ((visibility ("hidden")))
-**bd_fs_ext2_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+G_GNUC_INTERNAL BDExtraArg **
+bd_fs_ext2_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
     return ext_mkfs_options (options, extra);
 }
 
-BDExtraArg __attribute__ ((visibility ("hidden")))
-**bd_fs_ext3_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+G_GNUC_INTERNAL BDExtraArg **
+bd_fs_ext3_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
     return ext_mkfs_options (options, extra);
 }
 
-BDExtraArg __attribute__ ((visibility ("hidden")))
-**bd_fs_ext4_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
+G_GNUC_INTERNAL BDExtraArg **
+bd_fs_ext4_mkfs_options (BDFSMkfsOptions *options, const BDExtraArg **extra) {
     return ext_mkfs_options (options, extra);
 }
 

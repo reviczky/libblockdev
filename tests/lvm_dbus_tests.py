@@ -360,15 +360,16 @@ class LvmPVonlyTestCase(LVMTestCase):
             raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
     def _clean_up(self):
-        try:
-            BlockDev.lvm_pvremove(self.loop_dev, None)
-        except:
-            pass
+        for dev in (self.loop_dev, self.loop_dev2):
+            try:
+                BlockDev.lvm_pvremove(dev)
+            except:
+                pass
 
-        try:
-            BlockDev.lvm_pvremove(self.loop_dev2, None)
-        except:
-            pass
+            try:
+                BlockDev.lvm_devices_delete(dev)
+            except:
+                pass
 
         try:
             delete_lio_device(self.loop_dev)
@@ -430,8 +431,14 @@ class LvmTestPVresize(LvmPVonlyTestCase):
         succ = BlockDev.lvm_pvresize(self.loop_dev, 200 * 1024**2, None)
         self.assertTrue(succ)
 
+        info = BlockDev.lvm_pvinfo(self.loop_dev)
+        self.assertEqual(info.pv_size, 200 * 1024**2)
+
         succ = BlockDev.lvm_pvresize(self.loop_dev, 200 * 1024**3, None)
         self.assertTrue(succ)
+
+        info = BlockDev.lvm_pvinfo(self.loop_dev)
+        self.assertEqual(info.pv_size, 200 * 1024**3)
 
 @unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
 class LvmTestPVscan(LvmPVonlyTestCase):
@@ -2253,7 +2260,10 @@ class LvmTestDevicesFile(LvmPVonlyTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree("/etc/lvm/devices/" + cls.devicefile, ignore_errors=True)
+        try:
+            os.remove("/etc/lvm/devices/" + cls.devicefile)
+        except FileNotFoundError:
+            pass
 
         super(LvmTestDevicesFile, cls).tearDownClass()
 
