@@ -468,6 +468,7 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_nvme_get_sanitize_log@Base 3.0
  bd_nvme_get_self_test_log@Base 3.0
  bd_nvme_get_smart_log@Base 3.0
+ bd_nvme_is_tech_avail@Base 3.1.1
  bd_nvme_lba_format_copy@Base 3.0
  bd_nvme_lba_format_free@Base 3.0
  bd_nvme_lba_format_get_type@Base 3.0
