@@ -62,7 +62,9 @@ Depends: libblockdev3 (= ${binary:Version}),
          gir1.2-blockdev-3.0 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
+         ${gir:Depends},
          ${misc:Depends}
+Provides: ${gir:Provides}
 Description: Library for manipulating block devices - development
  libblockdev is a C library with GObject introspection support that can be used
  for doing low-level operations with block devices like setting up LVM, BTRFS,
