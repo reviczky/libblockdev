@@ -1,0 +1,10 @@
+libbd_mpath.so.3 libblockdev-mpath3 #MINVER#
+* Build-Depends-Package: libblockdev-mpath-dev
+ bd_mpath_close@Base 3.1.1
+ bd_mpath_error_quark@Base 3.1.1
+ bd_mpath_flush_mpaths@Base 3.1.1
+ bd_mpath_get_mpath_members@Base 3.1.1
+ bd_mpath_init@Base 3.1.1
+ bd_mpath_is_mpath_member@Base 3.1.1
+ bd_mpath_is_tech_avail@Base 3.1.1
+ bd_mpath_set_friendly_names@Base 3.1.1
