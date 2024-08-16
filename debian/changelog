@@ -1,3 +1,21 @@
+libblockdev (3.1.1-2) unstable; urgency=medium
+
+  [ Alessandro Astone ]
+  * Add upstream patches to fix build with gcc14.
+    The real fix would be in e2fsprogs, but it's still not fixed upstream:
+    https://lore.kernel.org/all/20240527091542.4121237-2-hi@alyssa.is/T/#u
+    (Closes: #1071320)
+
+  [ Michael Biebl ]
+  * Add symbols file for libblockdev-mpath
+  * Add ${gir:Depends} and ${gir:Provides} to libblockdev-dev.
+    Fixes lintian warning W: libblockdev-dev:
+    gir-package-name-does-not-match gir1.2-blockdev-3.0-dev
+    [usr/share/gir-1.0/BlockDev-3.0.gir]
+  * Bump Standards-Version to 4.7.0, no further changes required
+
+ -- Michael Biebl <biebl@debian.org>  Fri, 16 Aug 2024 19:23:21 +0200
+
 libblockdev (3.1.1-1) unstable; urgency=medium
 
   * New upstream release
