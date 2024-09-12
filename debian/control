@@ -30,6 +30,7 @@ Build-Depends: debhelper-compat (= 13),
                libnvme-dev,
                libpython3-dev,
                libkmod-dev (>= 19),
+               libatasmart-dev (>= 0.17),
                gtk-doc-tools,
                pylint,
 Standards-Version: 4.7.0
