@@ -12,6 +12,7 @@ libbd_utils.so.3 libblockdev-utils3 #MINVER#
  bd_utils_dev_utils_error_quark@Base 2.14
  bd_utils_echo_str_to_file@Base 2.14
  bd_utils_exec_and_capture_output@Base 2.14
+ bd_utils_exec_and_capture_output_no_progress@Base 3.2.0
  bd_utils_exec_and_report_error@Base 2.14
  bd_utils_exec_and_report_error_no_progress@Base 2.14
  bd_utils_exec_and_report_progress@Base 2.14

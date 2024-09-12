@@ -63,6 +63,7 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_crypto_luks_add_key@Base 2.14
  bd_crypto_luks_change_key@Base 2.14
  bd_crypto_luks_close@Base 2.14
+ bd_crypto_luks_convert@Base 3.2.0
  bd_crypto_luks_extra_copy@Base 2.20
  bd_crypto_luks_extra_free@Base 2.20
  bd_crypto_luks_extra_get_type@Base 2.20
@@ -91,6 +92,10 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_crypto_luks_token_info_copy@Base 3.0
  bd_crypto_luks_token_info_free@Base 3.0
  bd_crypto_luks_token_info_get_type@Base 3.0
+ bd_crypto_opal_format@Base 3.2.0
+ bd_crypto_opal_is_supported@Base 3.2.0
+ bd_crypto_opal_reset_device@Base 3.2.0
+ bd_crypto_opal_wipe_device@Base 3.2.0
  bd_crypto_tc_close@Base 2.14
  bd_crypto_tc_open@Base 2.14
  bd_dm_create_linear@Base 2.14
@@ -522,19 +527,22 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_plugin_spec_get_type@Base 2.14
  bd_plugin_spec_new@Base 3.1.0
  bd_reinit@Base 2.14
- (arch=s390x)bd_s390_dasd_format@Base 2.14
- (arch=s390x)bd_s390_dasd_is_fba@Base 2.14
- (arch=s390x)bd_s390_dasd_is_ldl@Base 2.14
- (arch=s390x)bd_s390_dasd_needs_format@Base 2.14
- (arch=s390x)bd_s390_dasd_online@Base 2.14
- (arch=s390x)bd_s390_error_quark@Base 2.14
- (arch=s390x)bd_s390_is_tech_avail@Base 2.14
- (arch=s390x)bd_s390_sanitize_dev_input@Base 2.14
- (arch=s390x)bd_s390_zfcp_offline@Base 2.14
- (arch=s390x)bd_s390_zfcp_online@Base 2.14
- (arch=s390x)bd_s390_zfcp_sanitize_lun_input@Base 2.14
- (arch=s390x)bd_s390_zfcp_sanitize_wwpn_input@Base 2.14
- (arch=s390x)bd_s390_zfcp_scsi_offline@Base 2.14
+ bd_smart_ata_attribute_copy@Base 3.2.0
+ bd_smart_ata_attribute_free@Base 3.2.0
+ bd_smart_ata_attribute_get_type@Base 3.2.0
+ bd_smart_ata_copy@Base 3.2.0
+ bd_smart_ata_free@Base 3.2.0
+ bd_smart_ata_get_info@Base 3.2.0
+ bd_smart_ata_get_info_from_data@Base 3.2.0
+ bd_smart_ata_get_type@Base 3.2.0
+ bd_smart_device_self_test@Base 3.2.0
+ bd_smart_error_quark@Base 3.2.0
+ bd_smart_is_tech_avail@Base 3.2.0
+ bd_smart_scsi_copy@Base 3.2.0
+ bd_smart_scsi_free@Base 3.2.0
+ bd_smart_scsi_get_info@Base 3.2.0
+ bd_smart_scsi_get_type@Base 3.2.0
+ bd_smart_set_enabled@Base 3.2.0
  bd_swap_check_label@Base 3.1.0
  bd_swap_check_uuid@Base 3.1.0
  bd_swap_error_quark@Base 2.14

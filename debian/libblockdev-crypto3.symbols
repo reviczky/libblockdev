@@ -34,6 +34,7 @@ libbd_crypto.so.3 libblockdev-crypto3 #MINVER#
  bd_crypto_luks_add_key@Base 2.14
  bd_crypto_luks_change_key@Base 2.14
  bd_crypto_luks_close@Base 2.14
+ bd_crypto_luks_convert@Base 3.2.0
  bd_crypto_luks_extra_copy@Base 2.20
  bd_crypto_luks_extra_free@Base 2.20
  bd_crypto_luks_extra_new@Base 2.20
@@ -58,5 +59,9 @@ libbd_crypto.so.3 libblockdev-crypto3 #MINVER#
  bd_crypto_luks_token_info@Base 3.0
  bd_crypto_luks_token_info_copy@Base 3.0
  bd_crypto_luks_token_info_free@Base 3.0
+ bd_crypto_opal_format@Base 3.2.0
+ bd_crypto_opal_is_supported@Base 3.2.0
+ bd_crypto_opal_reset_device@Base 3.2.0
+ bd_crypto_opal_wipe_device@Base 3.2.0
  bd_crypto_tc_close@Base 2.14
  bd_crypto_tc_open@Base 2.14
