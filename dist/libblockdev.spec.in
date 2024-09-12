@@ -16,6 +16,8 @@
 %define with_escrow @WITH_ESCROW@
 %define with_tools @WITH_TOOLS@
 %define with_nvme @WITH_NVME@
+%define with_smart @WITH_SMART@
+%define with_smartmontools @WITH_SMARTMONTOOLS@
 
 # btrfs is not available on RHEL > 7
 %if 0%{?rhel} > 7 || %{with_btrfs} == 0
@@ -73,11 +75,17 @@
 %if %{with_nvme} != 1
 %define nvme_copts --without-nvme
 %endif
+%if %{with_smart} != 1
+%define smart_copts --without-smart
+%endif
+%if %{with_smartmontools} != 1
+%define smartmontools_copts --without-smartmontools
+%endif
 
-%define configure_opts %{?python3_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?tools_copts} %{?gi_copts} %{?nvme_copts}
+%define configure_opts %{?python3_copts} %{?lvm_dbus_copts} %{?btrfs_copts} %{?crypto_copts} %{?dm_copts} %{?loop_copts} %{?lvm_copts} %{?lvm_dbus_copts} %{?mdraid_copts} %{?mpath_copts} %{?swap_copts} %{?part_copts} %{?fs_copts} %{?nvdimm_copts} %{?tools_copts} %{?gi_copts} %{?nvme_copts} %{?smart_copts} %{?smartmontools_copts}
 
 Name:        libblockdev
-Version:     3.1.1
+Version:     3.2.0
 Release:     1%{?dist}
 Summary:     A library for low-level manipulation with block devices
 License:     LGPL-2.1-or-later
@@ -290,6 +298,7 @@ with the libblockdev-loop plugin/library.
 %if %{with_lvm}
 %package lvm
 BuildRequires: device-mapper-devel
+BuildRequires: libyaml-devel
 Summary:     The LVM plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} = %{version}-%{release}
 Requires: lvm2
@@ -312,6 +321,7 @@ with the libblockdev-lvm plugin/library.
 %if %{with_lvm_dbus}
 %package lvm-dbus
 BuildRequires: device-mapper-devel
+BuildRequires: libyaml-devel
 Summary:     The LVM plugin for the libblockdev library
 Requires: %{name}-utils%{?_isa} = %{version}-%{release}
 Requires: lvm2-dbusd >= 2.02.156
@@ -447,6 +457,53 @@ with the libblockdev-part plugin/library.
 %endif
 
 
+%if %{with_smart}
+%package smart
+BuildRequires: libatasmart-devel >= 0.17
+Summary:     The smart plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} = %{version}-%{release}
+
+%description smart
+The libblockdev library plugin (and in the same time a standalone library)
+providing S.M.A.R.T. monitoring and testing functionality, based
+on libatasmart.
+
+%package smart-devel
+Summary:     Development files for the libblockdev-smart plugin/library
+Requires: %{name}-smart%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+
+%description smart-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-smart plugin/library.
+%endif
+
+
+%if %{with_smartmontools}
+%package smartmontools
+BuildRequires: json-glib-devel
+Summary:     The smartmontools plugin for the libblockdev library
+Requires: %{name}-utils%{?_isa} = %{version}-%{release}
+Requires: smartmontools >= 7.0
+
+%description smartmontools
+The libblockdev library plugin (and in the same time a standalone library)
+providing S.M.A.R.T. monitoring and testing functionality, based
+on smartmontools.
+
+%package smartmontools-devel
+Summary:     Development files for the libblockdev-smart plugin/library
+Requires: %{name}-smartmontools%{?_isa} = %{version}-%{release}
+Requires: %{name}-utils-devel%{?_isa} = %{version}-%{release}
+Requires: glib2-devel
+
+%description smartmontools-devel
+This package contains header files and pkg-config files needed for development
+with the libblockdev-smart plugin/library.
+%endif
+
+
 %if %{with_swap}
 %package swap
 BuildRequires: libblkid-devel
@@ -554,6 +611,14 @@ Requires: %{name}-nvme%{?_isa} = %{version}-%{release}
 Requires: %{name}-part%{?_isa} = %{version}-%{release}
 %endif
 
+%if %{with_smart}
+Requires: %{name}-smart%{?_isa} = %{version}-%{release}
+%endif
+
+%if %{with_smartmontools}
+Requires: %{name}-smartmontools%{?_isa} = %{version}-%{release}
+%endif
+
 %if %{with_swap}
 Requires: %{name}-swap%{?_isa} = %{version}-%{release}
 %endif
@@ -628,6 +693,14 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 
 %if %{with_part}
 %ldconfig_scriptlets part
+%endif
+
+%if %{with_smart}
+%ldconfig_scriptlets smart
+%endif
+
+%if %{with_smartmontools}
+%ldconfig_scriptlets smartmontools
 %endif
 
 %if %{with_swap}
@@ -821,6 +894,28 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %endif
 
 
+%if %{with_smart}
+%files smart
+%{_libdir}/libbd_smart.so.*
+
+%files smart-devel
+%{_libdir}/libbd_smart.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/smart.h
+%endif
+
+
+%if %{with_smartmontools}
+%files smartmontools
+%{_libdir}/libbd_smartmontools.so.*
+
+%files smartmontools-devel
+%{_libdir}/libbd_smartmontools.so
+%dir %{_includedir}/blockdev
+%{_includedir}/blockdev/smart.h
+%endif
+
+
 %if %{with_swap}
 %files swap
 %{_libdir}/libbd_swap.so.*
@@ -851,6 +946,113 @@ find %{buildroot} -type f -name "*.la" | xargs %{__rm}
 %files plugins-all
 
 %changelog
+* Tue Sep 10 2024 Vojtech Trefny <vtrefny@redhat.com> - 3.2.0-1
+- ci: Add a simple GH action to run spelling tools on our code (vtrefny)
+- crypto: Fix GType macro for crypto context (vtrefny)
+- misc: Fix typos (vtrefny)
+- part: Document type_name in BDPartSpec docstring (vtrefny)
+- docs: Fix documentation for the SMART plugin (vtrefny)
+- docs: Add BDCryptoLUKSHWEncryptionType to libblockdev-sections.txt (vtrefny)
+- crypto: Fixing missing quotation marks in some error messages (vtrefny)
+- crypto: Fix name of bd_crypto_opal_wipe_device in crypto.h (vtrefny)
+- tests: Fix skipping VDO tests on Debian and CentOS 10 (vtrefny)
+- crypto: Add a function to run OPAL PSID reset (vtrefny)
+- ci: Remove priority from Testing farm repositories (vtrefny)
+- NEWS: add preliminary release notes for the smart plugin (tbzatek)
+- smart: Add documentation (tbzatek)
+- crypto: Check for kernel SED OPAL support for OPAL operations (vtrefny)
+- tests: Add a simple test case for LUKS HW-OPAL support (vtrefny)
+- crypto: Add support for creating new LUKS HW-OPAL devices (vtrefny)
+- crypto: Add information about HW encryption to BDCryptoLUKSInfo (vtrefny)
+- crypto: Add a function to wipe a LUKS HW-OPAL device (vtrefny)
+- crypto: Add a function to check for OPAL support for a device (vtrefny)
+- tests: No longer need to skip exfat UUID tests on Fedora (vtrefny)
+- smart: Mark drivedb integration as experimental (tbzatek)
+- fs: Fix docstring for bd_fs_ext?_get_min_size functions (vtrefny)
+- part: Add human readable partition type to BDPartSpec (vtrefny)
+- crypto: Show error when trying using an invalid DM name (vtrefny)
+- nvme: Fix potential memory leak (tbzatek)
+- tests: Temporarily skip LVM VDO tests on RHEL/CentOS 10 (vtrefny)
+- misc: Add vdo to test dependencies on Fedora (vtrefny)
+- lvm: Get VDO stats from device mapper instead of /sys/kvdo (vtrefny)
+- lvm: Check for dm-vdo instead of kvdo module for VDO support (vtrefny)
+- infra: bump github/codeql-action from 2 to 3 (49699333+dependabot[bot])
+- infra: bump actions/upload-artifact from 3 to 4 (49699333+dependabot[bot])
+- infra: Add dependabot to automatically update GH actions (vtrefny)
+- part: Fix copy-paste bug in bd_part_spec_copy (vtrefny)
+- docs: Fix link to Python bindings documentation (vtrefny)
+- tests: Add more libatasmart skdump samples (tbzatek)
+- tests: Fix smartmontools plugin parsing of /dev/random (tbzatek)
+- tests: Adapt smart plugin tests for the added extra arguments (tbzatek)
+- smart: Add BDExtraArg arguments (tbzatek)
+- tests: Add bd_utils_exec_and_capture_output_no_progress() tests (tbzatek)
+- utils/exec: Add bd_utils_exec_and_capture_output_no_progress() (tbzatek)
+- tests: Skip exFAT UUID tests also on Fedora 39 (vtrefny)
+- ci: Run UDisks reverse dependency tests on pull requests (vtrefny)
+- utils/exec: Refactor extra args append out (tbzatek)
+- misc: Add kernel-modules-extra to test dependencies (vtrefny)
+- ci: Add a simple tmt test and run it via packit (vtrefny)
+- ci: Run Blivet reverse dependency tests on pull requests (vtrefny)
+- Add cache size ratio to the output of lvm-cache-stats (v.podzimek)
+- misc: Fix enabling source repositories on latest Ubuntu (vtrefny)
+- ci: Use Ubuntu 24.04 in GitHub actions (vtrefny)
+- fs: Fix ignoring errors from libext2fs (vtrefny)
+- fs: Ignore shift-count-overflow warning in FS plugin (vtrefny)
+- fs: Ignore unused-parameter warning in the FS plugin (vtrefny)
+- tests: Skip ExFAT UUID tests with recent exfatprogs (vtrefny)
+- tests: Split libatasmart and smartmontool tests (tbzatek)
+- smart: Rework libatasmart temperature reporting (tbzatek)
+- tests: Add SiliconPower SSD skdump reporting incorrect temp (tbzatek)
+- build: Install lvm.h when only lvm_dbus enabled (tbzatek)
+- smart: Use smartmontools drivedb.h for libatasmart validation (tbzatek)
+- smart: Implement bd_smart_ata_get_info_from_data() (tbzatek)
+- smart: Introduce new libatasmart plugin (tbzatek)
+- smart: Refactor and split into libbd_smartmontools (tbzatek)
+- smart: Introduce well-known attribute names, validation and pretty values (tbzatek)
+- smart: Remove the ATA low-power mode detection (tbzatek)
+- tests: Add SCSI SMART tests (tbzatek)
+- smart: Add SCSI/SAS status retrieval (tbzatek)
+- tests: Add tests for bd_smart_device_self_test() (tbzatek)
+- tests: Add tests for bd_smart_set_enabled() (tbzatek)
+- tests: Add SMART tests over supplied JSON dumps (tbzatek)
+- tests: Add basic SMART tests (tbzatek)
+- smart: Add bd_smart_device_self_test() (tbzatek)
+- smart: Add bd_smart_set_enabled() (tbzatek)
+- New SMART plugin (tbzatek)
+- utils: Check also for aliases in bd_utils_have_kernel_module (vtrefny)
+- Fix pylint possibly-used-before-assignment warning in BlockDev.py (vtrefny)
+- build: Fix linking with LLD (vadorovsky)
+- misc: Remove CentOS 8 Stream from Vagrantfile and test dependencies (vtrefny)
+- misc: Vagrantfile update (vtrefny)
+- tests: Skip filesystem tests if kernel module is not available (vtrefny)
+- ci: Fix bumping release for Packit builds (vtrefny)
+- ci: Get version for packit from the SPEC file (vtrefny)
+- tests: Fix running tests without ntfsprogs (vtrefny)
+- ci: Set custom release number for Packit (vtrefny)
+- Bump version to 3.1.1 (vtrefny)
+- utils: Clarify usage of version in bd_utils_check_util_version (vtrefny)
+- crypto: Fix double free in bd_crypto_luks_remove_key (vtrefny)
+- fixed md_create issue #1013 (guazhang)
+- lvm-dbus: Fix leaking error in bd_lvm_init (vtrefny)
+- lvm-dbus: Fix potential segfault in bd_lvm_init (vtrefny)
+- lvm-dbus: Fix passing size for pvresize over DBus (vtrefny)
+- nvme: Add bd_nvme_is_tech_avail to the API file (vtrefny)
+- tests: Add NVMe controller type checks (tbzatek)
+- tests: Add NVMe persistent discovery controller tests (tbzatek)
+- btrfs: make btrfs subvolume listing consistent (jvanderwaa)
+- crypto: Add support for conversion between different LUKS formats (xyakimo1)
+- tests: Fix removing custom LVM devices file (vtrefny)
+- tests: Ignore LVM devices file for non-LVM tests (vtrefny)
+- tests: Manually remove removed PVs from LVM devices file (vtrefny)
+- tests: introduce setup_test_device helper function (jvanderwaa)
+- tests: split multi device tests into a new testcase class (jvanderwaa)
+- dm_logging: Annotate redirect_dm_log() printf format (tbzatek)
+- Fix some more occurrences of missing port to G_GNUC_UNUSED (tbzatek)
+- Port to G_GNUC_INTERNAL for controlling symbols visibility (tbzatek)
+- Use glib2 G_GNUC_UNUSED in place of UNUSED locally defined (giulio.benetti)
+- Makefile: Fix bumpver to work with micro versions (vtrefny)
+- Makefile: Do not include release in the tag (vtrefny)
+
 * Tue Mar 26 2024 Vojtech Trefny <vtrefny@redhat.com> - 3.1.1-1
 - lvm-dbus: Fix passing size for pvresize over DBus (vtrefny)
 - nvme: Add bd_nvme_is_tech_avail to the API file (vtrefny)

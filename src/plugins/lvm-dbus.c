@@ -256,7 +256,7 @@ static gboolean setup_dbus_connection (GError **error) {
 
     addr = g_dbus_address_get_for_bus_sync (G_BUS_TYPE_SYSTEM, NULL, error);
     if (!addr) {
-        bd_utils_log_format (BD_UTILS_LOG_CRIT, "Failed to get system bus address: %s\n", (*error)->message);
+        g_prefix_error (error, "Failed to get system bus address: ");
         return FALSE;
     }
 
@@ -267,8 +267,14 @@ static gboolean setup_dbus_connection (GError **error) {
 
     g_free (addr);
 
-    if (!bus || g_dbus_connection_is_closed (bus)) {
-        bd_utils_log_format (BD_UTILS_LOG_CRIT, "Failed to create a new connection for the system bus: %s\n", (*error)->message);
+    if (!bus) {
+        g_prefix_error (error, "Failed to create a new connection for the system bus: ");
+        return FALSE;
+    }
+
+    if (g_dbus_connection_is_closed (bus)) {
+        g_set_error (error, BD_LVM_ERROR, BD_LVM_ERROR_FAIL,
+                     "Connection is closed");
         return FALSE;
     }
 
@@ -320,7 +326,7 @@ static const UtilFeatureDep features[FEATURES_LAST] = {
 #define MODULE_DEPS_VDO_MASK (1 << MODULE_DEPS_VDO)
 #define MODULE_DEPS_LAST 1
 
-static const gchar*const module_deps[MODULE_DEPS_LAST] = { "kvdo" };
+static const gchar*const module_deps[MODULE_DEPS_LAST] = { "dm-vdo" };
 
 /**
  * bd_lvm_init:
@@ -336,6 +342,7 @@ gboolean bd_lvm_init (void) {
        completely rely on it */
     if (G_UNLIKELY (!bus) && !setup_dbus_connection (&error)) {
         bd_utils_log_format (BD_UTILS_LOG_CRIT, "Failed to setup DBus connection: %s", error->message);
+        g_clear_error (&error);
         return FALSE;
     }
 
@@ -4704,10 +4711,10 @@ BDLVMVDOWritePolicy bd_lvm_get_vdo_write_policy_from_str (const gchar *policy_st
  *                                                    statistics or %NULL in case of error
  *                                                    (@error gets populated in those cases)
  *
- * Statistics are collected from the values exposed by the kernel `kvdo` module
- * at the `/sys/kvdo/<VDO_NAME>/statistics/` path.
+ * Statistics are collected from the values exposed by the kernel `dm-vdo` module.
+ *
  * Some of the keys are computed to mimic the information produced by the vdo tools.
- * Please note the contents of the hashtable may vary depending on the actual kvdo module version.
+ * Please note the contents of the hashtable may vary depending on the actual dm-vdo module version.
  *
  * Tech category: %BD_LVM_TECH_VDO-%BD_LVM_TECH_MODE_QUERY
  */
@@ -4739,12 +4746,12 @@ BDLVMVDOStats* bd_lvm_vdo_get_stats (const gchar *vg_name, const gchar *pool_nam
         return NULL;
 
     stats = g_new0 (BDLVMVDOStats, 1);
-    get_stat_val64_default (full_stats, "block_size", &stats->block_size, -1);
-    get_stat_val64_default (full_stats, "logical_block_size", &stats->logical_block_size, -1);
-    get_stat_val64_default (full_stats, "physical_blocks", &stats->physical_blocks, -1);
-    get_stat_val64_default (full_stats, "data_blocks_used", &stats->data_blocks_used, -1);
-    get_stat_val64_default (full_stats, "overhead_blocks_used", &stats->overhead_blocks_used, -1);
-    get_stat_val64_default (full_stats, "logical_blocks_used", &stats->logical_blocks_used, -1);
+    get_stat_val64_default (full_stats, "blockSize", &stats->block_size, -1);
+    get_stat_val64_default (full_stats, "logicalBlockSize", &stats->logical_block_size, -1);
+    get_stat_val64_default (full_stats, "physicalBlocks", &stats->physical_blocks, -1);
+    get_stat_val64_default (full_stats, "dataBlocksUsed", &stats->data_blocks_used, -1);
+    get_stat_val64_default (full_stats, "overheadBlocksUsed", &stats->overhead_blocks_used, -1);
+    get_stat_val64_default (full_stats, "logicalBlocksUsed", &stats->logical_blocks_used, -1);
     get_stat_val64_default (full_stats, "usedPercent", &stats->used_percent, -1);
     get_stat_val64_default (full_stats, "savingPercent", &stats->saving_percent, -1);
     if (!get_stat_val_double (full_stats, "writeAmplificationRatio", &stats->write_amplification_ratio))

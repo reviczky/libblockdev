@@ -21,7 +21,6 @@ TEST_MNT = "/tmp/libblockdev_test_mnt"
 def wipefs(device):
     os.system("wipefs -a %s > /dev/null" % device)
 
-
 class BtrfsTest(unittest.TestCase):
     requested_plugins = BlockDev.plugin_specs_from_names(("btrfs",))
 
@@ -47,33 +46,25 @@ class BtrfsPluginVersionCase(BtrfsTest):
 class BtrfsTestCase(BtrfsTest):
 
     def setUp(self):
-        self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("btrfs_test", 1024**3)
-        self.dev_file2 = create_sparse_tempfile("btrfs_test", 1024**3)
-        try:
-            self.loop_dev = create_lio_device(self.dev_file)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
-        try:
-            self.loop_dev2 = create_lio_device(self.dev_file2)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
+        self.dev_file, self.loop_dev = self.setup_test_device()
 
-    def _clean_up(self):
+    def setup_test_device(self, dev_file_size=1024**3):
+        dev_file = create_sparse_tempfile("btrfs_test", dev_file_size)
+        try:
+            loop_dev = create_lio_device(dev_file)
+            self.addCleanup(self._clean_up, loop_dev, dev_file)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
+        return dev_file, loop_dev
+
+    def _clean_up(self, loop_dev, dev_file):
         umount(TEST_MNT)
         try:
-            delete_lio_device(self.loop_dev)
+            delete_lio_device(loop_dev)
         except RuntimeError:
             # just move on, we can do no better here
             pass
-        os.unlink(self.dev_file)
-
-        try:
-            delete_lio_device(self.loop_dev2)
-        except RuntimeError:
-            # just move on, we can do no better here
-            pass
-        os.unlink(self.dev_file2)
+        os.unlink(dev_file)
 
     def _get_btrfs_version(self):
         _ret, out, _err = run_command("btrfs --version")
@@ -81,6 +72,12 @@ class BtrfsTestCase(BtrfsTest):
         if not m or len(m.groups()) != 1:
             raise RuntimeError("Failed to determine btrfs version from: %s" % out)
         return Version(m.groups()[0])
+
+
+class BtrfsMultiTestCase(BtrfsTestCase):
+    def setUp(self):
+        self.dev_file, self.loop_dev = self.setup_test_device()
+        self.dev_file2, self.loop_dev2 = self.setup_test_device()
 
 class BtrfsTestCreateQuerySimple(BtrfsTestCase):
     @tag_test(TestTags.CORE)
@@ -122,7 +119,7 @@ class BtrfsTestCreateQueryLabel(BtrfsTestCase):
         self.assertEqual(len(devs), 1)
 
 
-class BtrfsTestCreateQueryTwoDevs(BtrfsTestCase):
+class BtrfsTestCreateQueryTwoDevs(BtrfsMultiTestCase):
     def test_create_and_query_volume_two_devs(self):
         """Verify that btrfs volume creation with two devices works"""
 
@@ -133,7 +130,7 @@ class BtrfsTestCreateQueryTwoDevs(BtrfsTestCase):
         devs = BlockDev.btrfs_list_devices(self.loop_dev)
         self.assertEqual(len(devs), 2)
 
-class BtrfsTestCreateQueryTwoDevsRaids(BtrfsTestCase):
+class BtrfsTestCreateQueryTwoDevsRaids(BtrfsMultiTestCase):
     def test_create_and_query_volume_two_devs(self):
         """Verify that btrfs volume creation with two devices and raid (meta)data works"""
 
@@ -165,7 +162,7 @@ class BtrfsTestCreateQueryTwoDevsRaids(BtrfsTestCase):
         devs = BlockDev.btrfs_list_devices(self.loop_dev)
         self.assertEqual(len(devs), 2)
 
-class BtrfsTestAddRemoveDevice(BtrfsTestCase):
+class BtrfsTestAddRemoveDevice(BtrfsMultiTestCase):
     def test_add_remove_device(self):
         """Verify that it is possible to add/remove device to a btrfs volume"""
 
@@ -315,7 +312,7 @@ class BtrfsTestSetDefaultSubvolumeID(BtrfsTestCase):
         ret = BlockDev.btrfs_get_default_subvolume_id(TEST_MNT)
         self.assertEqual(ret, 5)
 
-class BtrfsTestListDevices(BtrfsTestCase):
+class BtrfsTestListDevices(BtrfsMultiTestCase):
     @tag_test(TestTags.CORE)
     def test_list_devices(self):
         """Verify that it is possible to get info about devices"""
@@ -350,13 +347,45 @@ class BtrfsTestListSubvolumes(BtrfsTestCase):
         succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "subvol1", None)
         self.assertTrue(succ)
 
+        succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "subvol1/bar", None)
+        self.assertTrue(succ)
+
         subvols = BlockDev.btrfs_list_subvolumes(TEST_MNT, False)
-        self.assertEqual(len(subvols), 1)
+        self.assertEqual(len(subvols), 2)
         self.assertEqual(subvols[0].parent_id, 5)
         self.assertEqual(subvols[0].path, "subvol1")
+        self.assertEqual(subvols[1].path, "subvol1/bar")
+
+    @tag_test(TestTags.CORE)
+    def test_list_subvolumes_different_mount(self):
+        """Verify that it is possible get to info about subvolumes with subvol= mount option"""
+
+        succ = BlockDev.btrfs_create_volume([self.loop_dev], "myShinyBtrfs", None, None, None)
+        self.assertTrue(succ)
+
+        mount(self.loop_dev, TEST_MNT)
+
+        succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "one", None)
+        self.assertTrue(succ)
+        succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "one/two", None)
+        self.assertTrue(succ)
+
+        os.system("mkdir -p mkdir -p %s/one/two/one/two" % (TEST_MNT))
+
+        succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "one/two/one/two/three", None)
+        self.assertTrue(succ)
+
+        umount(TEST_MNT)
+        os.makedirs(TEST_MNT)
+        os.system("mount -o subvol=%s %s %s" % ("one/two", self.loop_dev, TEST_MNT))
+
+        subvols = BlockDev.btrfs_list_subvolumes(TEST_MNT, False)
+        self.assertEqual(len(subvols), 3)
+        self.assertEqual(subvols[0].path, "one")
+        self.assertEqual(subvols[1].path, "one/two")
+        self.assertEqual(subvols[2].path, "one/two/one/two/three")
 
 class BtrfsTestFilesystemInfo(BtrfsTestCase):
-    @tag_test(TestTags.CORE)
     def test_filesystem_info(self):
         """Verify that it is possible to get filesystem info"""
 
@@ -474,34 +503,11 @@ class BtrfsTestChangeLabel(BtrfsTestCase):
         info = BlockDev.btrfs_filesystem_info(TEST_MNT)
         self.assertEqual(info.label, "newLabel")
 
-class BtrfsTooSmallTestCase (BtrfsTestCase):
+class BtrfsTooSmallTestCase (BtrfsMultiTestCase):
     def setUp(self):
-        self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
-        self.dev_file2 = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE//2)
-        try:
-            self.loop_dev = create_lio_device(self.dev_file)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
-        try:
-            self.loop_dev2 = create_lio_device(self.dev_file2)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
-    def _clean_up(self):
-        try:
-            delete_lio_device(self.loop_dev)
-        except RuntimeError:
-            # just move on, we can do no better here
-            pass
-        os.unlink(self.dev_file)
-
-        try:
-            delete_lio_device(self.loop_dev2)
-        except RuntimeError:
-            # just move on, we can do no better here
-            pass
-        os.unlink(self.dev_file2)
+        self.dev_file, self.loop_dev = self.setup_test_device(BlockDev.BTRFS_MIN_MEMBER_SIZE)
+        self.dev_file2, self.loop_dev2 = self.setup_test_device(BlockDev.BTRFS_MIN_MEMBER_SIZE//2)
 
     def test_create_too_small(self):
         """Verify that an attempt to create BTRFS on a too small device fails"""
@@ -511,34 +517,10 @@ class BtrfsTooSmallTestCase (BtrfsTestCase):
             BlockDev.btrfs_create_volume([self.loop_dev, self.loop_dev2],
                                          None, None, None)
 
-class BtrfsJustBigEnoughTestCase (BtrfsTestCase):
+class BtrfsJustBigEnoughTestCase (BtrfsMultiTestCase):
     def setUp(self):
-        self.addCleanup(self._clean_up)
-        self.dev_file = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
-        self.dev_file2 = create_sparse_tempfile("btrfs_test", BlockDev.BTRFS_MIN_MEMBER_SIZE)
-        try:
-            self.loop_dev = create_lio_device(self.dev_file)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
-        try:
-            self.loop_dev2 = create_lio_device(self.dev_file2)
-        except RuntimeError as e:
-            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
-
-    def _clean_up(self):
-        try:
-            delete_lio_device(self.loop_dev)
-        except RuntimeError:
-            # just move on, we can do no better here
-            pass
-        os.unlink(self.dev_file)
-
-        try:
-            delete_lio_device(self.loop_dev2)
-        except RuntimeError:
-            # just move on, we can do no better here
-            pass
-        os.unlink(self.dev_file2)
+        self.dev_file, self.loop_dev = self.setup_test_device(BlockDev.BTRFS_MIN_MEMBER_SIZE)
+        self.dev_file2, self.loop_dev2 = self.setup_test_device(BlockDev.BTRFS_MIN_MEMBER_SIZE)
 
     def test_create_just_enough(self):
         """Verify that creating BTRFS on a just big enough devices works"""

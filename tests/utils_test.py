@@ -78,8 +78,15 @@ class UtilsExecLoggingTest(UtilsTestCase):
         succ = BlockDev.utils_exec_and_report_error(["true"])
         self.assertTrue(succ)
 
+        succ = BlockDev.utils_exec_and_capture_output_no_progress(["true"])
+        self.assertTrue(succ)
+
         with self.assertRaisesRegex(GLib.GError, r"Process reported exit code 1"):
             succ = BlockDev.utils_exec_and_report_error(["/bin/false"])
+
+        succ, out, stderr, status = BlockDev.utils_exec_and_capture_output_no_progress(["/bin/false"])
+        self.assertTrue(succ)
+        self.assertEqual(status, 1)
 
         succ, out = BlockDev.utils_exec_and_capture_output(["echo", "hi"])
         self.assertTrue(succ)
@@ -247,6 +254,15 @@ class UtilsExecLoggingTest(UtilsTestCase):
         self.assertTrue(succ)
         self.assertGreater(len(out), cnt)
 
+        (succ, out, stderr, status)  = BlockDev.utils_exec_and_capture_output_no_progress(["bash", "-c", r"for i in {1..%d}; do echo -n .; echo -n \# >&2; if [ $(($i%%500)) -eq 0 ]; then echo ''; echo '' >&2; fi; done" % cnt])
+        self.assertTrue(succ)
+        self.assertGreater(len(out), cnt)
+
+        (succ, out, stderr, status) = BlockDev.utils_exec_and_capture_output_no_progress(["bash", "-c", r"for i in {1..%d}; do echo -n . >&2; echo -n \# >&2; if [ $(($i%%500)) -eq 0 ]; then echo '' >&2; fi; done; exit 123" % cnt])
+        self.assertTrue(succ)
+        self.assertEqual(status, 123)
+        self.assertEqual(len(out), 0)
+        self.assertGreater(len(stderr), cnt)
 
     EXEC_PROGRESS_MSG = "Aloha, I'm the progress line you should match."
 
@@ -484,3 +500,25 @@ class UtilsLinuxKernelVersionTest(UtilsTestCase):
         self.assertEqual(ver.major, ver2.major)
         self.assertEqual(ver.minor, ver2.minor)
         self.assertEqual(ver.micro, ver2.micro)
+
+
+class UtilsKernelModuleTest(UtilsTestCase):
+    @tag_test(TestTags.NOSTORAGE, TestTags.CORE)
+    def test_have_kernel_module(self):
+        """ Test checking for kernel modules """
+
+        have = BlockDev.utils_have_kernel_module("definitely-not-existing-kernel-module")
+        self.assertFalse(have)
+
+        # loop should be everywhere, right?
+        have = BlockDev.utils_have_kernel_module("loop")
+        self.assertTrue(have)
+
+        # lets check some filesystems support and compare with 'modprobe' results
+        for fs in ("ext2", "ext3", "ext4", "xfs", "btrfs"):
+            have_fs = BlockDev.utils_have_kernel_module(fs)
+            ret, _out, _err = run_command("modprobe --dry-run %s" % fs)
+            if ret == 0:
+                self.assertTrue(have_fs)
+            else:
+                self.assertFalse(have_fs)
