@@ -402,6 +402,28 @@ Description: Swap plugin for libblockdev - development
  This package contains header files and pkg-config files needed for development
  with the libblockdev-swap plugin/library.
 
+Package: libblockdev-smart3
+Architecture: linux-any
+Multi-Arch: same
+Depends: ${shlibs:Depends},
+         ${misc:Depends}
+Description: SMART plugin for libblockdev
+ The libblockdev library plugin (and at the same time a standalone library)
+ providing the functionality related to S.M.A.R.T. device reporting and
+ management.
+
+Package: libblockdev-smart-dev
+Section: libdevel
+Architecture: linux-any
+Multi-Arch: same
+Depends: libblockdev-smart3 (= ${binary:Version}),
+         libblockdev-utils-dev (= ${binary:Version}),
+         libglib2.0-dev,
+         ${misc:Depends}
+Description: SMART plugin for libblockdev - development
+ This package contains header files and pkg-config files needed for development
+ with the libblockdev-smart plugin/library.
+
 # Package: libblockdev-s390
 # Depends: ...., s390-tools
 # Package: libblockdev-s390-dev
@@ -422,6 +444,7 @@ Depends: libblockdev3 (= ${binary:Version}),
          libblockdev-nvme3 (= ${binary:Version}),
          libblockdev-mpath3 (= ${binary:Version}),
          libblockdev-part3 (= ${binary:Version}),
+         libblockdev-smart3 (= ${binary:Version}),
          libblockdev-swap3 (= ${binary:Version}),
          libblockdev-utils3 (= ${binary:Version}),
          ${misc:Depends}

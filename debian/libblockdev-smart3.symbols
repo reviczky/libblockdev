@@ -1,0 +1,17 @@
+libbd_smart.so.3 libblockdev-smart3 #MINVER#
+* Build-Depends-Package: libblockdev-smart-dev
+ bd_smart_ata_attribute_copy@Base 3.2.0
+ bd_smart_ata_attribute_free@Base 3.2.0
+ bd_smart_ata_copy@Base 3.2.0
+ bd_smart_ata_free@Base 3.2.0
+ bd_smart_ata_get_info@Base 3.2.0
+ bd_smart_ata_get_info_from_data@Base 3.2.0
+ bd_smart_close@Base 3.2.0
+ bd_smart_device_self_test@Base 3.2.0
+ bd_smart_error_quark@Base 3.2.0
+ bd_smart_init@Base 3.2.0
+ bd_smart_is_tech_avail@Base 3.2.0
+ bd_smart_scsi_copy@Base 3.2.0
+ bd_smart_scsi_free@Base 3.2.0
+ bd_smart_scsi_get_info@Base 3.2.0
+ bd_smart_set_enabled@Base 3.2.0

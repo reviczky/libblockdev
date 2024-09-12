@@ -1,0 +1,2 @@
+usr/lib/*/libbd_smart.so
+usr/include/blockdev/smart.h
