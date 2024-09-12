@@ -8,6 +8,8 @@ actions:
     - 'make'
     - 'make local'
     - 'bash -c "ls *.tar*"'
+  get-current-version:
+    - 'bash -c "grep Version: dist/libblockdev.spec.in | cut -f2 -d\":\" | tr -d \" \""'
 
 jobs:
 - job: copr_build
@@ -30,6 +32,20 @@ jobs:
   project: blivet-daily
   branch: master
   preserve_project: true
+  actions:
+    post-upstream-clone:
+      # bump release to 99 to always be ahead of Fedora builds
+      - 'bash -c "sed -i -r \"s/Release:(\s*)\S+/Release:     99%{?dist}/\" dist/libblockdev.spec.in"'
+      - 'cp dist/libblockdev.spec.in dist/libblockdev.spec'
+      - 'sed -i -E "s/@WITH_.+@/1/g" dist/libblockdev.spec'
+    create-archive:
+      - './autogen.sh'
+      - './configure'
+      - 'make'
+      - 'make local'
+      - 'bash -c "ls *.tar*"'
+    get-current-version:
+      - 'bash -c "grep Version: dist/libblockdev.spec.in | cut -f2 -d\":\" | tr -d \" \""'
 
 - job: copr_build
   trigger: commit
@@ -37,6 +53,20 @@ jobs:
   project: udisks-daily
   branch: master
   preserve_project: true
+  actions:
+    post-upstream-clone:
+      # bump release to 99 to always be ahead of Fedora builds
+      - 'bash -c "sed -i -r \"s/Release:(\s*)\S+/Release:     99%{?dist}/\" dist/libblockdev.spec.in"'
+      - 'cp dist/libblockdev.spec.in dist/libblockdev.spec'
+      - 'sed -i -E "s/@WITH_.+@/1/g" dist/libblockdev.spec'
+    create-archive:
+      - './autogen.sh'
+      - './configure'
+      - 'make'
+      - 'make local'
+      - 'bash -c "ls *.tar*"'
+    get-current-version:
+      - 'bash -c "grep Version: dist/libblockdev.spec.in | cut -f2 -d\":\" | tr -d \" \""'
 
 - job: propose_downstream
   trigger: release
@@ -55,6 +85,46 @@ jobs:
   dist_git_branches:
     - fedora-branched
 
+- job: tests
+  trigger: pull_request
+  targets:
+    - fedora-latest-stable
+
+# run tests for libblockdev consumers, see plans/ with `revdeps_blivet == yes`
+- job: tests
+  identifier: revdeps_blivet
+  trigger: pull_request
+  notifications:
+    failure_comment:
+      message: "Blivet tests failed for commit {commit_sha}. @vojtechtrefny please check."
+  targets:
+    - fedora-latest-stable
+  tf_extra_params:
+    environments:
+      - artifacts:
+        - type: repository-file
+          id: https://copr.fedorainfracloud.org/coprs/g/storage/blivet-daily/repo/fedora-$releasever/group_storage-blivet-daily-fedora-$releasever.repo
+        tmt:
+          context:
+            revdeps_blivet: "yes"
+
+- job: tests
+  identifier: revdeps_udisks
+  trigger: pull_request
+  notifications:
+    failure_comment:
+      message: "udisks tests failed for commit {commit_sha}. @vojtechtrefny @tbzatek please check."
+  targets:
+    - fedora-latest-stable
+  tf_extra_params:
+    environments:
+      - artifacts:
+        - type: repository-file
+          id: https://copr.fedorainfracloud.org/coprs/g/storage/udisks-daily/repo/fedora-$releasever/group_storage-udisks-daily-fedora-$releasever.repo
+        tmt:
+          context:
+            revdeps_udisks: "yes"
+
 srpm_build_deps:
  - make
  - gcc
@@ -69,14 +139,17 @@ srpm_build_deps:
  - glib2-doc
  - gobject-introspection-devel
  - gtk-doc
+ - json-glib-devel
  - keyutils-libs-devel
  - kmod-devel
+ - libatasmart-devel
  - libblkid-devel
  - libbytesize-devel
  - libfdisk-devel
  - libmount-devel
  - libnvme-devel
  - libuuid-devel
+ - libyaml-devel
  - ndctl-devel
  - nss-devel
  - parted-devel

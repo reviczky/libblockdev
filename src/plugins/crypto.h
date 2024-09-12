@@ -25,6 +25,7 @@ typedef enum {
     BD_CRYPTO_ERROR_KEYRING,
     BD_CRYPTO_ERROR_KEYFILE_FAILED,
     BD_CRYPTO_ERROR_INVALID_CONTEXT,
+    BD_CRYPTO_ERROR_CONVERT_FAILED,
 } BDCryptoError;
 
 #define BD_CRYPTO_BACKUP_PASSPHRASE_CHARSET "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz./"
@@ -41,6 +42,7 @@ typedef enum {
     BD_CRYPTO_TECH_BITLK,
     BD_CRYPTO_TECH_KEYRING,
     BD_CRYPTO_TECH_FVAULT2,
+    BD_CRYPTO_TECH_SED_OPAL,
 } BDCryptoTech;
 
 typedef enum {
@@ -145,6 +147,22 @@ typedef enum {
 } BDCryptoIntegrityOpenFlags;
 
 /**
+ * BDCryptoLUKSHWEncryptionType:
+ * @BD_CRYPTO_LUKS_HW_ENCRYPTION_UNKNOWN: used for unknown/unsupported hardware encryption or when
+ *                                        error was detected when getting the information
+ * @BD_CRYPTO_LUKS_HW_ENCRYPTION_SW_ONLY: hardware encryption is not configured on this device
+ * @BD_CRYPTO_LUKS_HW_ENCRYPTION_OPAL_HW_ONLY: only OPAL hardware encryption is configured on this device
+ * @BD_CRYPTO_LUKS_HW_ENCRYPTION_OPAL_HW_AND_SW: both OPAL hardware encryption and software encryption
+ *                                               (using LUKS/dm-crypt) is configured on this device
+ */
+typedef enum {
+    BD_CRYPTO_LUKS_HW_ENCRYPTION_UNKNOWN = 0,
+    BD_CRYPTO_LUKS_HW_ENCRYPTION_SW_ONLY,
+    BD_CRYPTO_LUKS_HW_ENCRYPTION_OPAL_HW_ONLY,
+    BD_CRYPTO_LUKS_HW_ENCRYPTION_OPAL_HW_AND_SW,
+} BDCryptoLUKSHWEncryptionType;
+
+/**
  * BDCryptoLUKSInfo:
  * @version: LUKS version
  * @cipher: used cipher (e.g. "aes")
@@ -156,6 +174,7 @@ typedef enum {
  * @metadata_size: LUKS metadata size
  * @label: label of the LUKS device (valid only for LUKS 2)
  * @subsystem: subsystem of the LUKS device (valid only for LUKS 2)
+ * @hw_encryption: hardware encryption type
  */
 typedef struct BDCryptoLUKSInfo {
     BDCryptoLUKSVersion version;
@@ -167,6 +186,7 @@ typedef struct BDCryptoLUKSInfo {
     guint64 metadata_size;
     gchar *label;
     gchar *subsystem;
+    BDCryptoLUKSHWEncryptionType hw_encryption;
 } BDCryptoLUKSInfo;
 
 void bd_crypto_luks_info_free (BDCryptoLUKSInfo *info);
@@ -272,6 +292,7 @@ gboolean bd_crypto_luks_header_backup (const gchar *device, const gchar *backup_
 gboolean bd_crypto_luks_header_restore (const gchar *device, const gchar *backup_file, GError **error);
 gboolean bd_crypto_luks_set_label (const gchar *device, const gchar *label, const gchar *subsystem, GError **error);
 gboolean bd_crypto_luks_set_uuid (const gchar *device, const gchar *uuid, GError **error);
+gboolean bd_crypto_luks_convert (const gchar *device, BDCryptoLUKSVersion target_version, GError **error);
 
 BDCryptoLUKSInfo* bd_crypto_luks_info (const gchar *device, GError **error);
 BDCryptoBITLKInfo* bd_crypto_bitlk_info (const gchar *device, GError **error);
@@ -296,4 +317,9 @@ gboolean bd_crypto_fvault2_close (const gchar *fvault2_device, GError **error);
 
 gboolean bd_crypto_escrow_device (const gchar *device, const gchar *passphrase, const gchar *cert_data, const gchar *directory, const gchar *backup_passphrase, GError **error);
 
+gboolean bd_crypto_opal_is_supported (const gchar *device, GError **error);
+gboolean bd_crypto_opal_wipe_device (const gchar *device, BDCryptoKeyslotContext *context, GError **error);
+gboolean bd_crypto_opal_reset_device (const gchar *device, BDCryptoKeyslotContext *context, GError **error);
+gboolean bd_crypto_opal_format (const gchar *device, const gchar *cipher, guint64 key_size, BDCryptoKeyslotContext *context, guint64 min_entropy, BDCryptoLUKSHWEncryptionType hw_encryption,
+                                BDCryptoKeyslotContext *opal_context, BDCryptoLUKSExtra *extra, GError **error);
 #endif  /* BD_CRYPTO */

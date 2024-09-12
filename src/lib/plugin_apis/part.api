@@ -60,6 +60,7 @@ GType bd_part_spec_get_type();
  * @size: size of the partition
  * @bootable: whether the bootable flag is set or not (for MSDOS partitions)
  * @attrs: partition GPT attributes
+ * @type_name: human readable representation of @type_guid
  */
 typedef struct BDPartSpec {
     gchar *path;
@@ -72,6 +73,7 @@ typedef struct BDPartSpec {
     guint64 size;
     gboolean bootable;
     guint64 attrs;
+    gchar *type_name;
 } BDPartSpec;
 
 BDPartSpec* bd_part_spec_copy (BDPartSpec *data) {
@@ -82,9 +84,10 @@ BDPartSpec* bd_part_spec_copy (BDPartSpec *data) {
 
     ret->path = g_strdup (data->path);
     ret->name = g_strdup (data->name);
-    ret->name = g_strdup (data->uuid);
+    ret->uuid = g_strdup (data->uuid);
     ret->id = g_strdup (data->id);
     ret->type_guid = g_strdup (data->type_guid);
+    ret->type_name = g_strdup (data->type_name);
     ret->type = data->type;
     ret->start = data->start;
     ret->size = data->size;
@@ -103,6 +106,7 @@ void bd_part_spec_free (BDPartSpec *data) {
     g_free (data->uuid);
     g_free (data->id);
     g_free (data->type_guid);
+    g_free (data->type_name);
     g_free (data);
 }
 

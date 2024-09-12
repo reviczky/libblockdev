@@ -56,6 +56,7 @@ bd_plugins = { "lvm": BlockDev.Plugin.LVM,
                "s390": BlockDev.Plugin.S390,
                "nvdimm": BlockDev.Plugin.NVDIMM,
                "nvme": BlockDev.Plugin.NVME,
+               "smart": BlockDev.Plugin.SMART,
 }
 
 def _default_str(self):
@@ -286,16 +287,15 @@ class CryptoKeyslotContext(BlockDev.CryptoKeyslotContext):
             raise ValueError("Exactly one of 'passphrase', 'keyfile', 'keyring' and 'volume_key' must be specified")
         if passphrase:
             if isinstance(passphrase, str):
-                ret = BlockDev.CryptoKeyslotContext.new_passphrase(passphrase.encode("utf-8"))
+                return BlockDev.CryptoKeyslotContext.new_passphrase(passphrase.encode("utf-8"))
             else:
-                ret = BlockDev.CryptoKeyslotContext.new_passphrase(passphrase)
+                return BlockDev.CryptoKeyslotContext.new_passphrase(passphrase)
         if keyfile:
-            ret = BlockDev.CryptoKeyslotContext.new_keyfile(keyfile, keyfile_offset, key_size)
+            return BlockDev.CryptoKeyslotContext.new_keyfile(keyfile, keyfile_offset, key_size)
         if keyring:
-            ret = BlockDev.CryptoKeyslotContext.new_keyring(keyring)
+            return BlockDev.CryptoKeyslotContext.new_keyring(keyring)
         if volume_key:
-            ret = BlockDev.CryptoKeyslotContext.new_volume_key(volume_key)
-        return ret
+            return BlockDev.CryptoKeyslotContext.new_volume_key(volume_key)
     def __init__(self, *args, **kwargs):   # pylint: disable=unused-argument
         super(CryptoKeyslotContext, self).__init__()  #pylint: disable=bad-super-call
 CryptoKeyslotContext = override(CryptoKeyslotContext)
@@ -384,6 +384,13 @@ _crypto_integrity_open = BlockDev.crypto_integrity_open
 def crypto_integrity_open(device, name, algorithm, context=None, flags=0, extra=None):
     return _crypto_integrity_open(device, name, algorithm, context, flags, extra)
 __all__.append("crypto_integrity_open")
+
+
+_crypto_opal_format = BlockDev.crypto_opal_format
+@override(BlockDev.crypto_opal_format)
+def crypto_opal_format(device, cipher=None, key_size=0, context=None, min_entropy=0, opal_context=None, hw_encryption=BlockDev.CryptoLUKSHWEncryptionType.OPAL_HW_AND_SW, extra=None):
+    return _crypto_opal_format(device, cipher, key_size, context, min_entropy, hw_encryption, opal_context, extra)
+__all__.append("crypto_opal_format")
 
 
 _dm_create_linear = BlockDev.dm_create_linear
@@ -1018,7 +1025,7 @@ __all__.append("md_get_superblock_size")
 
 _md_create = BlockDev.md_create
 @override(BlockDev.md_create)
-def md_create(device_name, level, disks, spares=0, version=None, bitmap=False, chunk_size=0, extra=None, **kwargs):
+def md_create(device_name, level, disks, spares=0, version=None, bitmap=None, chunk_size=0, extra=None, **kwargs):
     extra = _get_extra(extra, kwargs)
     return _md_create(device_name, level, disks, spares, version, bitmap, chunk_size, extra)
 __all__.append("md_create")
@@ -1341,6 +1348,10 @@ class NVMEError(BlockDevError):
     pass
 __all__.append("NVMEError")
 
+class SMARTError(BlockDevError):
+    pass
+__all__.append("SMARTError")
+
 class BlockDevNotImplementedError(NotImplementedError, BlockDevError):
     pass
 __all__.append("BlockDevNotImplementedError")
@@ -1392,6 +1403,9 @@ __all__.append("nvme")
 
 s390 = ErrorProxy("s390", BlockDev, [(GLib.Error, S390Error)], [not_implemented_rule])
 __all__.append("s390")
+
+smart = ErrorProxy("smart", BlockDev, [(GLib.Error, SMARTError)], [not_implemented_rule])
+__all__.append("smart")
 
 utils = ErrorProxy("utils", BlockDev, [(GLib.Error, UtilsError)])
 __all__.append("utils")
