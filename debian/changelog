@@ -1,3 +1,10 @@
+libblockdev (3.2.0-2) unstable; urgency=medium
+
+  * Re-add s390 specific symbols for libblockdev
+  * Skip smartmontools integration test
+
+ -- Michael Biebl <biebl@debian.org>  Sun, 15 Sep 2024 20:25:15 +0200
+
 libblockdev (3.2.0-1) unstable; urgency=medium
 
   * New upstream release
