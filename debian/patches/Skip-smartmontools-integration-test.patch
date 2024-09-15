@@ -1,0 +1,37 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Sun, 15 Sep 2024 20:20:41 +0200
+Subject: Skip smartmontools integration test
+
+This would otherwise trigger an autopkgtest failure as smartmontools support
+is not enabled in Debian.
+
+======================================================================
+ERROR: setUpClass (smartmontools_test.SmartmontoolsTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/tmp/autopkgtest.2zhoHT/build.tQQ/src/tests/smartmontools_test.py", line 32, in setUpClass
+    BlockDev.reinit([cls.ps, cls.ps2], True, None)
+  File "/tmp/autopkgtest.2zhoHT/build.tQQ/src/src/python/gi/overrides/BlockDev.py", line 164, in reinit
+    return _reinit(require_plugins, reload, log_func)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+gi.repository.GLib.GError: g-bd-init-error-quark: Failed to load plugins (1)
+---
+ tests/skip.yml | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/tests/skip.yml b/tests/skip.yml
+index 8c0187c..0d6ab6a 100644
+--- a/tests/skip.yml
++++ b/tests/skip.yml
+@@ -24,6 +24,11 @@
+ 
+ ---
+ 
++- test: smartmontools_test.SmartmontoolsTest.*
++  skip_on:
++    - distro: "debian"
++      reason: "smartmontools support is disabled on Debian"
++
+ - test: mdraid_test.MDTestAddRemove.test_add_remove
+   skip_on:
+     - distro: "debian"
