@@ -1,3 +1,9 @@
+libblockdev (3.2.1-1) UNRELEASED; urgency=medium
+
+  * New upstream release
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 07 Nov 2024 19:28:52 +0100
+
 libblockdev (3.2.0-2) unstable; urgency=medium
 
   * Re-add s390 specific symbols for libblockdev
