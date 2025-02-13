@@ -16,6 +16,7 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_cache_stats_copy@Base 2.14
  bd_lvm_cache_stats_free@Base 2.14
  bd_lvm_close@Base 2.14
+ bd_lvm_config_get@Base 3.3.0
  bd_lvm_delete_lv_tags@Base 3.0
  bd_lvm_delete_pv_tags@Base 3.0
  bd_lvm_delete_vg_tags@Base 3.0
