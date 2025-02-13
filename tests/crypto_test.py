@@ -9,7 +9,7 @@ import locale
 import re
 import tarfile
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, get_avail_locales, requires_locales, run_command, read_file, TestTags, tag_test
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, get_avail_locales, requires_locales, run_command, read_file, TestTags, tag_test, required_plugins
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -35,6 +35,7 @@ HAVE_FVAULT2 = check_cryptsetup_version("2.6.0")
 HAVE_OPAL = check_cryptsetup_version("2.7.0")
 
 
+@required_plugins(("crypto", "loop"))
 class CryptoTestCase(unittest.TestCase):
 
     requested_plugins = BlockDev.plugin_specs_from_names(("crypto", "loop"))
@@ -701,6 +702,12 @@ class CryptoTestLuksOpenRW(CryptoTestCase):
 
 class CryptoTestEscrow(CryptoTestCase):
     def setUp(self):
+        # I am not able to generate a self-signed certificate that would work in FIPS
+        # so let's just skip this for now
+        fips = read_file("/proc/sys/crypto/fips_enabled")
+        if int(fips) == 1:
+            self.skipTest("Skipping escrow tests in FIPS mode")
+
         super(CryptoTestEscrow, self).setUp()
 
         # Create the certificate used to encrypt the escrow packet and backup passphrase.
@@ -1442,6 +1449,24 @@ class CryptoTestTrueCrypt(CryptoTestCase):
         succ = BlockDev.crypto_tc_close("libblockdevTestTC")
         self.assertTrue(succ)
         self.assertFalse(os.path.exists("/dev/mapper/libblockdevTestTC"))
+
+    @tag_test(TestTags.NOSTORAGE)
+    def test_seems_encrypted(self):
+        """Verify that BlockDev.crypto_device_seems_encrypted works"""
+
+        # truecrypt device without header
+        enc = BlockDev.crypto_device_seems_encrypted(self.tc_dev)
+        self.assertTrue(enc)
+
+        ctx = BlockDev.CryptoKeyslotContext(passphrase=self.passphrase)
+        succ = BlockDev.crypto_tc_open(self.tc_dev, "libblockdevTestTC", ctx)
+        self.assertTrue(succ)
+
+        # the cleartext device is not encrypted
+        enc = BlockDev.crypto_device_seems_encrypted("/dev/mapper/libblockdevTestTC")
+        self.assertFalse(enc)
+
+        succ = BlockDev.crypto_tc_close("libblockdevTestTC")
 
 
 class CryptoTestBitlk(CryptoTestCase):

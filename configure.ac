@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [3.2.1], [], [], [https://github.com/storaged-project/libblockdev])
+AC_INIT([libblockdev], [3.3.0], [], [], [https://github.com/storaged-project/libblockdev])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -41,7 +41,8 @@ AC_CONFIG_FILES([Makefile src/Makefile \
                           scripts/Makefile \
                           tools/Makefile \
                           data/Makefile \
-                          data/conf.d/Makefile])
+                          data/conf.d/Makefile \
+                          tests/Makefile])
 
 m4_ifdef([GOBJECT_INTROSPECTION_CHECK],
 [GOBJECT_INTROSPECTION_CHECK([1.3.0])],

@@ -11,7 +11,7 @@ from packaging.version import Version
 from itertools import chain
 import sys
 
-from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, run_command, TestTags, tag_test, read_file
+from utils import create_sparse_tempfile, create_lio_device, delete_lio_device, run_command, TestTags, tag_test, read_file, required_plugins
 
 import gi
 gi.require_version('GLib', '2.0')
@@ -38,6 +38,7 @@ def wait_for_sync(vg_name, lv_name):
             time.sleep(1)
 
 
+@required_plugins(("lvm-dbus",))
 class LVMTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -82,6 +83,7 @@ class LvmNoDevTestCase(LVMTestCase):
     def tearDownClass(cls):
         # reset back to default
         BlockDev.utils_set_log_level(BlockDev.UTILS_LOG_WARNING)
+        BlockDev.lvm_set_global_config(None)
 
         super(LvmNoDevTestCase, cls).tearDownClass()
 
@@ -337,6 +339,52 @@ class LvmNoDevTestCase(LVMTestCase):
         with self.assertRaises(GLib.GError):
             BlockDev.lvm_cache_get_mode_from_str("bla")
 
+    @tag_test(TestTags.NOSTORAGE)
+    def test_lvm_config(self):
+        """Verify that we can correctly read from LVM config"""
+
+        # should be always available, "lvmconfig" command is just alias for "lvm config"
+        succ = BlockDev.lvm_is_tech_avail(BlockDev.LVMTech.CONFIG, 0)
+        self.assertTrue(succ)
+
+        with self.assertRaises(GLib.GError):
+            BlockDev.lvm_config_get(None, "dir")
+
+        # get entire config
+        conf = BlockDev.lvm_config_get()
+        self.assertTrue(conf)
+        self.assertTrue(conf.startswith("config"))
+
+        # get just the "devices" section
+        conf = BlockDev.lvm_config_get("devices")
+        self.assertTrue(conf)
+        self.assertTrue(conf.startswith("devices"))
+
+        # let's be brave and assume devices/dir is set everywhere ti /dev
+        devdir = BlockDev.lvm_config_get("devices", "dir", "full")
+        self.assertEqual(devdir, "\"/dev\"")
+
+        devdir = BlockDev.lvm_config_get("devices", "dir", "full", values_only=False)
+        self.assertEqual(devdir, "dir=\"/dev\"")
+
+        devdir = BlockDev.lvm_config_get("devices", "dir", "default")
+        self.assertEqual(devdir, "\"/dev\"")
+
+        # let's try to override some results with --config
+        BlockDev.lvm_set_global_config("devices/dir=/test")
+
+        devdir = BlockDev.lvm_config_get("devices", "dir", "full")
+        self.assertEqual(devdir, "\"/test\"")
+
+        # "default" config should not be affected by --config
+        devdir = BlockDev.lvm_config_get("devices", "dir", "default")
+        self.assertEqual(devdir, "\"/dev\"")
+
+        # disable global config
+        devdir = BlockDev.lvm_config_get("devices", "dir", "full", global_config=False)
+        self.assertEqual(devdir, "\"/dev\"")
+
+
 @unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
 class LvmPVonlyTestCase(LVMTestCase):
 
@@ -350,6 +398,7 @@ class LvmPVonlyTestCase(LVMTestCase):
         self.addCleanup(self._clean_up)
         self.dev_file = create_sparse_tempfile("lvm_test", self._sparse_size)
         self.dev_file2 = create_sparse_tempfile("lvm_test", self._sparse_size)
+        self.dev_file3 = create_sparse_tempfile("lvm_test", self._sparse_size)
         try:
             self.loop_dev = create_lio_device(self.dev_file)
         except RuntimeError as e:
@@ -358,9 +407,13 @@ class LvmPVonlyTestCase(LVMTestCase):
             self.loop_dev2 = create_lio_device(self.dev_file2)
         except RuntimeError as e:
             raise RuntimeError("Failed to setup loop device for testing: %s" % e)
+        try:
+            self.loop_dev3 = create_lio_device(self.dev_file3)
+        except RuntimeError as e:
+            raise RuntimeError("Failed to setup loop device for testing: %s" % e)
 
     def _clean_up(self):
-        for dev in (self.loop_dev, self.loop_dev2):
+        for dev in (self.loop_dev, self.loop_dev2, self.loop_dev3):
             try:
                 BlockDev.lvm_pvremove(dev)
             except:
@@ -384,6 +437,13 @@ class LvmPVonlyTestCase(LVMTestCase):
             # just move on, we can do no better here
             pass
         os.unlink(self.dev_file2)
+
+        try:
+            delete_lio_device(self.loop_dev3)
+        except RuntimeError:
+            # just move on, we can do no better here
+            pass
+        os.unlink(self.dev_file3)
 
 @unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
 class LvmTestPVcreateRemove(LvmPVonlyTestCase):
@@ -1305,7 +1365,10 @@ class LvmTestPartialLVs(LvmPVVGLVTestCase):
         succ = BlockDev.lvm_pvcreate(self.loop_dev2, 0, 0, None)
         self.assertTrue(succ)
 
-        succ = BlockDev.lvm_vgcreate("testVG", [self.loop_dev, self.loop_dev2], 0, None)
+        succ = BlockDev.lvm_pvcreate(self.loop_dev3, 0, 0, None)
+        self.assertTrue(succ)
+
+        succ = BlockDev.lvm_vgcreate("testVG", [self.loop_dev, self.loop_dev2, self.loop_dev3], 0, None)
         self.assertTrue(succ)
 
         info = BlockDev.lvm_pvinfo(self.loop_dev2)
@@ -1388,6 +1451,16 @@ class LvmTestPartialLVs(LvmPVVGLVTestCase):
 
         # lvs_tree should still report the second stripe to be missing
         assert_raid1_structure(self.loop_dev, None)
+
+        # repair testLV with the third PV
+        with wait_for_sync("testVG", "testLV"):
+            succ = BlockDev.lvm_lvrepair("testVG", "testLV", [self.loop_dev3])
+            self.assertTrue(succ)
+
+        info = BlockDev.lvm_lvinfo("testVG", "testLV")
+        self.assertEqual(info.attr[8], "-")
+
+        assert_raid1_structure(self.loop_dev, self.loop_dev3)
 
 @unittest.skipUnless(lvm_dbus_running, "LVM DBus not running")
 class LvmTestLVsAll(LvmPVVGthpoolTestCase):
