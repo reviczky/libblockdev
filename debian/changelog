@@ -1,8 +1,11 @@
-libblockdev (3.3.0-1) UNRELEASED; urgency=medium
+libblockdev (3.3.0-1) unstable; urgency=medium
 
   * New upstream release
+  * Rebase patches
+  * Update symbols file for libblockdev3, libblockdev-lvm3 and
+    libblockdev-lvm-dbus3
 
- -- Michael Biebl <biebl@debian.org>  Thu, 13 Feb 2025 15:23:26 +0100
+ -- Michael Biebl <biebl@debian.org>  Thu, 13 Feb 2025 15:34:42 +0100
 
 libblockdev (3.2.1-1) unstable; urgency=medium
 
