@@ -30,4 +30,5 @@ Depends: @,
          libvolume-key1,
          volume-key,
          locales-all,
+         vdo,
 Restrictions: needs-root, isolation-machine, allow-stderr
