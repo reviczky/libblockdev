@@ -1,3 +1,10 @@
+libblockdev (3.3.0-2) unstable; urgency=medium
+
+  * autopkgtest: Add dependency on vdo.
+    The LVM VDO tests require vdoformat.
+
+ -- Michael Biebl <biebl@debian.org>  Thu, 27 Feb 2025 22:12:11 +0100
+
 libblockdev (3.3.0-1) unstable; urgency=medium
 
   * New upstream release
