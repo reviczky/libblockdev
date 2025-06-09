@@ -1,3 +1,10 @@
+libblockdev (2.28-2+deb12u1) bookworm-security; urgency=high
+
+  * Non-maintainer upload by the Security Team.
+  * dont allow suid and dev set on fs resize (CVE-2025-6019)
+
+ -- Salvatore Bonaccorso <carnil@debian.org>  Mon, 09 Jun 2025 16:07:59 +0200
+
 libblockdev (2.28-2) unstable; urgency=medium
 
   * Team upload
