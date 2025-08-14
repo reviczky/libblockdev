@@ -11,7 +11,9 @@ Build-Depends: debhelper-compat (= 13),
                autoconf-archive,
                python3:any,
                libglib2.0-dev (>= 2.42.2),
-               libgirepository1.0-dev,
+               gir1.2-gio-2.0-dev,
+               gir1.2-gobject-2.0-dev,
+               gobject-introspection (>= 1.80),
                libcryptsetup-dev (>= 2.3.0),
                libkeyutils-dev,
                libdevmapper-dev (>= 1.02.93),
@@ -61,7 +63,6 @@ Section: libdevel
 Architecture: linux-any
 Multi-Arch: same
 Depends: libblockdev3 (= ${binary:Version}),
-         gir1.2-blockdev-3.0 (= ${binary:Version}),
          libblockdev-utils-dev (= ${binary:Version}),
          libglib2.0-dev,
          ${gir:Depends},
