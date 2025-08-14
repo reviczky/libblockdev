@@ -1,2 +1,1 @@
 Skip-smartmontools-integration-test.patch
-dont-allow-suid-and-dev-set-on-fs-resize.patch
