@@ -1,3 +1,12 @@
+libblockdev (3.3.1-2) unstable; urgency=medium
+
+  * Replace Build-Depends on libgirepository1.0-dev.
+    Add gobject-introspection for g-ir-scanner and gir1.2-gio-2.0-dev and
+    gir1.2-gobject-2.0-de as src/lib/Makefile.am has
+    `BlockDev_3_0_gir_INCLUDES = GObject-2.0 Gio-2.0`.
+
+ -- Michael Biebl <biebl@debian.org>  Fri, 15 Aug 2025 11:10:13 +0200
+
 libblockdev (3.3.1-1) unstable; urgency=medium
 
   * New upstream release
