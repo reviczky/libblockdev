@@ -3,7 +3,7 @@ Upstream-Name: libblockdev
 Source: https://github.com/storaged-project/libblockdev
 
 Files: *
-Copyright: 2014-2017 Red Hat, Inc.
+Copyright: 2014-2021 Red Hat, Inc.
 License: LGPL-2.1+
 
 Files: debian/*
