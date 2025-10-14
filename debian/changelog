@@ -1,8 +1,12 @@
-libblockdev (3.4.0-1) UNRELEASED; urgency=medium
+libblockdev (3.4.0-1) unstable; urgency=medium
 
   * New upstream release
+  * Rebase patches
+  * Update symbols files
+  * Mark _get_linux_version() as static
+  * Update debian/copyright
 
- -- Michael Biebl <biebl@debian.org>  Tue, 14 Oct 2025 14:14:05 +0200
+ -- Michael Biebl <biebl@debian.org>  Tue, 14 Oct 2025 15:36:07 +0200
 
 libblockdev (3.3.1-3) unstable; urgency=medium
 
