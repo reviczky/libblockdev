@@ -94,6 +94,8 @@ bd_crypto_luks_header_restore
 bd_crypto_luks_set_label
 bd_crypto_luks_set_uuid
 bd_crypto_luks_convert
+BDCryptoLUKSPersistentFlags
+bd_crypto_luks_set_persistent_flags
 BDCryptoLUKSInfo
 bd_crypto_luks_info_free
 bd_crypto_luks_info_copy
@@ -261,6 +263,7 @@ bd_loop_setup
 bd_loop_setup_from_fd
 bd_loop_teardown
 bd_loop_set_autoclear
+bd_loop_set_capacity
 BDLoopTech
 BDLoopTechMode
 bd_loop_is_tech_avail
@@ -325,6 +328,8 @@ bd_lvm_vgextend
 bd_lvm_vgreduce
 bd_lvm_vglock_start
 bd_lvm_vglock_stop
+bd_lvm_vgcfgbackup
+bd_lvm_vgcfgrestore
 bd_lvm_add_vg_tags
 bd_lvm_delete_vg_tags
 bd_lvm_vginfo

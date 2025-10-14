@@ -950,6 +950,7 @@ gboolean _crypto_luks_format (const gchar *device,
     gchar *msg = NULL;
     const gchar* crypt_version = NULL;
     GError *l_error = NULL;
+    struct crypt_pbkdf_type *pbkdf = NULL;
 
 #ifdef LIBCRYPTSETUP_27
     struct crypt_params_hw_opal opal_params = {
@@ -1068,7 +1069,7 @@ gboolean _crypto_luks_format (const gchar *device,
     if (extra) {
         if (luks_version == BD_CRYPTO_LUKS_VERSION_LUKS1) {
 
-            if (extra->integrity || extra->sector_size || extra->label || extra->subsystem || extra->pbkdf) {
+            if (extra->integrity || extra->sector_size || extra->label || extra->subsystem) {
                 g_set_error (&l_error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_INVALID_PARAMS,
                              "Invalid extra arguments specified. Only `data_alignment`"
                              "and `data_device` are valid for LUKS 1.");
@@ -1079,11 +1080,35 @@ gboolean _crypto_luks_format (const gchar *device,
                 return FALSE;
             }
 
+            if (extra->pbkdf) {
+                if (g_strcmp0 (extra->pbkdf->type, "pbkdf2") != 0) {
+                    g_set_error (&l_error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_INVALID_PARAMS,
+                                 "Invalid pbkdf specified. Only `pbkdf2` is valid for LUKS 1.");
+                crypt_free (cd);
+                g_strfreev (cipher_specs);
+                bd_utils_report_finished (progress_id, l_error->message);
+                g_propagate_error (error, l_error);
+                return FALSE;
+                }
+
+                pbkdf = get_pbkdf_params (extra->pbkdf, &l_error);
+                if (pbkdf == NULL && l_error != NULL) {
+                    crypt_free (cd);
+                    g_strfreev (cipher_specs);
+                    bd_utils_report_finished (progress_id, l_error->message);
+                    g_propagate_prefixed_error (error, l_error,
+                                                "Failed to get PBKDF parameters for '%s'.", device);
+                    return FALSE;
+                }
+                crypt_set_pbkdf_type (cd, pbkdf);
+            }
+
             struct crypt_params_luks1 params = ZERO_INIT;
             params.data_alignment = extra->data_alignment;
             params.data_device = extra->data_device;
             ret = crypt_format (cd, crypt_version, cipher_specs[0], cipher_specs[1],
                                 NULL, NULL, key_size, &params);
+            g_free (pbkdf);
         }
         else if (luks_version == BD_CRYPTO_LUKS_VERSION_LUKS2) {
             struct crypt_params_luks2 params = ZERO_INIT;
@@ -2286,6 +2311,82 @@ gboolean bd_crypto_luks_convert (const gchar *device, BDCryptoLUKSVersion target
     }
 
     crypt_free (cd);
+    return TRUE;
+}
+
+/**
+ * bd_crypto_luks_set_persistent_flags:
+ * @device: a LUKS device to set the persistent flags on
+ * @flags: flags to set
+ * @error: (out) (optional): place to store error (if any)
+ *
+ * Note: This function is valid only for LUKS2.
+ *
+ * Returns: whether the given @flags were successfully set or not
+ *
+ * Tech category: %BD_CRYPTO_TECH_LUKS-%BD_CRYPTO_TECH_MODE_MODIFY
+ */
+gboolean bd_crypto_luks_set_persistent_flags (const gchar *device, BDCryptoLUKSPersistentFlags flags, GError **error) {
+    struct crypt_device *cd = NULL;
+    gint ret = 0;
+    guint32 crypt_flags = 0;
+
+    ret = crypt_init (&cd, device);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to initialize device: %s", strerror_l (-ret, c_locale));
+        return FALSE;
+    }
+
+    ret = crypt_load (cd, CRYPT_LUKS, NULL);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to load device: %s", strerror_l (-ret, c_locale));
+        crypt_free (cd);
+        return FALSE;
+    }
+
+    if (g_strcmp0 (crypt_get_type (cd), CRYPT_LUKS2) != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Persistent flags can be set only on LUKS v2");
+        crypt_free (cd);
+        return FALSE;
+    }
+
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_ALLOW_DISCARDS)
+        crypt_flags |= CRYPT_ACTIVATE_ALLOW_DISCARDS;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_SAME_CPU_CRYPT)
+        crypt_flags |= CRYPT_ACTIVATE_SAME_CPU_CRYPT;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_SUBMIT_FROM_CRYPT_CPUS)
+        crypt_flags |= CRYPT_ACTIVATE_SUBMIT_FROM_CRYPT_CPUS;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_NO_JOURNAL)
+        crypt_flags |= CRYPT_ACTIVATE_NO_JOURNAL;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_NO_READ_WORKQUEUE)
+        crypt_flags |= CRYPT_ACTIVATE_NO_READ_WORKQUEUE;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_NO_WRITE_WORKQUEUE)
+        crypt_flags |= CRYPT_ACTIVATE_NO_WRITE_WORKQUEUE;
+    if (flags & BD_CRYPTO_LUKS_ACTIVATE_HIGH_PRIORITY) {
+#ifdef LIBCRYPTSETUP_28
+        crypt_flags |= CRYPT_ACTIVATE_HIGH_PRIORITY;
+#else
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_TECH_UNAVAIL,
+                     "Libcryptsetup 2.8 or newer is needed for 'high priority' flag support");
+        crypt_free (cd);
+        return FALSE;
+#endif
+    }
+
+
+    ret = crypt_persistent_flags_set (cd, CRYPT_FLAGS_ACTIVATION, crypt_flags);
+    if (ret != 0) {
+        g_set_error (error, BD_CRYPTO_ERROR, BD_CRYPTO_ERROR_DEVICE,
+                     "Failed to set flags: %s", strerror_l (-ret, c_locale));
+        crypt_free (cd);
+        return FALSE;
+    }
+
+    crypt_free (cd);
+
     return TRUE;
 }
 

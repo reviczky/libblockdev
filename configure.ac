@@ -1,6 +1,6 @@
 # configure.ac for libblockdev
 
-AC_INIT([libblockdev], [3.3.1], [], [], [https://github.com/storaged-project/libblockdev])
+AC_INIT([libblockdev], [3.4.0], [], [], [https://github.com/storaged-project/libblockdev])
 
 # Disable building static libraries.
 # This needs to be set before initializing automake
@@ -21,6 +21,7 @@ LT_INIT
 AC_CONFIG_FILES([Makefile src/Makefile \
                           src/plugins/Makefile \
                           src/plugins/fs/Makefile \
+                          src/plugins/lvm/Makefile \
                           src/plugins/nvme/Makefile \
                           src/plugins/smart/Makefile \
                           src/utils/Makefile \
@@ -207,6 +208,8 @@ AS_IF([test "x$with_crypto" != "xno"],
             [AC_DEFINE([LIBCRYPTSETUP_26])], [])
       AS_IF([$PKG_CONFIG --atleast-version=2.7.0 libcryptsetup],
             [AC_DEFINE([LIBCRYPTSETUP_27])], [])
+      AS_IF([$PKG_CONFIG --atleast-version=2.8.0 libcryptsetup],
+            [AC_DEFINE([LIBCRYPTSETUP_28])], [])
       AC_CHECK_HEADER([linux/sed-opal.h],
                       [AC_DEFINE([HAVE_LINUX_OPAL])], [])
       AS_IF([test "x$with_escrow" != "xno"],
@@ -310,7 +313,7 @@ AS_IF([test "x$with_smart" != "xno"],
 
 AS_IF([test "x$with_smart" != "xno"],
       [SAVED_CFLAGS=$CFLAGS
-       CFLAGS+=" -I$drivedb_path"
+       CFLAGS="${CFLAGS} -I$drivedb_path"
        AC_MSG_CHECKING([for drivedb.h presence])
        AC_COMPILE_IFELSE(
            [AC_LANG_PROGRAM([

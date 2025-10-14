@@ -17,7 +17,7 @@ import yaml
 
 from utils import TestTags, get_version
 
-LIBDIRS = 'src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/lib/.libs:src/plugins/nvme/.libs:src/plugins/smart/.libs'
+LIBDIRS = 'src/utils/.libs:src/plugins/.libs:src/plugins/fs/.libs:src/lib/.libs:src/plugins/lvm/.libs:src/plugins/nvme/.libs:src/plugins/smart/.libs'
 GIDIR = 'src/lib'
 
 SKIP_CONFIG = 'skip.yml'
@@ -194,7 +194,7 @@ def parse_args():
 def _split_test_id(test_id):
     # test.id() looks like 'crypto_test.CryptoTestResize.test_luks2_resize'
     # and we want to print 'test_luks2_resize (crypto_test.CryptoTestResize)'
-    test_desc = test.id().split(".")
+    test_desc = test_id.split(".")
     test_name = test_desc[-1]
     test_module = ".".join(test_desc[:-1])
 
@@ -342,9 +342,13 @@ if __name__ == '__main__':
         if skip_id:
             test_name, test_module = _split_test_id(test_id)
             reason = "not supported on this distribution in this version and arch: %s" % skipping[skip_id]
-            print("%s (%s)\n%s ... skipped '%s'" % (test_name, test_module,
-                                                    test._testMethodDoc, reason),
-                  file=sys.stderr)
+            if test._testMethodDoc:
+                print("%s (%s)\n%s ... skipped '%s'" % (test_name, test_module,
+                                                        test._testMethodDoc, reason),
+                      file=sys.stderr)
+            else:
+                print("%s (%s) ... skipped '%s'" % (test_name, test_module, reason),
+                      file=sys.stderr)
             continue
 
         # finally add the test to the suite

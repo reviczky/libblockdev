@@ -43,7 +43,7 @@ class BtrfsTest(unittest.TestCase):
 class BtrfsPluginVersionCase(BtrfsTest):
     @tag_test(TestTags.NOSTORAGE)
     def test_plugin_version(self):
-       self.assertEqual(BlockDev.get_plugin_soname(BlockDev.Plugin.BTRFS), "libbd_btrfs.so.3")
+        self.assertEqual(BlockDev.get_plugin_soname(BlockDev.Plugin.BTRFS), "libbd_btrfs.so.3")
 
 class BtrfsTestCase(BtrfsTest):
 
@@ -357,6 +357,13 @@ class BtrfsTestListSubvolumes(BtrfsTestCase):
         self.assertEqual(subvols[0].parent_id, 5)
         self.assertEqual(subvols[0].path, "subvol1")
         self.assertEqual(subvols[1].path, "subvol1/bar")
+
+        # test also subvolumes with spaces in name
+        succ = BlockDev.btrfs_create_subvolume(TEST_MNT, "subvol with spaces", None)
+        self.assertTrue(succ)
+
+        subvols = BlockDev.btrfs_list_subvolumes(TEST_MNT, False)
+        self.assertTrue(any(subvol.path == "subvol with spaces" for subvol in subvols))
 
     @tag_test(TestTags.CORE)
     def test_list_subvolumes_different_mount(self):
