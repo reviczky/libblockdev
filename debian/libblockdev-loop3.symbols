@@ -9,6 +9,7 @@ libbd_loop.so.3 libblockdev-loop3 #MINVER#
  bd_loop_init@Base 2.14
  bd_loop_is_tech_avail@Base 2.14
  bd_loop_set_autoclear@Base 2.14
+ bd_loop_set_capacity@Base 3.4.0
  bd_loop_setup@Base 2.14
  bd_loop_setup_from_fd@Base 2.14
  bd_loop_teardown@Base 2.14

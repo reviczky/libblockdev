@@ -86,6 +86,8 @@ libbd_lvm-dbus.so.3 libblockdev-lvm-dbus3 #MINVER#
  bd_lvm_vdo_resize@Base 2.24
  bd_lvm_vdolvpoolname@Base 2.24
  bd_lvm_vgactivate@Base 2.14
+ bd_lvm_vgcfgbackup@Base 3.4.0
+ bd_lvm_vgcfgrestore@Base 3.4.0
  bd_lvm_vgcreate@Base 2.14
  bd_lvm_vgdata_copy@Base 2.14
  bd_lvm_vgdata_free@Base 2.14

@@ -85,6 +85,7 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_crypto_luks_resize@Base 2.14
  bd_crypto_luks_resume@Base 2.20
  bd_crypto_luks_set_label@Base 3.0
+ bd_crypto_luks_set_persistent_flags@Base 3.4.0
  bd_crypto_luks_set_uuid@Base 3.0
  bd_crypto_luks_status@Base 2.14
  bd_crypto_luks_suspend@Base 2.20
@@ -289,6 +290,7 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_loop_info_get_type@Base 3.0
  bd_loop_is_tech_avail@Base 2.14
  bd_loop_set_autoclear@Base 2.14
+ bd_loop_set_capacity@Base 3.4.0
  bd_loop_setup@Base 2.14
  bd_loop_setup_from_fd@Base 2.14
  bd_loop_teardown@Base 2.14
@@ -388,6 +390,8 @@ libblockdev.so.3 libblockdev3 #MINVER#
  bd_lvm_vdopooldata_free@Base 2.25
  bd_lvm_vdopooldata_get_type@Base 2.25
  bd_lvm_vgactivate@Base 2.14
+ bd_lvm_vgcfgbackup@Base 3.4.0
+ bd_lvm_vgcfgrestore@Base 3.4.0
  bd_lvm_vgcreate@Base 2.14
  bd_lvm_vgdata_copy@Base 2.14
  bd_lvm_vgdata_free@Base 2.14
