@@ -1,1 +1,2 @@
 Skip-smartmontools-integration-test.patch
+Mark-_get_linux_version-as-static.patch

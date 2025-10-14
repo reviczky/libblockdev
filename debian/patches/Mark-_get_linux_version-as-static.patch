@@ -1,0 +1,24 @@
+From: Michael Biebl <biebl@debian.org>
+Date: Tue, 14 Oct 2025 14:30:12 +0200
+Subject: Mark _get_linux_version() as static
+
+It is an internal implementation detail and the symbol should not be
+exported via libblockdev-utils.
+Forwarded: https://github.com/storaged-project/libblockdev/pull/1135
+---
+ src/utils/module.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/utils/module.c b/src/utils/module.c
+index 6e41796..8f2b772 100644
+--- a/src/utils/module.c
++++ b/src/utils/module.c
+@@ -274,7 +274,7 @@ static gboolean have_linux_ver = FALSE;
+ 
+ G_LOCK_DEFINE_STATIC (detected_linux_ver);
+ 
+-BDUtilsLinuxVersion * _get_linux_version (gboolean lock, GError **error) {
++static BDUtilsLinuxVersion * _get_linux_version (gboolean lock, GError **error) {
+     struct utsname buf;
+ 
+     if (lock)
