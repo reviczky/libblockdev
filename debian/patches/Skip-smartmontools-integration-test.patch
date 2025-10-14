@@ -20,7 +20,7 @@ gi.repository.GLib.GError: g-bd-init-error-quark: Failed to load plugins (1)
  1 file changed, 5 insertions(+)
 
 diff --git a/tests/skip.yml b/tests/skip.yml
-index 2a522d0..2564399 100644
+index d565e31..f3d4c87 100644
 --- a/tests/skip.yml
 +++ b/tests/skip.yml
 @@ -24,6 +24,11 @@
