@@ -35,6 +35,7 @@ Build-Depends: debhelper-compat (= 13),
                libkmod-dev (>= 19),
                libatasmart-dev (>= 0.17),
                gtk-doc-tools,
+               smartmontools,
                pylint:native <!nocheck>,
 Standards-Version: 4.7.2
 Rules-Requires-Root: no
